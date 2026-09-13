@@ -1,9 +1,17 @@
 # list & resume（恢复）
 
-1. 定位项目，读 index.json。
-2. **0 个 active / verifying** → 告知无进行中任务，问是否新建（new-task.md）。
-3. **1 个** → 展示任务卡片，确认是否继续。
-4. **多个** → 列表（标题、id、tier、状态——`verifying` 显示为"等部署验收"、最后活跃时间、分支），让用户选。
+1. 定位项目。
+2. **扫描"最近活跃工作"**（统一视图，登记 + 游离一起列）：
+   - **登记任务**：index.json 中 active/verifying 任务，按 lastActiveAt 倒序（`verifying` 显示"等部署验收"）
+   - **游离工作**（未登记但最近活跃的信号）：
+     * `git worktree list` 中未被登记任务占用的 worktree
+     * 近期活跃分支（`git branch --sort=-committerdate` 前几名；排除主分支与 备份/稳定/*-bak 类）
+     * 各自的未提交改动概要（`git status --short`）
+3. **呈现列表，第一个问题 = "继续哪个？"**：
+   - 登记任务 → 直接继续（按各自流程走）
+   - 游离工作 → 三个出口：**继续（先按 adopt.md 收编补档案）** / 仅收编建档 / 忽略并记住（adopt-ignore.json）
+   - 游离工作被选"继续"时，收编登记完成即无缝进入该工作（例如接着画设计稿），不重新开题
+4. **无一可继续**（无登记任务、无游离 worktree/近期分支、无未提交改动）→ 告知无可继续的工作，问是否新建（new-task.md），或呈现完整状态盘点。
 5. **事实核查**（不可跳）：
    - 执行位置：anchor=managed 且 worktree 存在 → 在 worktree 里执行；**anchor=attached 的任务 `worktree` 字段为 null 是正常状态**（挂靠在用户分支上）——核查在主仓库当前分支执行，**不得误报"worktree 丢失"或询问重建**；仅 anchor=managed 且 worktree 目录缺失时才报告并询问是否重建。
 

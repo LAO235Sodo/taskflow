@@ -1,7 +1,7 @@
 ---
 name: taskflow
-version: 2.4.0
-description: "[v2.4.0] 长任务跨会话的存档/恢复/合并管理，自动识别意图、无需用户指定动作词。触发场景：用户描述任何要做的需求或改动（加功能/修 bug/重构）、表达中断或会话过长（先到这/明天继续）、新会话想继续之前的工作、任务完成要收尾合并、询问任务进度、要求收编/整合现有分支或 worktree（统一到 taskflow）、口述项目约定（记住/以后都要/禁止某操作）。技能内部自动盘点项目任务状态并结合用户语义路由到：新任务建档 / checkpoint 存档 / resume 恢复 / merge 强制审查合并 / status / adopt 收编 / 记录约定。管理：git worktree 隔离、任务拆分与子代理派发、四层索引、项目决策沉淀库、既有工作收编（anchor 挂靠）。"
+version: 2.5.0
+description: "[v2.5.0] 长任务跨会话的存档/恢复/合并管理，自动识别意图、无需用户指定动作词。触发场景：用户描述任何要做的需求或改动（加功能/修 bug/重构）、表达中断或会话过长（先到这/明天继续）、新会话想继续之前的工作、任务完成要收尾合并、询问任务进度、要求收编/整合现有分支或 worktree（统一到 taskflow）、口述项目约定（记住/以后都要/禁止某操作）。技能内部自动盘点项目任务状态并结合用户语义路由到：新任务建档 / checkpoint 存档 / resume 恢复 / merge 强制审查合并 / status / adopt 收编 / 记录约定。管理：git worktree 隔离、任务拆分与子代理派发、四层索引、项目决策沉淀库、既有工作收编（anchor 挂靠）。"
 ---
 
 # taskflow — 长任务存档 / 恢复 / 合并
@@ -25,6 +25,7 @@ git rev-parse --path-format=absolute --git-common-dir   # 主仓库 .git（主�
 
 - 主仓库根 = 该路径的上级目录；任务数据固定在 `<主仓库根>/.opencode/tasks/`，**不在当前 worktree**
 - **主仓库检出区永远保持干净，仅作合并落点**——所有任务（不分大小）一律住 worktree，任何任务不在主仓库内直接改动
+- 扫描提示：`.opencode/` 是隐藏目录，用 glob 扫描时必须开 `hidden: true`（否则会误判为空）
 - 项目 key：`git remote get-url origin` 规范化（去掉协议前缀 https:// ssh:// git@、结尾 .git、':' → '/'）；无 remote 用主仓库绝对路径
 - 非 git 目录：以 cwd 为项目根，project.json 标 `"git": false`，禁用 worktree/分支/commit 能力，只留文档存档
 - 身份核对：读 `<主仓库根>/.opencode/tasks/project.json`，key 一致即同一项目；跨项目查 `~/.config/opencode/taskflow/projects.json`
@@ -41,12 +42,14 @@ git rev-parse --path-format=absolute --git-common-dir   # 主仓库 .git（主�
 | 在描述一件要做的事（"帮我加/改/修 X"、"实现 X"） | 无 active 任务 | → 新任务 |
 | 在描述一件要做的事 | 有 active 任务 | → 按下方"归入 vs 另开"判定 |
 | 中断语义（"先到这/太长了/明天继续/保存一下"） | 有 active 任务 | → checkpoint |
-| 新会话："继续/接着弄/上次那个"，或无新需求直接开干 | 有 active 任务 | → resume，先给恢复摘要 |
+| `@taskflow` 无附加语义，或"继续/接着弄/上次那个"，或无新需求直接开干 | 有可继续的工作（登记任务或游离 worktree/分支） | → **resume 优先（默认动作）**：列出最近活跃工作，第一个问题 = "继续哪个？" |
 | 完成语义（"做完了/验收一下/合进去/收尾"） | 有 active 任务 | → merge |
 | 询问进度/状态/有哪些任务 | 任意 | → status |
 | 要求拆分 / 派子代理 | 有 active 任务 | → 拆分派发 |
 | 收编 / 纳入管理 / 整合现有分支、worktree / 统一到 taskflow | 任意 | → adopt |
 | 口述约定（"记住：…"/"以后都要…"/"禁止…"/"记一下规矩"） | 任意 | → 记录约定（见下方内联规则） |
+
+**默认规则（`@taskflow` 无附加语义 / 无任何话语信号时）**：**不进 status，直接 resume 优先**——扫描"最近活跃工作"（登记任务 + 游离工作，见 resume.md 第 2 步），第一个问题 = "继续哪个？"。仅当扫描后确无任何可继续的工作（无登记任务、无游离 worktree/近期分支、无未提交改动）才呈现完整状态 + 新建等选项。
 
 **外显**：判定后说一句 `识别为〈动作〉——〈依据〉`，供用户随时纠正。
 
