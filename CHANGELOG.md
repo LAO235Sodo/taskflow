@@ -8,6 +8,10 @@ head -4 ~/.config/opencode/skills/taskflow/SKILL.md
 opencode api get /api/skill
 ```
 
+## 2.4.0 — 2026-09-13
+
+- 意图路由新增**记录约定**动作：用户口述约定（"记住：…/以后都要…/禁止…"）→ 判定小节 → 直接写入 conventions.md 对应节 + 同步 AGENTS.md 红线 → 回执确认。低影响动作免确认；语义含糊先问清再写。此前"写约定"只挂在 checkpoint/merge 流程里，单独记一条规矩会落进兜底。
+
 ## 2.3.0 — 2026-09-13
 
 - **项目规矩双保险**：conventions.md 红线摘要同步至项目根 `AGENTS.md`（OpenCode 每个会话自动注入、运行中编辑实时热更新）——即使某次对话不经过 taskflow，项目规矩也在上下文里。初始化时自动创建/更新 AGENTS.md，不覆盖用户已有内容。
