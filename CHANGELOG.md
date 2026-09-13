@@ -8,6 +8,11 @@ head -4 ~/.config/opencode/skills/taskflow/SKILL.md
 opencode api get /api/skill
 ```
 
+## 2.6.0 — 2026-09-13
+
+- **扫描盲区修复**：Plan mode 会话只能把交接文档写到全局目录 `~/.opencode/plan/`，此前 taskflow 从不扫描该处——导致"刚写完的交接文档，新会话完全识别不了、工作被误标为游离收编候选"。现在 resume 扫描纳入 `~/.opencode/plan/*.md`（mtime 倒序 + 内容匹配项目）。
+- adopt 新增候选类别：**计划模式交接文档 ★★**——计划即 spec 草稿，"目标/验收/实施计划"直接转 spec.md 与 handoff.md，原计划文档原地保留，档案注明来源。
+
 ## 2.5.0 — 2026-09-13
 
 - **resume 优先成为默认动作**：`@taskflow` 无附加语义时不再进 status 汇报，直接扫描"最近活跃工作"，第一个问题 = "继续哪个？"；仅当确无可继续工作（无登记任务、无游离 worktree/近期分支、无未提交改动）才呈现完整状态 + 新建选项。

@@ -25,6 +25,7 @@ git worktree list     # 全部 worktree
 | 存档/备份命名（备份、稳定、*-bak、archive/*） | 问用户：进忽略清单 or 标 archived |
 | detached worktree | 问用途：参照基线/实验 → 标 reference，不进任务流 |
 | 活跃工作分支（codex/*、feat/* 等）且未登记 | **收编候选 ★** |
+| **计划模式交接文档**（`~/.opencode/plan/*.md` 内容指向本项目） | **收编候选 ★★**：计划即 spec 草稿——"目标/验收"直接转 spec.md，"实施计划/下一步"转 handoff.md，登记后原计划文档原地保留不迁移 |
 | 已登记任务占用的分支 | 跳过 |
 
 **③ 逐个生成收编评审卡（三板块缺一不可）**——用户逐张拍板：收编 / 忽略并记住 / 改档案再收编
@@ -55,6 +56,7 @@ git worktree list     # 全部 worktree
 
 **④ 确认后登记（此刻才落笔）**
 - 建 `.opencode/tasks/<id>/` 全套档案：spec 从提交历史反填"已完成"；handoff 写"从历史推断的当前状态 + 下一步"
+- **来源是计划文档时**：计划内容直接转为 spec.md（目标/验收/实施计划现成），handoff 的"下一步"从计划提取；spec 头部注明 `来源：~/.opencode/plan/<原文件名>`，**原计划文档原地保留**（attached 哲学：不迁移不删除）
 - 关键 commit 回填 checkpoints[]（sha + 摘要 + files），追溯链不断
 - task.json：`anchor: "attached"`，branch 记既有分支名，worktree 记既有路径
 - index.json 登记；"忽略"的写入 `.opencode/tasks/adopt-ignore.json`（ref + 原因 + 时间），此后扫描跳过

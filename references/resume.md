@@ -6,6 +6,7 @@
    - **游离工作**（未登记但最近活跃的信号）：
      * `git worktree list` 中未被登记任务占用的 worktree
      * 近期活跃分支（`git branch --sort=-committerdate` 前几名；排除主分支与 备份/稳定/*-bak 类）
+     * **计划模式的交接文档**：`~/.opencode/plan/*.md` 按 mtime 倒序取近期——读文件头匹配项目名/repo 路径，属于当前项目的列入（Plan mode 会话只能把交接文档写到这个全局目录，这里是漏网重灾区）
      * 各自的未提交改动概要（`git status --short`）
 3. **呈现列表，第一个问题 = "继续哪个？"**：
    - 登记任务 → 直接继续（按各自流程走）
