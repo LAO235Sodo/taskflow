@@ -8,6 +8,11 @@ head -4 ~/.config/opencode/skills/taskflow/SKILL.md
 opencode api get /api/skill
 ```
 
+## 2.3.0 — 2026-09-13
+
+- **项目规矩双保险**：conventions.md 红线摘要同步至项目根 `AGENTS.md`（OpenCode 每个会话自动注入、运行中编辑实时热更新）——即使某次对话不经过 taskflow，项目规矩也在上下文里。初始化时自动创建/更新 AGENTS.md，不覆盖用户已有内容。
+- 修复依赖：`instructions` 配置字段在 OpenCode V2 尚不生效（文档明示），故弃用该方案改走 AGENTS.md。
+
 ## 2.2.0 — 2026-09-13
 
 - 新增**项目约定文档 conventions.md**（项目级、每个会话必读）：推送与部署 / 验证清单 / 完成定义 / 环境与端口注意事项 / 禁止事项——解决"新会话不知道要 push 到远程"。

@@ -100,5 +100,5 @@ subtask status 取值：`pending` / `in_progress` / `done` / `blocked`。
 
 - `project.json` —— 项目身份（key、repoRoot、remote、git 标志）
 - `adopt-ignore.json` —— 收编忽略清单：用户选择忽略的分支/worktree 及原因，adopt 扫描时跳过
-- `conventions.md` —— **项目约定（唯一事实源）**：推送与部署、验证清单、完成定义、环境与端口注意事项、禁止事项。跨任务存活；项目初始化时引导生成，口述新约定随时写入
+- `conventions.md` —— **项目约定（唯一事实源）**：推送与部署、验证清单、完成定义、环境与端口注意事项、禁止事项。跨任务存活；项目初始化时引导生成，口述新约定随时写入；红线摘要同步至项目根 `AGENTS.md`（OpenCode 每会话自动注入，双保险）
 - `decisions/` —— **项目决策库**（`YYYY-MM-DD-<slug>.md`）。任务会结束，决策留在项目——**改类似功能之前先查这里**。注意：部署/验收类约定只住 conventions.md，不要重复记入决策库

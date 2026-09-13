@@ -23,7 +23,7 @@
    - `findings.md`：新结论、新踩坑。
    - `progress.md`：顶部追加本次日志（时间、会话、做了什么、验收结果、遗留）。
    - `decisions.md`：架构/接口/约束类固化决策。
-   - `conventions.md`（项目级）：完整版 checkpoint 时核对推送/部署节奏是否按约定执行；用户口述新约定立即写入对应小节。
+   - `conventions.md`（项目级）：完整版 checkpoint 时核对推送/部署节奏是否按约定执行；用户口述新约定立即写入对应小节，**并同步更新项目根 AGENTS.md 的红线摘要**（保持两处一致，AGENTS.md 才是每会话必达的那份）。
 3. **git 存档**（git=false 跳过）：
 
    ```bash
