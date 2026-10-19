@@ -1,0 +1,67 @@
+# adopt（收编既有工作）
+
+触发：用户说"收编 / 纳入管理 / 整合现有分支、worktree / 统一到 taskflow"。
+目的：把体系外的既有工作注册进 taskflow 统一管理；**只增加管理能力，不夺走资产控制权**。
+
+**核心概念 anchor（资产归属）**：
+- `managed`：taskflow 新建（task/<id> 分支 + worktree），生命周期全管
+- `attached`：挂靠用户现有分支/worktree——不迁移、不改名、不自动清理，merge 后资产归用户
+
+**流程（四步，①②全程只读）：**
+
+**① 扫描盘点（只读）**
+
+可先跑 `scripts/tf.mjs ls` 的「游离工作」节作底稿，再用下面命令补全细节：
+
+```bash
+git branch -vv        # 全部分支及最后提交
+git worktree list     # 全部 worktree
+# 与 index.json 交叉比对 → 找出未登记的工作
+```
+
+**② 分类（规则判定，不全收）**
+
+| 类别 | 处理 |
+| --- | --- |
+| 主分支（main/master 等） | 不收编（它们是合并目标） |
+| 存档/备份命名（备份、稳定、*-bak、archive/*） | 问用户：进忽略清单 or 标 archived |
+| detached worktree | 问用途：参照基线/实验 → 标 reference，不进任务流 |
+| 活跃工作分支（codex/*、feat/* 等）且未登记 | **收编候选 ★** |
+| **计划模式交接文档**（`~/.opencode/plan/*.md` 内容指向本项目） | **收编候选 ★★**：计划即 spec 草稿——"目标/验收"直接转 spec.md，"实施计划/下一步"转 handoff.md，登记后原计划文档原地保留不迁移 |
+| 已登记任务占用的分支 | 跳过 |
+
+**③ 逐个生成收编评审卡（三板块缺一不可）**——用户逐张拍板：收编 / 忽略并记住 / 改档案再收编
+
+```
+━━ 收编候选 n/N ━━━━━━━━━━━━━━━━━
+分支：<名>　worktree：<路径或无>
+活跃度：<最后提交时间> · <N> 个提交未合并
+
+【板块一 · 它是什么】
+  改动范围：git diff <主分支>...<分支> 统计
+  （文件数、+/− 行、主要目录）
+  反推档案：标题 / 目标 / 档位 / 回填 checkpoints
+  （均标注"推断"，用户可改）
+
+【板块二 · 与现有体系的关系】
+  与 active 任务文件重叠：无 ✓ / 有 ⚠
+  （有则列出冲突文件 + 合并顺序建议）
+
+【板块三 · 收编后，用户现有的什么会变】
+  会变的：①此分支纳入 checkpoint 纪律（产生 checkpoint: 前缀提交）
+         ②合并从此走强制审查　③resume 列表出现此任务
+         ④决策沉淀开始积累　⑤创建 .taskflow/<id>/（旧项目 .opencode/tasks/<id>/；不进 git）
+  不变的：✓代码零改动　✓分支不迁移不改名　✓worktree 原地不动
+         ✓codex 等工具照常使用　✓忽略的分支完全不受影响
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+**④ 确认后登记（此刻才落笔）**
+- 建 .taskflow/<id>/（旧项目 .opencode/tasks/<id>/）全套档案：spec 从提交历史反填"已完成"；handoff 写"从历史推断的当前状态 + 下一步"
+- **来源是计划文档时**：计划内容直接转为 spec.md（目标/验收/实施计划现成），handoff 的"下一步"从计划提取；spec 头部注明 `来源：~/.opencode/plan/<原文件名>`，**原计划文档原地保留**（attached 哲学：不迁移不删除）
+- 关键 commit 回填 checkpoints[]（sha + 摘要 + files），追溯链不断
+- task.json：`anchor: "attached"`，branch 记既有分支名，worktree 记既有路径；**可辨来源时落 `"derivedFrom": "<来源任务id>"`**（该分支/worktree 从某任务派生——评审阶段的血缘证据：分支基点 `git merge-base`、计划文档指向、commit message 引用；可辨但存疑 → 标"（推断）"呈用户确认后落档）
+- index.json 登记；"忽略"的写入 .taskflow/adopt-ignore.json（旧位 .opencode/tasks/adopt-ignore.json；ref **或前缀模式**（如 `superdx--*`）+ 原因 + 时间），此后 adopt 与 resume 游离扫描都跳过
+- 完成后汇报：收编了哪些、忽略了哪些、各自档案位置
+
+**硬规则**：评审阶段全程只读；未经用户逐个确认不落笔；推断不确定必须标"（推断）"。

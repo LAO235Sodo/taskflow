@@ -1,0 +1,284 @@
+{
+  "_comment": "taskflow 领域技能注册表（数据文件，随时可补）。install 字段=安装命令；本机 npx skills add 安装不留 remote，溯源不到的标「待补」——用户提供仓库地址后填入即永久生效。检测命令：node …/scripts/tf.mjs skills [领域词]。**流程编排器（superdx 等）不纳入本注册表**（2026-09-22 用户拍板：只参考不集成，双编排器抢路由）；其他工具的 worktree 噪音走 adopt-ignore 前缀模式。",
+  "skills": [
+    {
+      "id": "ui-ux-pro-max",
+      "domains": [
+        "前端UI"
+      ],
+      "desc": "UI/UX 设计情报：样式/配色/字体/UX 准则/图标/图表",
+      "install": "https://github.com/nextlevelbuilder/ui-ux-pro-max-skill（真身在 .claude/skills/ui-ux-pro-max——clone 到扫描目录外后软链该子目录到 ~/.config/opencode/skills/ui-ux-pro-max）"
+    },
+    {
+      "id": "ui-flow-tester",
+      "domains": [
+        "测试",
+        "E2E"
+      ],
+      "desc": "对话流/表单类 Web 应用 E2E：像真人一样点选项",
+      "install": null
+    },
+    {
+      "id": "tdd",
+      "domains": [
+        "测试"
+      ],
+      "desc": "测试驱动开发（RED-GREEN-REFACTOR）",
+      "install": "git clone --depth 1 https://github.com/mattpocock/skills && cp -r skills/engineering/tdd <技能目录>/tdd（2026-10-11 用户提供源装毕：~/.config/opencode/skills/tdd）"
+    },
+    {
+      "id": "code-review",
+      "domains": [
+        "审查"
+      ],
+      "desc": "Standards+Spec 双轴结构化代码审查",
+      "install": null
+    },
+    {
+      "id": "review-changes",
+      "domains": [
+        "审查"
+      ],
+      "desc": "变更检测+影响分析的结构化审查",
+      "install": null
+    },
+    {
+      "id": "diagnosing-bugs",
+      "domains": [
+        "诊断"
+      ],
+      "desc": "疑难 bug/性能回归的诊断循环",
+      "install": null
+    },
+    {
+      "id": "debug-issue",
+      "domains": [
+        "诊断"
+      ],
+      "desc": "graph 驱动的系统化调试导航",
+      "install": null
+    },
+    {
+      "id": "explore-codebase",
+      "domains": [
+        "导航"
+      ],
+      "desc": "知识图谱代码库结构导航",
+      "install": null
+    },
+    {
+      "id": "frontend-design",
+      "domains": [
+        "前端UI"
+      ],
+      "desc": "Anthropic 官方：前端设计方向（美学/品牌/目标驱动）",
+      "install": "npx skills add anthropics/skills --skill frontend-design --yes"
+    },
+    {
+      "id": "web-design-guidelines",
+      "domains": [
+        "前端UI",
+        "审查"
+      ],
+      "desc": "Vercel Web 界面准则合规审查（可及性/UX/设计）",
+      "install": "npx skills add vercel-labs/agent-skills --skill web-design-guidelines --yes"
+    },
+    {
+      "id": "webapp-testing",
+      "domains": [
+        "测试",
+        "E2E"
+      ],
+      "desc": "Playwright 本地 Web 应用测试工具箱（含 with_server.py；需 python playwright）",
+      "install": "npx skills add anthropics/skills --skill webapp-testing --yes"
+    },
+    {
+      "id": "api-design-principles",
+      "domains": [
+        "API"
+      ],
+      "desc": "REST/GraphQL API 设计原则（直觉性/可扩展/可维护）",
+      "install": "npx skills add wshobson/agents --skill api-design-principles --yes"
+    },
+    {
+      "id": "nodejs-backend-patterns",
+      "domains": [
+        "Node"
+      ],
+      "desc": "Node 后端模式最佳实践",
+      "install": "npx skills add wshobson/agents --skill nodejs-backend-patterns --yes"
+    },
+    {
+      "id": "python-testing-patterns",
+      "domains": [
+        "测试"
+      ],
+      "desc": "Python 测试模式（单测/集成/fixture）",
+      "install": "npx skills add wshobson/agents --skill python-testing-patterns --yes"
+    },
+    {
+      "id": "java-springboot",
+      "domains": [
+        "Java"
+      ],
+      "desc": "Spring Boot 生产级最佳实践（结构/DI/配置/Web 层/事务）",
+      "install": "npx skills add github/awesome-copilot --skill java-springboot --yes"
+    },
+    {
+      "id": "kotlin-springboot",
+      "domains": [
+        "Kotlin"
+      ],
+      "desc": "Kotlin + Spring Boot 惯用法最佳实践",
+      "install": "npx skills add github/awesome-copilot --skill kotlin-springboot --yes"
+    },
+    {
+      "id": "api-and-interface-design",
+      "domains": [
+        "API",
+        "边界"
+      ],
+      "desc": "稳定接口/边界设计（Hyrum 定律、契约思维；显式覆盖前后端边界划分）——高级开发的分工心智",
+      "install": "npx skills add addyosmani/agent-skills --skill api-and-interface-design --yes"
+    },
+    {
+      "id": "interview-me",
+      "domains": [
+        "需求澄清"
+      ],
+      "desc": "一次一问逼近 ~95% 置信——捕捉到自己在默默脑补含糊需求时使用（治「理解错了不确认」）",
+      "install": "npx skills add addyosmani/agent-skills --skill interview-me --yes"
+    },
+    {
+      "id": "doubt-driven-development",
+      "domains": [
+        "决策审查"
+      ],
+      "desc": "非平凡决策的全新上下文对抗审查（偏向证伪）——spec 定稿/高风险改动前自检",
+      "install": "npx skills add addyosmani/agent-skills --skill doubt-driven-development --yes"
+    },
+    {
+      "id": "confirming-requirements",
+      "domains": [
+        "需求澄清"
+      ],
+      "desc": "回忆/核对既有系统的业务需求、PRD 与用户故事——「实现是否符合原始需求」类问题的正主（v2.14.0 阶段轴）",
+      "install": null
+    },
+    {
+      "id": "domain-modeling",
+      "domains": [
+        "领域建模"
+      ],
+      "desc": "领域模型/术语表（CONTEXT.md）/ADR 沉淀——硬规则 10「多义对口径」的技能载体",
+      "install": null
+    },
+    {
+      "id": "to-spec",
+      "domains": [
+        "spec"
+      ],
+      "desc": "把已讨论定的方案合成为 spec 并发布到任务追踪",
+      "install": null
+    },
+    {
+      "id": "to-tickets",
+      "domains": [
+        "拆分"
+      ],
+      "desc": "方案/spec 拆成 tracer-bullet 票（每票声明阻塞边）",
+      "install": null
+    },
+    {
+      "id": "implement",
+      "domains": [
+        "实现"
+      ],
+      "desc": "按 spec 或票集实现一块工作",
+      "install": null
+    },
+    {
+      "id": "implement-spec",
+      "domains": [
+        "实现"
+      ],
+      "desc": "按 spec 在代码中实现",
+      "install": null
+    },
+    {
+      "id": "handoff",
+      "domains": [
+        "交接"
+      ],
+      "desc": "把当前对话压缩成交接文档交给下一个 agent——checkpoint 交接的会话压缩帮手",
+      "install": null
+    },
+    {
+      "id": "resolving-merge-conflicts",
+      "domains": [
+        "合并"
+      ],
+      "desc": "进行中的 merge/rebase 冲突解决流程",
+      "install": null
+    },
+    {
+      "id": "refactor-safely",
+      "domains": [
+        "重构"
+      ],
+      "desc": "依赖分析驱动的安全重构规划与执行",
+      "install": null
+    },
+    {
+      "id": "codebase-design",
+      "domains": [
+        "重构",
+        "架构"
+      ],
+      "desc": "深模块设计词汇（接口/接缝/可测试性）——深度重构与模块设计时加载",
+      "install": null
+    },
+    {
+      "id": "wayfinder",
+      "domains": [
+        "large拆解"
+      ],
+      "desc": "超单会话容量的大块工作=共享决策票图，跨会话逐票推进",
+      "install": null
+    },
+    {
+      "id": "research",
+      "domains": [
+        "调研"
+      ],
+      "desc": "对高信度一手来源调研问题，结论落成仓库内 Markdown",
+      "install": null
+    },
+    {
+      "id": "prototype",
+      "domains": [
+        "设计验证"
+      ],
+      "desc": "用一次性原型回答设计问题（状态模型/交互手感）",
+      "install": null
+    },
+    {
+      "id": "install-skill",
+      "domains": [
+        "扩展"
+      ],
+      "desc": "技能安装四步 fitness check（格式/依赖/覆盖/冲突）+装后验证 OpenCode 真看得到——domain.md「扩展」节的正规装法",
+      "install": "本机自研，无公开安装源"
+    },
+    {
+      "id": "legacy-takeover",
+      "domains": [
+        "接管",
+        "交接",
+        "外包"
+      ],
+      "desc": "外包旧项目接回：四道门审计（可重建/一致性/安全/可维护）+门⑤二开就绪（版本基线/影响面图谱/特征测试）+索取清单+凭证轮换，带三个零依赖检测脚本与一个共享 ZIP 解析模块",
+      "install": "本机自维护：~/.omp/agent/skills/legacy-takeover（无远程仓，换机整目录拷贝）"
+    }
+  ]
+}
