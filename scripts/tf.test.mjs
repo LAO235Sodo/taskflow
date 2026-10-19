@@ -1456,6 +1456,12 @@ try {
   const skillRoot = path.resolve(path.dirname(script), '..');
   const lintRoot = path.join(tmp, 'lint-copy');
   fs.cpSync(skillRoot, lintRoot, { recursive: true, filter: (s) => !/\/\.git(\/|$)/.test(s) });
+  // 自含夹具：CHANGELOG.md 属 gitignore 本地文件，fresh clone 检出不带——缺则按 SKILL frontmatter 版本生成最小顶条目，保 lint 第 9 项红/绿两路在任何检出形态可达（硬规则 17）
+  const lintCl = path.join(lintRoot, 'CHANGELOG.md');
+  if (!fs.existsSync(lintCl)) {
+    const fixtureVer = fs.readFileSync(path.join(lintRoot, 'SKILL.md'), 'utf8').match(/^version:\s*(\S+)/m)[1];
+    fs.writeFileSync(lintCl, `# CHANGELOG\n\n## ${fixtureVer} — 夹具顶条目\n\n- 本条由 tf.test.mjs 生成（lint 版本一致性检查依赖顶条目）\n`);
+  }
   const lintRun = () => spawnSync('node', [path.join(lintRoot, 'scripts', 'tf.mjs'), 'lint', '--root', lintRoot], { encoding: 'utf8' });
   ok(lintRun().status === 0, 'lint 版本一致性绿路：副本版本对齐 → 0');
   const skillP2 = path.join(lintRoot, 'SKILL.md');
