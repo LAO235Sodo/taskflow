@@ -1,7 +1,7 @@
 ---
 name: taskflow
 version: 2.69.0
-description: "版本 2.69.0。长任务跨会话存档/恢复/合并管理，自动识别意图、无需指定动作词。触发：描述任何需求或改动（加功能/修 bug/重构）、带验收意见回来（XX 乱了/不对/不好用=打回）、要求拆分或派子代理、表达中断（先到这/明天继续）、表达搁置（先放放/这个暂停）、新会话继续之前的工作、收尾合并、问进度、收编现有分支或 worktree、口述项目约定（记住/以后都要/禁止）、纠正流程执行（流程不对/这步跳过了/呈报不合格）、问代码/领域问题（为什么这么写/XX 在哪/怎么工作/能不能复用——问答管线：先回显理解再探索作答，禁止搜完直接答）。"
+description: "版本 2.69.0。长任务跨会话存档/恢复/合并管理，自动识别意图、无需指定动作词。触发：描述任何需求或改动（加功能/修 bug/重构）、带验收意见回来（XX 乱了/不对/不好用=打回）、要求拆分或派子代理、表达中断（先到这/明天继续）、表达搁置（先放放/这个暂停）、新会话继续之前的工作、收尾合并、要求回退或撤回已合并的代码（生成回退方案）、问进度、收编现有分支或 worktree、口述项目约定（记住/以后都要/禁止）、纠正流程执行（流程不对/这步跳过了/呈报不合格）、问代码/领域问题（为什么这么写/XX 在哪/怎么工作/能不能复用——问答管线：先回显理解再探索作答，禁止搜完直接答）。"
 ---
 
 # taskflow — 长任务存档 / 恢复 / 合并
@@ -44,6 +44,7 @@ git rev-parse --path-format=absolute --git-common-dir   # 主仓库 .git（主�
 | 对已产出制品的验收意见/不满（"XX 乱了/不对/不好用"，含 verifying 等验收任务的意见，非新功能描述） | 有 active/verifying 任务 | → 反馈分类（下方矩阵；意见指向历史任务制品 → 归档续迭代） |
 | 中断语义（"先到这/太长了/明天继续/保存一下"） | 有 active 任务 | → checkpoint |
 | 表达搁置（"先放放/这个暂停/搁置一下"，非中断存档语义） | 有 active 任务 | → park：`tf.mjs park <task-id> --reason "<原因>"`（搁置留因——档案保留、体检（缺省）与 G 门不再盘点；低影响可直接执行，恢复跑 unpark） |
+| 要求撤回/回退已合并的代码（"把上次合并撤了/回退到合并前"） | 有 merged 任务 | → **revert-plan**：`tf.mjs revert-plan <task-id>` 生成回退方案（Saga 补偿 = 逐条 git revert -m 1 的方案稿，只读不执行，执行需用户逐条确认；禁 reset --hard/force push，档案保持 merged 终态，续迭代走 resume.md 第 10 步） |
 | `@taskflow` 无附加语义，或"继续/接着弄/上次那个"，或无新需求直接开干 | 有可继续的工作（登记任务或游离 worktree/分支） | → **resume 优先（默认动作）**：跑 ls 并把登记任务**表格原样呈现**给用户（不散文化、不省略），第一个问题 = "继续哪个？" |
 | 提及已完成/历史工作（"继续 XX 的迭代"/"上次视觉那个"/指名任务名或领域词），且活任务与游离均无命中 | 任意 | → **归档续迭代**：`scout <关键词>` 双层检索（含 archive/）→ 命中则按 resume.md 第 10 步呈报候选方向，**不得**止步于"无可继续，是否新建" |
 | 问代码/领域问题（"为什么这么写/XX 在哪/怎么工作/能不能复用"——求解释、现状、位置、可复用性；非任务进度、非改动描述） | 任意 | → **问答管线**（references/qa.md：理解回显 → 定向探索 → 带证作答 → 追问衔接；硬规则 15） |
@@ -121,7 +122,7 @@ git rev-parse --path-format=absolute --git-common-dir   # 主仓库 .git（主�
 
 **status（内联，无需读文件）**：跑 `scripts/tf.mjs ls`，转述输出，不改任何状态；脚本缺失 → 手工读 index.json + 各 task.json 拼同列表（标题 / id / 状态 / tier / 子任务进度 / 最后活跃 / 最后 checkpoint 摘要）。
 
-**脚本**：`scripts/tf.mjs`（技能目录内）——`ls` 盘点 / `doctor [task-id]` 按不变量体检（唯一 spec：references/data.md「不变量」表，行数以表为准；`doctor --self` 机械校验 spec↔INVARIANTS 注册表↔实现三源一致）。退出码 0=全绿 / 1=有差异。**读写边界**：ls/doctor/scout/skills/testplan/diagnose/accept/stale/overlap 只读；写入口限簿记命令（台账登记类；清单真相源 = 脚本头注释「能力声明」）——修 index、补登 checkpoint、重建 worktree 仍由编排层落笔，绕不开确认门槛。
+**脚本**：`scripts/tf.mjs`（技能目录内）——`ls` 盘点 / `doctor [task-id]` 按不变量体检（唯一 spec：references/data.md「不变量」表，行数以表为准；`doctor --self` 机械校验 spec↔INVARIANTS 注册表↔实现三源一致）。退出码 0=全绿 / 1=有差异。**读写边界**：ls/doctor/scout/skills/testplan/diagnose/accept/stale/overlap/mergegate/gates/revert-plan 只读（gates=合并前五道门聚合只读体检；revert-plan=merged 回退方案生成器，只读不执行）；写入口限簿记命令（台账登记类；清单真相源 = 脚本头注释「能力声明」）——修 index、补登 checkpoint、重建 worktree 仍由编排层落笔，绕不开确认门槛。
 
 项目级注意事项 `.taskflow/conventions.md`：新建任务 / resume / merge / 完整版 checkpoint 四个触点**必读**；不存在则初始化时引导生成，口述新约定随时写入。
 

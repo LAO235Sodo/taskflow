@@ -1,15 +1,15 @@
 # 宿主防护层（TASKFLOW_GUARD）
 
-> 机制定义（data.md 机制登记表 / MECH_PROSE）。本文件是细则唯一载体：九功能、部署墙/编辑边界两套档位、零干扰边界、卸载。
+> 机制定义（data.md 机制登记表 / MECH_PROSE）。本文件是细则唯一载体：功能清单（D–T 十二项）、部署墙/编辑边界/状态翻转墙档位、零干扰边界、卸载。
 > 防的事故类：taskflow 是技能，一切强制力都要经模型一次正确执行——`commit --files` 逗号坑连环踩、`deploy` 忘 `--web-only`、绕过部署入口、敞口无感知、压缩丢上下文、**派发凭记忆转述 spec、越界编辑**，全是"模型没记得/没做对"。omp extension 跑在宿主进程事件总线上，模型物理绕不过（2026-10-09 用户拍板，方案呈报 D→B→C→A 顺序；同日 F/G 拍板——split.md 纸面纪律升格宿主层）。
 
 ## 形态与安装
 
 - 源模板住技能仓 `assets/guard/taskflow-guard.js`；`node tf.mjs mech install TASKFLOW_GUARD` 渲染到项目 **`.omp/hooks/pre/taskflow-guard.js`**——omp ambient 发现（pre/post 目录）自动加载，无需任何配置。
 - 定位 `.taskflow/` 用 `git rev-parse --git-common-dir`——worktree 内会话正确回到主仓库档案。
-- **零干扰边界**：项目无 `.taskflow/` 时九功能全部静默（状态栏不显示、无拦截、无注入）——通用项目可装可不装。
+- **零干扰边界**：项目无 `.taskflow/` 时全部功能静默（状态栏不显示、无拦截、无注入）——通用项目可装可不装。
 
-## 九功能
+## 功能清单（D–T）
 
 | # | 功能 | 事件 | 行为 |
 | --- | --- | --- | --- |
@@ -21,7 +21,10 @@
 | F | 派发门 | `tool_call`（task） | 派发词引用 spec 路径（`.taskflow/<id>/subtasks/<n>/spec.md`）→ 校验必填节后 **`{input}` 机械注入 spec 全文 + worktree 路径 + 范围纪律 + 原派发词**——编排层凭记忆转述物理失效（split.md 自包含纪律）；引用了 spec 但文件缺失/必填节空 = **无条件 block**；未引用 spec = 提醒不拦（调研/审查类派发合法，三场景管制②③） |
 | G | 编辑边界门 | `tool_call`（edit/write） | 编辑路径归属任务后对照声明清单（任务 spec「边界与影响面」+ 全部 subtasks「涉及文件」），越界默认警告 / `TF_BOUND=enforce` 硬拦——单一职责与爆炸半径的机械不变量 |
 | H | 同类排查提醒 | `context`（v2.49.1 事件面重设计——活体实证 tool_result(task) 只有 spawn 回执，子代理报告以 task-result 消息进链） | 尾部消息（末 3 条）中「task-result 报告（v2.61.0 来源限定：信封标签带/不带属性均认，不判 role）含 blocker/阻塞/blocking/卡点 特征」→ 追加一条提醒消息（v2.56.x 人话化：开头声明「可能猜错，不拦任何操作」，三个问题=同类排查 CLASS_SWEEP_GATE 上游/下游/同类，术语带括号白话；报告说「无阻塞」或仅讨论词语本身可忽略）——**幂等**（尾部已有提醒标记跳过）、**只提醒不拦**；普通对话/工具图例/自家提醒不含该标签不触发（v2.61.0 切断自我喂养）；非 taskflow 项目静默 |
-| I | 词表反馈沉淀 | `context`（检测）→ `before_provider_request`（注入）→ `tool_call`（消账）＋`session.compacting`（兜底） | user 角色消息命中强信号词（看不懂/没看懂/看不明白/读不懂/没明白/不明白/什么意思/说人话/讲人话/太术语；「人话」单词不单列——问原理也命中，2026-10-11 实证）→ 字符串 Set 去重计数；词表未改写（pending>0）则 E 通道逐轮注入沉淀指令，write/edit 落 `.taskflow/glossary.md` 即消账（宽松判定不校验内容）；压缩兜底一行——「反馈→沉淀」宿主闭环（v2.57.0；纯 advisory 可能猜错不拦操作；多项目会话计数为实例级合计，注记） |
+| I | 词表反馈沉淀 | `context`（检测）→ `before_provider_request`（注入）→ `tool_call`（消账）＋`session.compacting`（兜底） | user 角色消息命中强信号词（看不懂/没看懂/看不明白/读不懂/没明白/不明白/什么意思/说人话/讲人话/太术语；「人话」单词不单列——问原理也命中，2026-10-11 实证）→ 字符串 Set 去重计数；词表未改写（pending>0）则 E 通道逐轮注入沉淀指令，write/edit 落 `.taskflow/glossary.md` 即消账（宽松判定不校验内容）；压缩兜底一行——「反馈→沉淀」宿主闭环（v2.57.0；纯 advisory 可能猜错不拦操作；多项目会话计数为实例级合计，注记）；v2.69.0 起 E 注入尾部追加「taskflow 实况：活/等验收（部署短格式）/挂起」一行（collectLive 分桶，verifying 双源口径） |
+| J | 状态翻转墙（v2.69.0） | `tool_call`（edit/write/bash） | task.json/index.json 的 status/deploy.status **手改 = 物理拦截**：edit/write 做「翻转前后」语义比对（磁盘内容字面替换模拟 edit；坏 JSON 视同违规；新建档案仅 status=active 放行），bash 重定向/tee/sed -i 触及任务档案且不含 tf.mjs 直接按档拦——翻转唯一合法写路径 = 扳机命令，档案修复唯一路径 `reconcile --fix` |
+| K | 验收期 git 提醒（v2.69.0） | `tool_call`（bash） | 在档等验收任务（isVerifying 双源且顶层非 merged）存在时 `git push`/`git merge` → additionalContext 提醒核对 conventions.md 合并时序——**只提醒不拦**（部署服务器拉取 push 属合法流量；`TF_VERIFY_WARN=off` 关） |
+| T | 技能加载埋点（v2.69.0） | `tool_call`（read） | `skill://` 显式读取计数入全局单文件（`TF_SKILL_USAGE` 或 `~/.omp/agent/skill-usage.jsonl`）——零内容仅计数（只记技能名与项目名），供 `tf.mjs skills --usage` 报表；**不受 guardOn 闸控**（全局能力地图数据），handler 整体吞错（omp hook fail-closed：抛错=阻断读取，埋点绝不能拦主流程） |
 
 ## 部署墙两档模式（A）
 
@@ -34,6 +37,13 @@
 - **默认警告**（additionalContext）：清单是 best-effort 解析（spec bullet 约定），漏写文件的误报先观察。
 - **`TF_BOUND=enforce`**：硬拦——观察稳定后写入 conventions。
 - **`TF_BOUND=off`**：单次跳过，事后 progress.md 记一行。
+
+## 状态翻转墙三档模式（J，TF_STATUS，v2.69.0）
+
+- **缺省 enforce**：手改 status 无合法场景（data.md 状态机表：翻转唯一写路径 = `commit --deployed` / `accept --pass` / `park` / `unpark` / `archive`），档案修复唯一路径 `node tf.mjs reconcile --fix`。
+- **`TF_STATUS=warn`**：警告放行（additionalContext）。
+- **`TF_STATUS=off`**：单次豁免。
+- 判定细则：edit 用「磁盘内容字面替换模拟」取新值（替换不命中 = 新内容 = 旧内容 = 放行）；顶层 status 或 deploy.status 任一变化即翻转；新建档案仅 status=active（且不带 verifying 部署态）放行。机器快照 STATE_SNAPSHOT 与 `scripts/taskflow-state-machine.mjs`、data.md 状态机表三处同源——改状态机三处同步，版本漂移由 mech check 兜底。bash 通道无法做语义比对（整文件覆盖），触及任务档案即按档处理。
 
 ## F/G 判定细则
 
@@ -56,4 +66,6 @@
 tf.test.mjs TASKFLOW_GUARD 节：mock pi 真执行渲染产物（硬规则 17——import 模块、调注册的处理器）——状态栏超24小时未合并计数 / `--files` 空格硬拦 / deploy 缺 web-only 提醒 / 压缩注入含任务 id / 部署墙默认警告→enforce 硬拦两档 / 正常命令放行 / E 注入（字符串+数组 system 形态、非 taskflow 项目零注入、括号大白话口径锚）/ F1 合法 spec 机械注入（spec 全文+worktree+原派发词保留、input 其余字段不动）/ F2 缺文件与缺必填节两分支 block / F3 未引用 spec 提醒 + 非 taskflow 放行 / G1 越界默认警告→enforce 硬拦（含单 ⚠ 锚）/ G2 off 放行 + 清单内 + 簿记白名单 + 非 taskflow 放行 / 审查修复回归：非 taskflow 项目派发词引用 spec 路径放行（F 零干扰守卫）+ 兄弟 worktree 越界警告与清单内放行（G base 取子 worktree 根）/ H：task-result 报告含 blocker 特征 → 人话三问提醒注入（可能猜错声明+grep 括号白话锚），普通对话含「阻塞」/工具图例/自家提醒/无特征/非 taskflow → 全静默（v2.61.0 来源限定+自我喂养切断，CLASS_SWEEP_GATE 宿主面）。
 
 I 段夹具（v2.57.0）：user「看不懂」反馈 → E 通道注入沉淀指令（计数/重放去重/累计）；write/edit 落词表消账；assistant 信号词与无信号词不注入；非 taskflow 零干扰；压缩兜底两路（pending>0 有行/消账后无行）；渲染源锚×3（guard 头注释 / taskflow-guard.md / MECH_PROSE 含「词表反馈沉淀」——v2.56.2 渲染源漂移防复发）。
+
+J/K/T 段夹具（v2.69.0）：J 墙伪造 edit/write/bash 事件——手改 status block（enforce 缺省）/ off 放行 / warn 警告 / 纯 note 字段放行 / 新建档案 status=active 放行 / 新建 verifying 拦 / 坏 JSON 拦 / edit 字面替换检出翻转 block / bash sed·重定向无 tf.mjs 拦 / tf.mjs 命令零干扰 / deploy.status 单独变化也拦；K 等验收期 push/merge 提醒（点名任务）与 TF_VERIFY_WARN=off 关闭；E 实况行（活/等验收+部署短格式注入 system）；T skill:// 计数（非 skill 路径不记、技能名截去子路径、项目名取 cwd basename）；skills --usage 报表（计数/近 30 天/零加载标注/口径尾行/无埋点文件 exit 0）；状态机模块纯函数直测 + data.md 表逐行对账。
 
