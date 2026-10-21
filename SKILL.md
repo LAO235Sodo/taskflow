@@ -35,7 +35,7 @@ git rev-parse --path-format=absolute --git-common-dir   # 主仓库 .git（主�
 
 **CRITICAL — 绝不问用户"你要存档还是合并"。** 先静默盘点，再按语义路由。
 
-**静默盘点**：定位项目 → 跑 `scripts/tf.mjs ls`（输出即盘点：登记任务 + 游离工作，降噪规则已内置）。脚本缺失/报错 → 按 resume.md 第 2 步手工扫描。**待验收优先**：盘点含 verifying 任务（ls 会置顶打印「📌 待你验收」块并显示挂起天数）→ 第一句话先原样递该清单（逐条带简报入口 `node tf.mjs accept <id>`），然后再问「继续哪个」——有人等你拍板的事排最前，不沉在表格里。
+**静默盘点**：定位项目 → 跑 `scripts/tf.mjs ls`（输出即盘点：登记任务 + 游离工作（未登记资源：不在台账的分支/worktree/改动），降噪规则已内置）。脚本缺失/报错 → 按 resume.md 第 2 步手工扫描。**待验收优先**：盘点含 verifying 任务（ls 会置顶打印「📌 待你验收」块并显示挂起天数）→ 第一句话先原样递该清单（逐条带简报入口 `node tf.mjs accept <id>`），然后再问「继续哪个」——有人等你拍板的事排最前，不沉在表格里。
 
 | 用户话语信号 | 状态信号 | 判定动作 |
 | --- | --- | --- |
@@ -121,7 +121,7 @@ git rev-parse --path-format=absolute --git-common-dir   # 主仓库 .git（主�
 
 **status（内联，无需读文件）**：跑 `scripts/tf.mjs ls`，转述输出，不改任何状态；脚本缺失 → 手工读 index.json + 各 task.json 拼同列表（标题 / id / 状态 / tier / 子任务进度 / 最后活跃 / 最后 checkpoint 摘要）。
 
-**脚本**：`scripts/tf.mjs`（技能目录内）——`ls` 盘点 / `doctor [task-id]` 按不变量体检（唯一 spec：references/data.md「不变量」表，行数以表为准；`doctor --self` 机械校验 spec↔INVARIANTS 注册表↔实现三源一致）。退出码 0=全绿 / 1=有差异。**读写边界**：ls/doctor/scout/skills/testplan/diagnose/accept/stale/overlap 只读；写入口限簿记命令（清单真相源 = 脚本头注释「能力声明」）——修 index、补登 checkpoint、重建 worktree 仍由编排层落笔，绕不开确认门槛。
+**脚本**：`scripts/tf.mjs`（技能目录内）——`ls` 盘点 / `doctor [task-id]` 按不变量体检（唯一 spec：references/data.md「不变量」表，行数以表为准；`doctor --self` 机械校验 spec↔INVARIANTS 注册表↔实现三源一致）。退出码 0=全绿 / 1=有差异。**读写边界**：ls/doctor/scout/skills/testplan/diagnose/accept/stale/overlap 只读；写入口限簿记命令（台账登记类；清单真相源 = 脚本头注释「能力声明」）——修 index、补登 checkpoint、重建 worktree 仍由编排层落笔，绕不开确认门槛。
 
 项目级注意事项 `.taskflow/conventions.md`：新建任务 / resume / merge / 完整版 checkpoint 四个触点**必读**；不存在则初始化时引导生成，口述新约定随时写入。
 
@@ -136,7 +136,7 @@ git rev-parse --path-format=absolute --git-common-dir   # 主仓库 .git（主�
 3. **merge 全流程**：八步 init 成 todo（部署/验收常跨天，防漏步）；
 4. **从零开工六问链**：六问挂六项，过一问锁一问。
 
-铁边界：task.json status 翻转唯一写路径仍是扳机（`commit --deployed` / `accept --pass` / `req-confirm`）；Todo 即焚，留痕与恢复只靠 checkpoints/progress/handoff；多会话协调靠 index/owner/lock；宿主 J 墙（TF_STATUS）物理兜底手改拦截。
+铁边界：task.json status 翻转唯一写路径仍是扳机（触发器：`commit --deployed` / `accept --pass` / `req-confirm`）；Todo 即焚，留痕与恢复只靠 checkpoints/progress/handoff；多会话协调靠 index/owner/lock；宿主 J 墙（TF_STATUS）物理兜底手改拦截。
 
 ## 硬规则（违反任何一条：立即停止并向用户报告）
 
@@ -167,7 +167,7 @@ git rev-parse --path-format=absolute --git-common-dir   # 主仓库 .git（主�
 22. **外部依赖强制问答门（DEP_ASK_GATE）——检测 → 缺 = 强制问用户，有 = 静默用，禁止未问先跑**：taskflow 触点需要的外部件一律先检测后使用，分三类：①**领域技能**——领域检测命中后跑 `node tf.mjs skills [领域词]`（注册表 × 标准安装位，**exit 1 = 有缺**）→ 缺失清单**必须呈用户勾选装哪些**（含安装源；用户不装 = 后续审查如实注记「未经 XX 审查」，不假装在）；②**机制产物与项目初始化**（mech install 渲染、样式真源迁移、任何往项目 repo 落盘的安装/初始化脚本）——检测目标存在**且版本对账一致**（mech ls 已装 / 产物路径在 / 采纳登记版本 = 技能版本——陈旧快照由统一对账谓词机械点名（mech check / mech ls / doctor 采纳对账三口同源——检测单点，v2.65.0）；2026-09-30 拍板「必须对比对账，不符立即提醒升级或安装」）→ 静默用**不再问**；**版本不符 = 陈旧快照 → 立即提醒重跑 mech install 刷新，禁静默沿用**（刷新=漂移刷新：mech install 先打印将覆盖文件清单、须 `--yes` 确认才落盘）；缺 → **呈报一次安装/初始化建议，用户拍板前不执行任何项目侧写入命令**。**确认闸分工（v2.65.0）**：首装空位的确认归本呈报流程（mech install 对首装不拦——懒加载保留）；漂移刷新与整文件覆盖已有文件的确认归 mech install 机械闸（未带 `--yes` 拒绝落盘并打印将覆盖文件清单）——呈报拦首装、闸拦刷新/覆盖，两道各守一面；③**只读检测与提取**（skills 查询、基线/规格表提取器、门脚本 --spec 复核）不问直接跑。禁止两个反面：**静默降级**（缺件照跑且从不问）与**未问先跑**（未经拍板执行 mech install / 初始化 / 渲染落盘）。触点：new-task 第 8 步（缺口确认统一入口）、domain.md「技能在场检测」；既有延迟加载条款（STYLE_SOURCE_GATE 延迟初始化 / APP_PAGE_BASELINE 延迟加载）= 本规则的机制实例。
 
 23. **部署协调门（DEPLOY_GATE，2026-09-29 治理被静默滚回等四起覆盖事故用户拍板；2.40.0 对抗性审查加固；**2.42.0 四件套根治**——2026-09-30 双包事故实证「门在但绕得过去」）**：**①部署必经唯一入口 `tf.mjs deploy --branch <部署分支> [--web-only] [--version V]`（DEPLOY_ENTRY）**——门禁内嵌（deploy-preflight 实况核验+血统门+verifying 让位），红=拒绝执行，绿=按 project.json deploy 配置执行+自动 `--record` 登记；绕过入口的手工部署=漏登记=doctor I17 对账必红；**部署分支防呆（v2.66.0，merge-first——2026-10-16 历史误部署实证：任务分支直接 deploy 静默空转，构建了 main 同内容镜像实物不变，实物 md5 对账才抓出）**：deploy commands 含 main 检出断言（`branch --show-current … 'main'`）的项目，`--branch` 非 main → 入口拒绝，先 merge 进 main（前置=merge 审查）再 `deploy --branch main`（细则 deploy-gate.md「部署分支语义」）。**②conventions 接线**：mech install DEPLOY_ENTRY 把「部署必经入口」补记进项目部署确认清单（第⓪项）。**③I16 敞口不变量**：verifying 任务已部署未合并 main 超 24h=红（main 构建部署将静默滚回；ls 待验收块 ⚠敞口 标记；accept --pass 打印收口三件事）。**④I17 实况对账（本地触点版）**：doctor 体检 ssh 只读对账 live-state md5 vs 服务器实际 jar（无配置/ssh 不通=信息级跳过；服务器侧定时巡检与 CI/CD 为终局，2026-10-08 拍板暂不上）。并集优先/租约让位/验收即合并细则唯一载体 = references/deploy-gate.md + merge.md 第 6 步。
-24. **面向用户输出 = 叙事体 + 结构化双层，正式呈报先落稿过门（PLAIN_SPEECH_GATE，2026-10-09 用户实证「定语看不懂、不知道描述什么」+ 同轮拍板「还必须有足够的结构化输出」）**：方案、分析、说明、呈报、验收简报、恢复摘要、问答答案的读者是人类——血肉层用完整因果句（谁、对谁、做了什么、所以怎样）、结论先行，术语与行话**首现必须先给一句大白话再挂术语**（白话从 data.md 机制登记表「大白话」列或 glossary.md 抄，不自造口径）；骨架层按内容形态选结构（对比→表格 / 并列→编号清单 / 多场景×多条件→矩阵 / 流程→步骤），多维事实禁埋进段落流让读者自行拼装；禁电报式短句、名词定语堆栈、机制代号裸奔（I16、DEPLOY_GATE 不带括号解释直接出现）。**五类正式呈报（方案呈报/打回返工呈报/升级确认门与需求变更门呈报/验收简报/部署清单）呈报前先落稿 `.taskflow/<id>/briefing-<场景>.md` 并跑 `node <skill目录>/assets/harness/validate-plain-speech.mjs <稿>`——红=打回重写（行话裸奔/代号裸奔/超长句），绿才呈报**；日常对话按本条执行、不落稿。细则、骨架选型表与呈报稿模板唯一载体 = references/plain-speech.md。
+24. **面向用户输出 = 叙事体 + 结构化双层，正式呈报先落稿过门（PLAIN_SPEECH_GATE，2026-10-09 用户实证「定语看不懂、不知道描述什么」+ 同轮拍板「还必须有足够的结构化输出」）**：方案、分析、说明、呈报、验收简报、恢复摘要、问答答案的读者是人类——血肉层用完整因果句（谁、对谁、做了什么、所以怎样）、结论先行，术语与行话**首现必须先给一句大白话再挂术语**（白话优先从 references/terminology.md「术语对照表」抄——技能自造词→传统术语的唯一对照源；项目行话从 glossary.md 抄；机制名从 data.md 机制登记表「大白话」列抄，不自造口径）；骨架层按内容形态选结构（对比→表格 / 并列→编号清单 / 多场景×多条件→矩阵 / 流程→步骤），多维事实禁埋进段落流让读者自行拼装；禁电报式短句、名词定语堆栈、机制代号裸奔（I16、DEPLOY_GATE 不带括号解释直接出现）。**五类正式呈报（方案呈报/打回返工呈报/升级确认门与需求变更门呈报/验收简报/部署清单）呈报前先落稿 `.taskflow/<id>/briefing-<场景>.md` 并跑 `node <skill目录>/assets/harness/validate-plain-speech.mjs <稿>`——红=打回重写（行话裸奔/代号裸奔/超长句），绿才呈报**；日常对话按本条执行、不落稿。细则、骨架选型表与呈报稿模板唯一载体 = references/plain-speech.md。
 **段落纪律与装饰克制（2026-10-09 用户截图二轮实证）**：段落堆叠（一段 >6 句或 >200 字=红）与装饰横幅线（红）已入机械检测；规范层一段一中心 ≤4 句、因果链超两跳列表化、emoji 标题每份输出 ≤1、短回复无标题、单一骨架装饰不叠用——细则 plain-speech.md §2.5。
 25. **同类排查门（CLASS_SWEEP_GATE，2026-10-09 用户诊断「只修眼前、漏同类漏上下游」+ 本会话 F/G 实现实证：同类守卫缺失靠审查者碰巧抓到）——缺陷确认点必须先扩散再修复**：任何缺陷确认点（用户打回 / 审查 blocker / 测试红）→ **动手修之前必答扩散三问**：①上游——坏结果的输入/前提从哪来，它们干净吗；②下游——这个缺陷的产物被谁消费了，消费方需要同步吗；③同类——grep 同模式还有几处（缺陷先术语化成可 grep 特征，硬规则 12）。同类 >1 = 逐处修或逐处注记，「扩散面清单」落 findings.md；**修复 diff 必须附清单（merge.md 第 3 步修复循环核对，缺 = 阻塞项）**。与硬规则 14 分工：14 是**变更触发**的写侧盘点（动手前列消费方），25 是**发现触发**的读侧排查（修复前扫同类）；两个触发点都到时先 14 后 25。机械面：项目 `validate-changelog.sh`——修复类条目（触发词十三式：修复的 bug／修复 bug／修复了／缺陷修复／修复缺陷／修 bug／bug 修复／bugfix／bug-fix／fix(es) 带宾语搭配／fixed 带宾语搭配，大小写不敏感，含标题行——标题触发检查；「同类排查：」等行级满足检查只扫条目正文，标题里写样板字不算满足）**条目块内**必含「同类排查：」行（N 处已修 / 唯一实例+证据）与「出现次数」，仅检锚点之上受管区（之下祖父豁免），随决策组合门 mech install 交付收尾必跑；宿主提醒 TASKFLOW_GUARD H（子代理报告 task-result 含 blocker 特征时注入三问提醒，v2.61.0 来源限定）。细则唯一载体 = references/testing.md §十。
 26. **文档同步门 + 功能边界统一源路由（DOC_SYNC_GATE，2026-10-10 拍板——治「功能改了文档没人强制跟着改」漂移（37 处实证）与「每个边界问题都现场翻代码」两病）**：①**写侧机械门**：docs/CHANGELOG.md 条目涉及文件命中功能代码（`__ASSET_EXTS__` 扩展名路径）→ 条目必含「文档同步：」行——列明本次更新了哪些 PRD/design/functional-map 条目；行为/契约确实零变更写「文档同步：不适用——理由」；缺行=收尾门红灯（validate-changelog.sh 条目级检查，**延迟激活**：锚点条目「文档同步门落地」未插入=未激活仅 WARN，插入即接受强制）。②**读侧路由**（细则 qa.md 第 2 段）：功能边界类问答（能不能/谁可以/什么状态/什么权限/边界/功能在哪）第一动作查项目统一源文档（路径由 conventions.md「统一源」节登记），以它为基准作答；未覆盖查代码并回写统一源——读侧反哺写侧，地图越用越全。
