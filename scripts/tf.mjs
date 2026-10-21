@@ -7,7 +7,7 @@
 // 工具层（纯函数，命令间共享）: git / isAnc / refStatus / readJson / relTime /
 //   locate / loadTasks / loadIgnores / matchIgnore / corruptedReport / parseWriteSet / parseReadSet / matchPath
 // 命令层（互不调用）: ls / strays / doctor / selfCheck / reconcile / scout / skillsCmd /
-//   accept / takeover / parkCmd / unparkCmd / lock / commitCmd / reqConfirm / testplan / diagnose / nextid / migrateCmd / archiveCmd / svcCmd / lintCmd / staleCmd / overlapCmd
+//   accept / takeover / parkCmd / unparkCmd / lock / commitCmd / reqConfirm / testplan / diagnose / nextid / migrateCmd / archiveCmd / svcCmd / lintCmd / staleCmd / overlapCmd / mergegateCmd / revertPlanCmd / gatesCmd
 // 分发区: 文件尾 if (cmd === …) 一行一命令
 // 不变量 spec: references/data.md「不变量」表——脚本侧唯一登记处 = INVARIANTS 注册表，
 //   三源一致性由 `doctor --self` 机械强制；新增检查必须同时落注册表+data.md 行+实现体。
@@ -29,6 +29,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
+import { STATES, validateTransition } from './taskflow-state-machine.mjs'; // 状态机唯一机器源（v2.69.0）：枚举单源 + 写侧转换合法性断言
 
 const R = (s) => String(s ?? '').trim();
 const trunc = (s, n) => { const a = Array.from(String(s ?? '')); return a.length > n ? a.slice(0, n - 1).join('') + '…' : a.join(''); }; // 码点安全切片（攻击轮 C5：UTF-16 码元切片切裂代理对 → U+FFFD）
@@ -135,12 +136,28 @@ function locate() {
   const common = git(['rev-parse', '--path-format=absolute', '--git-common-dir'], process.cwd(), true);
   const isGit = !!common;
   const mainRoot = isGit ? path.dirname(path.resolve(common)) : process.cwd();
-  // 数据目录平台中立：主选 .taskflow/（技能多平台安装，不绑 OpenCode 牌子目录）；
-  // 旧 .opencode/tasks/ 存在则原样识别（存量不迁移也能跑），两者并存时以 .taskflow 为准
+  return { isGit, mainRoot, tasksDir: tasksDirUnder(mainRoot) };
+}
+// tasksDir 推导（v2.69.0 从 locate 抽取，gates/mergegate 纯函数共用）：主选 .taskflow/（数据目录平台中立），
+// 旧 .opencode/tasks/ 存在则原样识别（存量不迁移也能跑），两者并存时以 .taskflow 为准
+function tasksDirUnder(mainRoot) {
   const primary = path.join(mainRoot, '.taskflow');
   const legacy = path.join(mainRoot, '.opencode', 'tasks');
-  const tasksDir = fs.existsSync(primary) ? primary : (fs.existsSync(legacy) ? legacy : primary);
-  return { isGit, mainRoot, tasksDir };
+  return fs.existsSync(primary) ? primary : (fs.existsSync(legacy) ? legacy : primary);
+}
+// 任务档案目录（根层优先，archive/ 兜底）——全仓高频同款三元的单一化
+const taskDirOf = (tasksDir, id) => (fs.existsSync(path.join(tasksDir, id)) ? path.join(tasksDir, id) : path.join(tasksDir, 'archive', id));
+// 主 ref 解析（v2.69.0 从 mergegate/stale 抽取共用）：本地优先（与 snapshotCmd 同源——合并动作落本地 main，origin 滞后窗口门会瞎，dogfood 自证）
+const resolveMainRef = (mainRoot) => ['main', 'master', 'origin/main'].find((r) => git(['-C', mainRoot, 'rev-parse', '--verify', r], mainRoot, true)) ?? null;
+// 「分支已并入主 ref」判定（v2.69.0 抽取，accept --pass 前置门与 gates 共用）：
+// 合并事实 = 分支可达自**任一**主 ref（origin/main 可能落后于本地 main——本地合并未 push 时先命中它会误拒，2026-09-23 实证）；
+// baseBranch（任务集成的基线分支，如 origin/main-view2）同为合法主 ref 候选——非 main 命名主分支项目缺它必误拒（2026-09-24 实证）。
+// 返回 { mainRefs, merged }：merged=null 表示无主 ref 可判（调用方自行降级为无法机械校验）。
+function isMergedIntoMain(t, mainRoot) {
+  const mainRefs = ['origin/main', 'main', 'master', t.baseBranch].filter(Boolean)
+    .filter((r) => git(['-C', mainRoot, 'rev-parse', '--verify', r], mainRoot, true));
+  if (!mainRefs.length) return { mainRefs, merged: null };
+  return { mainRefs, merged: mainRefs.some((r) => isAnc(mainRoot, t.branch, r)) };
 }
 const CORRUPTED = []; // 本次运行中解析失败的 task.json（损坏=任务从 ls/doctor 消失，必须大声报）
 const loadTasks = (tasksDir) => {
@@ -181,7 +198,24 @@ function matchIgnore(pattern, s) {
 /* 等验收判定：顶层状态或部署态任一命中（v2.18.2：修「部署后顶层仍 active 遮蔽📌块」盲区——
    实证：任务部署冒烟全过后 ls 仍无待验收提示）。挂起天数单一数据源不变：waitDaysNum（deploy.deployedAt 优先）。 */
 function isVerifying(t) {
-  return t?.status === 'verifying' || t?.deploy?.status === 'verifying';
+  return t?.status === 'verifying' || t?.deploy?.status === 'verifying'; // 委托语义见 taskflow-state-machine.mjs isVerifying（写侧保留内联判断：本函数在热路径被高频调用且需容忍非对象入参）
+}
+
+// 状态机断言（v2.69.0）：状态写盘前的转换合法性硬门——validateTransition 未命中白名单即抛错中止写盘。
+// 各写侧内联前置门（isAnc/reason 必填等富语义）仍是第一道，本断言是第二道物理墙（机器源唯一性的交叉验证）。
+function assertTransition(from, to, cmdName) {
+  const v = validateTransition(from, to, cmdName);
+  if (!v.ok) throw new Error(`状态机断言失败 ${from ?? '（无）'}→${to} via ${cmdName}：${v.reason}`);
+}
+
+// 事件日志（v2.69.0，观察者）：状态转换与 archive 归层的追加式审计流，落 .taskflow/events.jsonl
+// （铁律 1 不入 git，项目本地）。只写不读——不加 doctor 不变量，产物核对交给 revert-plan 与人工 tail。
+function appendEvent(tasksDir, evt) {
+  try {
+    fs.appendFileSync(path.join(tasksDir, 'events.jsonl'), JSON.stringify({ ts: new Date().toISOString(), ...evt }) + '\n');
+  } catch (e) {
+    console.log(`⚠ 事件日志写入失败（${e.message}）——主操作已生效，该条审计行丢失`);
+  }
 }
 
 function ls(args = []) {
@@ -1109,6 +1143,39 @@ function skillsCmd(args = []) {
     || path.join(path.dirname(new URL(import.meta.url).pathname), 'skills-registry.json');
   const reg = readJson(regPath);
   if (!reg || !Array.isArray(reg.skills)) { console.log(`⚠ 注册表缺失或不可解析：${regPath}`); return 1; }
+  // --usage：技能加载埋点报表（v2.69.0，只读）——守门 T 模块写入的单文件聚合。
+  // 左联注册表（零加载技能也在列）；按总次数升序（冷技能在前）。口径局限在尾行声明。
+  if (args.includes('--usage')) {
+    const file = process.env.TF_SKILL_USAGE || path.join(os.homedir(), '.omp', 'agent', 'skill-usage.jsonl');
+    let rows = [];
+    try {
+      rows = fs.readFileSync(file, 'utf8').split('\n').filter(Boolean)
+        .map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
+    } catch { /* 文件缺失=暂无数据 */ }
+    if (!rows.length) { console.log(`暂无埋点数据（守门 T 模块未记录任何 skill:// 读取；埋点文件：${file}）`); return 0; }
+    const now = Date.now(); const THIRTY = 30 * 86400000;
+    const agg = new Map();
+    for (const r of rows) {
+      if (!r?.skill) continue;
+      const a = agg.get(r.skill) ?? { total: 0, recent: 0, projects: new Set() };
+      a.total++;
+      if (r.ts && !Number.isNaN(Date.parse(r.ts)) && now - Date.parse(r.ts) <= THIRTY) a.recent++;
+      if (r.project) a.projects.add(r.project);
+      agg.set(r.skill, a);
+    }
+    const entries = new Map();
+    for (const s of reg.skills ?? []) if (s?.id) entries.set(s.id, { total: 0, recent: 0, projects: new Set(), inReg: true });
+    for (const [name, a] of agg) entries.set(name, { total: a.total, recent: a.recent, projects: a.projects, inReg: entries.has(name) });
+    console.log('# taskflow 技能加载报表（skill:// 显式读取埋点）');
+    const sorted = [...entries.entries()].sort((x, y) => x[1].total - y[1].total || x[0].localeCompare(y[0]));
+    for (const [name, e] of sorted) {
+      console.log(e.total
+        ? `${name}：总 ${e.total}｜近 30 天 ${e.recent}｜项目 ${[...e.projects].sort().join('、')}`
+        : `${name}：全文零加载（仅描述常驻）${e.inReg ? '' : '（注册表外）'}`);
+    }
+    console.log('\n口径：仅 omp 侧显式 skill:// 加载计数，不含描述常驻效果；Claude Code 侧不在统计内。');
+    return 0;
+  }
   const dirs = (process.env.TF_SKILL_DIRS
     || [path.join(os.homedir(), '.config/opencode/skills'), path.join(os.homedir(), '.agents/skills'),
        path.join(os.homedir(), '.claude/skills'), path.join(os.homedir(), '.omp/agent/skills'),
@@ -1207,11 +1274,9 @@ function acceptPass(tasksDir, t) {
   if (t.status === 'active') console.log('ℹ active 直接翻转：仅限无部署约定项目（有部署请先 commit --deployed 翻 verifying）');
   const { isGit, mainRoot } = locate();
   if (isGit && t.branch) {
-    // 合并事实 = 分支可达自**任一**主 ref（origin/main 可能落后于本地 main——本地合并未 push 时先命中它会误拒，2026-09-23 实证）
-    // baseBranch（任务集成的基线分支，如 origin/main-view2）同样是合法的主 ref 候选——projects 用非 main 命名主分支时缺它必误拒（2026-09-24 实证）
-    const mainRefs = ['origin/main', 'main', 'master', t.baseBranch].filter(Boolean).filter((r) => git(['-C', mainRoot, 'rev-parse', '--verify', r], mainRoot, true));
-    if (mainRefs.length && !mainRefs.some((r) => isAnc(mainRoot, t.branch, r))) {
-      console.log(`⚠ ${t.id} 分支未并入主分支（${mainRefs.join('/')}）——verify-first 请先完成合并（merge.md 第 5 步）再翻转；merged 语义 = 已合并 + 验收通过`);
+    const mm = isMergedIntoMain(t, mainRoot);
+    if (mm.merged === false) {
+      console.log(`⚠ ${t.id} 分支未并入主分支（${mm.mainRefs.join('/')}）——verify-first 请先完成合并（merge.md 第 5 步）再翻转；merged 语义 = 已合并 + 验收通过`);
       return 1;
     }
   } else if (isGit && !t.branch) {
@@ -1220,10 +1285,12 @@ function acceptPass(tasksDir, t) {
   const p = path.join(tasksDir, t.id, 'task.json');
   const j = readJson(p);
   if (!j) { console.log('⚠ task.json 损坏 → 翻转中止（先修复档案）'); return 1; }
+  assertTransition(t.status, 'merged', 'accept --pass'); // active→merged 与 verifying→merged 两行均覆盖
   j.status = 'merged';
   j.mergedAt = new Date().toISOString();
   fs.writeFileSync(p, JSON.stringify(j, null, 2) + '\n');
   syncIndexRow(tasksDir, j);
+  appendEvent(tasksDir, { task: t.id, from: t.status, to: 'merged', cmd: 'accept --pass' });
   console.log(`✓ ${t.id}：${t.status} → merged（用户验收通过 ${j.mergedAt}）+ index 已同步`);
   console.log(`→ 归层：node tf.mjs archive ${t.id}（merge.md 第 8 步——状态同步 ≠ 归档完成，journal 三件套归位才算）`);
   if (t.deploy) {
@@ -1330,12 +1397,14 @@ function parkCmd(args = []) {
   if (!j) { console.log('⚠ task.json 损坏 → 搁置中止（先修复档案）'); return 1; }
   const ts = new Date().toISOString();
   const safeReason = reason.replace(/[|\r\n]+/g, ' ').trim() || '—'; // 表格安全净化：ls 状态列渲染，竖线伪列/换行断行不入档（攻击轮 C3/主代理实跑实证）
+  assertTransition(t.status, 'parked', 'park');
   j.status = 'parked';
   j.parkedReason = safeReason;
   j.parkedAt = ts;
   j.lastActiveAt = ts;
   fs.writeFileSync(p, JSON.stringify(j, null, 2) + '\n');
   syncIndexRow(tasksDir, j);
+  appendEvent(tasksDir, { task: id, from: t.status, to: 'parked', cmd: 'park' });
   console.log(`✓ ${id} → parked（${safeReason}）——G 门/体检（缺省）不再盘点它；恢复：unpark ${id}`);
   return 0;
 }
@@ -1351,10 +1420,12 @@ function unparkCmd(args = []) {
   if (!j) { console.log('⚠ task.json 损坏 → 恢复中止（先修复档案）'); return 1; }
   delete j.parkedReason;
   delete j.parkedAt;
+  assertTransition(t.status, 'active', 'unpark');
   j.status = 'active';
   j.lastActiveAt = new Date().toISOString();
   fs.writeFileSync(p, JSON.stringify(j, null, 2) + '\n');
   syncIndexRow(tasksDir, j);
+  appendEvent(tasksDir, { task: id, from: t.status, to: 'active', cmd: 'unpark' });
   console.log(`✓ ${id} → active（已恢复；lease 若过期续做前跑 takeover 语义核对）`);
   return 0;
 }
@@ -1591,47 +1662,60 @@ function snapshotCmd(args = []) {
   return 0;
 }
 
-function mergegateCmd(args = []) {
-  const id = args.find((a) => !String(a).startsWith('--'));
-  if (!id) { console.error('用法：node tf.mjs mergegate <task-id>\n合并双门（MERGE_GATE）：①快照门（文件级分类）——main 现值 ≠ 审查快照时比对「main 变更 × 任务读写集」：命中=红（逐文件重审），未触碰=黄（同步合并+刷新快照免重审）；②越界门——分支 diff 文件超出 spec「改动文件集合声明」= 红（req-confirm 补声明或收窄 diff）。黄红均 exit 1；红灯不改任何状态。'); return 1; }
-  const { isGit, mainRoot, tasksDir } = locate();
-  if (!isGit) { console.error('⚠ 非 git 项目无门可跑'); return 1; }
-  const t = loadTasks(tasksDir).find((x) => x.id === id);
-  if (!t) { console.error(`⚠ 任务不存在：${id}`); return 1; }
-  const mainRef = ['main', 'master', 'origin/main'].find((r) => git(['-C', mainRoot, 'rev-parse', '--verify', r], mainRoot, true)); // v2.58.0 本地优先（与 snapshotCmd 同源同修——合并动作落本地 main，origin 滞后窗口门会瞎，dogfood 自证）
-  if (!mainRef) { console.error('⚠ 主分支不可解析'); return 1; }
+// 合并双门（v2.69.0 抽取为纯函数：mergegateCmd 渲染 + gates 聚合共用，输出串逐字保留）
+function mergeGateSnapshot(t, mainRoot, mainRef) {
+  const g = { red: false, yellow: false, findings: [], reason: '' };
   const head = git(['-C', mainRoot, 'rev-parse', mainRef], mainRoot, true);
-  let red = 0;
-  const dir = fs.existsSync(path.join(tasksDir, id)) ? path.join(tasksDir, id) : path.join(tasksDir, 'archive', id);
+  const dir = taskDirOf(tasksDirUnder(mainRoot), t.id);
   const specP = path.join(dir, 'spec.md');
   const specText = fs.existsSync(specP) ? fs.readFileSync(specP, 'utf8') : '';
   const writeSet = parseWriteSet(specText);
   const readSet = parseReadSet(specText);
   // 门一：快照（MVCC 事务 ID 比对——审查时快照 vs 合并时现值；v2.59.0 文件级分类黄/红两路）
   const snap = t.mergeSnapshot;
-  if (!snap?.commit) console.log(`ℹ 快照门：无快照在档 → 本次放行；审查呈报后先跑 node tf.mjs snapshot ${id}，下次合并前必须有`);
-  else if (snap.commit !== head) {
+  if (!snap?.commit) {
+    g.findings.push(`ℹ 快照门：无快照在档 → 本次放行；审查呈报后先跑 node tf.mjs snapshot ${t.id}，下次合并前必须有`);
+    g.reason = '无快照在档（本次放行，建议 snapshot 登记）';
+  } else if (snap.commit !== head) {
     const changedOut = git(['-C', mainRoot, '-c', 'core.quotePath=false', 'diff', '--no-renames', '--name-only', `${snap.commit}..${mainRef}`], mainRoot, true); // 对抗加固 RC1/RC2：--no-renames 重命名双名都进清单（旧名命中→红）；quotePath=false 非 ASCII 路径不转义（中文文件名可匹配）
     if (changedOut === null) { // 审查自证加固④：diff 失败（快照 commit 不可达/历史改写）禁按空清单分类放行
-      console.log(`⛔ 快照门红：git diff ${String(snap.commit).slice(0, 7)}..${mainRef} 失败（快照 commit 不可达 / main 历史被改写？）→ 人工核对 main 历史，禁按空变更清单分类放行`);
-      red++;
+      g.findings.push(`⛔ 快照门红：git diff ${String(snap.commit).slice(0, 7)}..${mainRef} 失败（快照 commit 不可达 / main 历史被改写？）→ 人工核对 main 历史，禁按空变更清单分类放行`);
+      g.red = true;
+      g.reason = '快照 diff 失败（commit 不可达/历史改写？）';
     } else {
       const changedFiles = changedOut.split('\n').filter(Boolean);
       const rw = [...new Set([...writeSet, ...readSet])];
-      if (!readSet.length) console.log('ℹ 影响面地图无机读路径（资产列须反引号），分类仅对写集生效');
+      if (!readSet.length) g.findings.push('ℹ 影响面地图无机读路径（资产列须反引号），分类仅对写集生效');
       if (!rw.length) {
-        console.log(`⛔ 快照门红：审查时 ${snap.mainRef ?? 'main'} @ ${String(snap.commit).slice(0, 7)}，现在 ${mainRef} @ ${head.slice(0, 7)}——main 在审查后前移且 spec 无反引号读写集声明（改动文件集合声明+影响面地图资产列均无），无法分类 → 按模板补声明再过本门（禁静默放行）；补齐后回 merge.md 第 1 步：任务分支 git merge ${mainRef} 解冲突，实质变化重跑第 3 步审查，完成后 node tf.mjs snapshot ${id} 刷新快照再过本门`);
+        g.findings.push(`⛔ 快照门红：审查时 ${snap.mainRef ?? 'main'} @ ${String(snap.commit).slice(0, 7)}，现在 ${mainRef} @ ${head.slice(0, 7)}——main 在审查后前移且 spec 无反引号读写集声明（改动文件集合声明+影响面地图资产列均无），无法分类 → 按模板补声明再过本门（禁静默放行）；补齐后回 merge.md 第 1 步：任务分支 git merge ${mainRef} 解冲突，实质变化重跑第 3 步审查，完成后 node tf.mjs snapshot ${t.id} 刷新快照再过本门`);
+        g.red = true;
+        g.reason = 'main 前移且 spec 无读写集声明，无法分类';
       } else {
         const overlap = changedFiles.filter((f) => matchPath(f, rw));
         if (overlap.length) {
-          console.log(`⛔ 快照门红：审查时 ${snap.mainRef ?? 'main'} @ ${String(snap.commit).slice(0, 7)}，现在 ${mainRef} @ ${head.slice(0, 7)}——main 在审查后前移（他人已合入），对着旧基线审的 diff 不能直接合。命中读写集：${overlap.join('、')}——重跑第 3 步审查时逐文件核对 spec 影响面地图对应行 → 回 merge.md 第 1 步：任务分支 git merge ${mainRef} 解冲突，实质变化重跑第 3 步审查，完成后 node tf.mjs snapshot ${id} 刷新快照再过本门`);
+          g.findings.push(`⛔ 快照门红：审查时 ${snap.mainRef ?? 'main'} @ ${String(snap.commit).slice(0, 7)}，现在 ${mainRef} @ ${head.slice(0, 7)}——main 在审查后前移（他人已合入），对着旧基线审的 diff 不能直接合。命中读写集：${overlap.join('、')}——重跑第 3 步审查时逐文件核对 spec 影响面地图对应行 → 回 merge.md 第 1 步：任务分支 git merge ${mainRef} 解冲突，实质变化重跑第 3 步审查，完成后 node tf.mjs snapshot ${t.id} 刷新快照再过本门`);
+          g.red = true;
+          g.reason = `main 前移命中读写集（${overlap.length} 文件）`;
         } else {
-          console.log(`⚠ 快照门黄：main 前移但未触碰本任务读写集——变更清单如下（过目）：${changedFiles.join('、')}——同步合并（任务分支 git merge ${mainRef}）+ node tf.mjs snapshot ${id} 刷新快照再过本门，免 merge.md 第 3 步重审（用户拍板 2026-10-11）`);
+          g.findings.push(`⚠ 快照门黄：main 前移但未触碰本任务读写集——变更清单如下（过目）：${changedFiles.join('、')}——同步合并（任务分支 git merge ${mainRef}）+ node tf.mjs snapshot ${t.id} 刷新快照再过本门，免 merge.md 第 3 步重审（用户拍板 2026-10-11）`);
+          g.red = true; // 黄红都计入红（exit 1）——保住「双绿才进 lock」；黄路刷新快照后幂等秒过
+          g.yellow = true;
+          g.reason = 'main 前移未触碰读写集（同步合并+刷新快照免重审）';
         }
       }
-      red++; // 黄红都计入红（exit 1）——保住「双绿才进 lock」；黄路刷新快照后幂等秒过
     }
-  } else console.log(`✓ 快照门绿：${mainRef} @ ${head.slice(0, 7)} 与审查快照一致`);
+  } else {
+    g.findings.push(`✓ 快照门绿：${mainRef} @ ${head.slice(0, 7)} 与审查快照一致`);
+    g.reason = '与审查快照一致';
+  }
+  return g;
+}
+function mergeGateBoundary(t, mainRoot, mainRef) {
+  const g = { red: false, yellow: false, findings: [], reason: '' };
+  const dir = taskDirOf(tasksDirUnder(mainRoot), t.id);
+  const specP = path.join(dir, 'spec.md');
+  const specText = fs.existsSync(specP) ? fs.readFileSync(specP, 'utf8') : '';
+  const writeSet = parseWriteSet(specText);
   // 门二：越界（diff 文件集 ⊆ spec 声明集——治「改 A 没回归带坏 B」；v2.59.0 matchPath 化：目录声明尾 / 覆盖子孙——旧精确匹配下声明 src/auth/ 而 diff 含 src/auth/login.ts 必误红）
   const branch = t.branch ? String(t.branch) : null;
   if (branch && git(['-C', mainRoot, 'rev-parse', '--verify', `refs/heads/${branch}`], mainRoot, true)) {
@@ -1639,19 +1723,44 @@ function mergegateCmd(args = []) {
     const diffFiles = (git(['-C', mainRoot, '-c', 'core.quotePath=false', 'diff', '--no-renames', '--name-only', `${bBase}..${branch}`], mainRoot, true) ?? '').split('\n').filter(Boolean); // 对抗加固 RC1/RC2：重命名双名入清单+非 ASCII 不转义
     const declM = specText.match(DECL_LINE_RE); // 审查自证加固⑤：与 parseWriteSet 共用唯一正则（消双份静默分叉）
     if (!declM) {
-      console.log('⛔ 越界门红：spec 无「改动文件集合声明」行 → 按模板补节（templates/spec.md「边界与影响面」），把本任务会动的文件用反引号列全再过本门');
-      red++;
+      g.findings.push('⛔ 越界门红：spec 无「改动文件集合声明」行 → 按模板补节（templates/spec.md「边界与影响面」），把本任务会动的文件用反引号列全再过本门');
+      g.red = true;
+      g.reason = 'spec 无「改动文件集合声明」行';
     } else if (!writeSet.length) {
-      console.log('⛔ 越界门红：声明行在但无反引号路径（解析为空 = 全量误报，dogfood 自证）→ 每个文件路径用反引号包住（如 `src/a.ts` 或目录 `src/auth/`）再过本门');
-      red++;
+      g.findings.push('⛔ 越界门红：声明行在但无反引号路径（解析为空 = 全量误报，dogfood 自证）→ 每个文件路径用反引号包住（如 `src/a.ts` 或目录 `src/auth/`）再过本门');
+      g.red = true;
+      g.reason = '声明行在但无反引号路径';
     } else {
       const extras = diffFiles.filter((f) => !matchPath(f, writeSet));
       if (extras.length) {
-        console.log(`⛔ 越界门红：分支 diff 含声明集外文件 → ${extras.join('、')}。二选一：确属本任务范围 → spec 声明行补上（格式：每个文件路径用反引号包住，如 \`src/a.ts\` 或目录 \`src/auth/\`——matchPath：目录声明尾 / 覆盖子孙）+ node tf.mjs req-confirm ${id} --note "范围变更" 落痕；不属 → 收窄 diff（多余改动拆出另立任务）`);
-        red++;
-      } else console.log(`✓ 越界门绿：diff ${diffFiles.length} 文件全在声明集内（声明 ${writeSet.length} 项，matchPath 含目录前缀）`);
+        g.findings.push(`⛔ 越界门红：分支 diff 含声明集外文件 → ${extras.join('、')}。二选一：确属本任务范围 → spec 声明行补上（格式：每个文件路径用反引号包住，如 \`src/a.ts\` 或目录 \`src/auth/\`——matchPath：目录声明尾 / 覆盖子孙）+ node tf.mjs req-confirm ${t.id} --note "范围变更" 落痕；不属 → 收窄 diff（多余改动拆出另立任务）`);
+        g.red = true;
+        g.reason = `diff 含声明集外文件（${extras.length} 个）`;
+      } else {
+        g.findings.push(`✓ 越界门绿：diff ${diffFiles.length} 文件全在声明集内（声明 ${writeSet.length} 项，matchPath 含目录前缀）`);
+        g.reason = `diff ${diffFiles.length} 文件全在声明集内`;
+      }
     }
-  } else console.log('ℹ 越界门：分支不存在/未登记 → 跳过（无 diff 可比）');
+  } else {
+    g.findings.push('ℹ 越界门：分支不存在/未登记 → 跳过（无 diff 可比）');
+    g.reason = '分支不存在/未登记，跳过';
+  }
+  return g;
+}
+function mergegateCmd(args = []) {
+  const id = args.find((a) => !String(a).startsWith('--'));
+  if (!id) { console.error('用法：node tf.mjs mergegate <task-id>\n合并双门（MERGE_GATE）：①快照门（文件级分类）——main 现值 ≠ 审查快照时比对「main 变更 × 任务读写集」：命中=红（逐文件重审），未触碰=黄（同步合并+刷新快照免重审）；②越界门——分支 diff 文件超出 spec「改动文件集合声明」= 红（req-confirm 补声明或收窄 diff）。黄红均 exit 1；红灯不改任何状态。'); return 1; }
+  const { isGit, mainRoot, tasksDir } = locate();
+  if (!isGit) { console.error('⚠ 非 git 项目无门可跑'); return 1; }
+  const t = loadTasks(tasksDir).find((x) => x.id === id);
+  if (!t) { console.error(`⚠ 任务不存在：${id}`); return 1; }
+  const mainRef = resolveMainRef(mainRoot);
+  if (!mainRef) { console.error('⚠ 主分支不可解析'); return 1; }
+  const snap = mergeGateSnapshot(t, mainRoot, mainRef);
+  const bound = mergeGateBoundary(t, mainRoot, mainRef);
+  for (const f of snap.findings) console.log(f);
+  for (const f of bound.findings) console.log(f);
+  const red = (snap.red ? 1 : 0) + (bound.red ? 1 : 0);
   console.log(red ? `\nmergegate：${red} 门红——按上面指引处理后重跑（双绿才进 lock → mergegate 复跑 → merge --no-ff，merge.md 第 5 步）` : '\nmergegate：双门全绿——可进 lock → mergegate（幂等复跑）→ merge --no-ff（merge.md 第 5 步）');
   return red ? 1 : 0;
 }
@@ -1662,34 +1771,175 @@ function mergegateCmd(args = []) {
      无 id 全量扫 active/verifying。
    overlap（DISPATCH_OVERLAP）：读 subtasks/<n>/spec.md「## 涉及文件」反引号路径两两 matchPath 求交——
      重叠对 = 场景① 并行前提（写集两两不相交）不满足。只读；无子任务 ℹ exit 0。 */
+// stale 单任务检查（v2.69.0 抽取：staleCmd 与 gates 共用）——state: skip|drift|fresh|undeclared
+function staleCheck(t, mainRoot, mainRef, tasksDir) {
+  if (!t.baseCommit) return { state: 'skip', line: `ℹ ${t.id} 无基线锚（存量任务，v2.59.0 前建档）跳过` };
+  // 审查自证必修①：分支已并入 main 的任务跳过——自身 diff ⊆ 写集（门二保证）且落入 baseCommit..main 区间，
+  // 全量扫（merge.md 第 5 步合并落定后）对刚合并任务必报假阳性漂移、淹没真信号。
+  if (t.branch && isAnc(mainRoot, t.branch, mainRef)) return { state: 'skip', line: `ℹ ${t.id} 分支已并入 ${mainRef}，stale 跳过（自身变更已在主线）` };
+  const dir = taskDirOf(tasksDir, t.id);
+  const specP = path.join(dir, 'spec.md');
+  const specText = fs.existsSync(specP) ? fs.readFileSync(specP, 'utf8') : '';
+  const rw = [...new Set([...parseWriteSet(specText), ...parseReadSet(specText)])];
+  const changedOut = git(['-C', mainRoot, '-c', 'core.quotePath=false', 'diff', '--no-renames', '--name-only', `${t.baseCommit}..${mainRef}`], mainRoot, true); // 对抗加固 RC1/RC2：重命名双名+非 ASCII 路径不转义
+  if (changedOut === null) return { state: 'drift', line: `⚠ ${t.id} git diff ${String(t.baseCommit).slice(0, 7)}..${mainRef} 失败（基线不可达 / main 历史改写？）→ 人工核对，不以空清单判新鲜` }; // 审查自证加固④：git 失败禁当新鲜
+  const overlap = changedOut.split('\n').filter(Boolean).filter((f) => matchPath(f, rw));
+  if (overlap.length) return { state: 'drift', line: `⚠ ${t.id} 影响面漂移：main 自基线 ${String(t.baseCommit).slice(0, 7)} 改了 ${overlap.join('、')}——命中读写集，重验 spec 影响面地图对应行再动工` };
+  if (rw.length) return { state: 'fresh', line: `✓ ${t.id} 影响面新鲜（main 自基线 ${String(t.baseCommit).slice(0, 7)} 未触碰读写集）` };
+  return { state: 'undeclared', line: `ℹ ${t.id} 影响面无机读声明（声明行/资产列均无反引号），未参与体检（防假绿——与门一禁静默同哲学）` }; // 审查自证加固③
+}
 function staleCmd(args = []) {
   const id = args.find((a) => !String(a).startsWith('--'));
   const { isGit, mainRoot, tasksDir } = locate();
   if (!isGit) { console.error('⚠ 非 git 项目无基线可比'); return 1; }
-  const mainRef = ['main', 'master', 'origin/main'].find((r) => git(['-C', mainRoot, 'rev-parse', '--verify', r], mainRoot, true));
+  const mainRef = resolveMainRef(mainRoot);
   if (!mainRef) { console.error('⚠ 主分支不可解析'); return 1; }
   const all = loadTasks(tasksDir);
   const targets = id ? all.filter((x) => x.id === id) : all.filter((x) => x.status === 'active' || x.status === 'verifying');
   if (id && !targets.length) { console.error(`⚠ 任务不存在：${id}`); return 1; }
   let drift = 0;
   for (const t of targets) {
-    if (!t.baseCommit) { console.log(`ℹ ${t.id} 无基线锚（存量任务，v2.59.0 前建档）跳过`); continue; }
-    // 审查自证必修①：分支已并入 main 的任务跳过——自身 diff ⊆ 写集（门二保证）且落入 baseCommit..main 区间，
-    // 全量扫（merge.md 第 5 步合并落定后）对刚合并任务必报假阳性漂移、淹没真信号。
-    if (t.branch && isAnc(mainRoot, t.branch, mainRef)) { console.log(`ℹ ${t.id} 分支已并入 ${mainRef}，stale 跳过（自身变更已在主线）`); continue; }
-    const dir = fs.existsSync(path.join(tasksDir, t.id)) ? path.join(tasksDir, t.id) : path.join(tasksDir, 'archive', t.id);
-    const specP = path.join(dir, 'spec.md');
-    const specText = fs.existsSync(specP) ? fs.readFileSync(specP, 'utf8') : '';
-    const rw = [...new Set([...parseWriteSet(specText), ...parseReadSet(specText)])];
-    const changedOut = git(['-C', mainRoot, '-c', 'core.quotePath=false', 'diff', '--no-renames', '--name-only', `${t.baseCommit}..${mainRef}`], mainRoot, true); // 对抗加固 RC1/RC2：重命名双名+非 ASCII 路径不转义
-    if (changedOut === null) { console.log(`⚠ ${t.id} git diff ${String(t.baseCommit).slice(0, 7)}..${mainRef} 失败（基线不可达 / main 历史改写？）→ 人工核对，不以空清单判新鲜`); drift++; continue; } // 审查自证加固④：git 失败禁当新鲜
-    const changed = changedOut.split('\n').filter(Boolean);
-    const overlap = changed.filter((f) => matchPath(f, rw));
-    if (overlap.length) { console.log(`⚠ ${t.id} 影响面漂移：main 自基线 ${String(t.baseCommit).slice(0, 7)} 改了 ${overlap.join('、')}——命中读写集，重验 spec 影响面地图对应行再动工`); drift++; }
-    else if (rw.length) console.log(`✓ ${t.id} 影响面新鲜（main 自基线 ${String(t.baseCommit).slice(0, 7)} 未触碰读写集）`);
-    else console.log(`ℹ ${t.id} 影响面无机读声明（声明行/资产列均无反引号），未参与体检（防假绿——与门一禁静默同哲学）`); // 审查自证加固③
+    const c = staleCheck(t, mainRoot, mainRef, tasksDir);
+    console.log(c.line);
+    if (c.state === 'drift') drift++;
   }
   return drift ? 1 : 0;
+}
+
+/* ---------------- revert-plan：Saga 补偿方案生成器（只读不执行，v2.69.0）----------------
+   治「已合并代码要撤回时临场拍脑袋」：merged 是终态（禁手改 status 回退），撤销已合并代码唯一合规
+   路径 = git revert -m 1（data.md 撤销纪律：硬规则 1 禁 reset --hard/force push，--no-ff 保证可 revert）。
+   本命令只生成方案文件（逐条 revert 命令 + 档案注记 + 红线），绝不执行任何 git 写操作——
+   破坏性动作须用户逐条确认；档案注记（unmergedAt）执行后人工落痕。 */
+function revertPlanCmd(args = []) {
+  const id = args.find((a) => !String(a).startsWith('--'));
+  if (!id) {
+    console.error('用法：node tf.mjs revert-plan <task-id>\n为 merged 任务生成回退方案 <taskDir>/revert-plan.md（Saga 补偿：逐条 git revert -m 1 <merge-commit> + 档案注记 + 红线）。只读不执行——执行需用户逐条确认。\n非 merged 任务不适用：active/verifying 的打回走 resume.md 第 9 步（打回 ≠ 回退已合并代码）。');
+    return 1;
+  }
+  const { isGit, mainRoot, tasksDir } = locate();
+  const t = loadTasks(tasksDir).find((x) => x.id === id);
+  if (!t) { console.log(`未找到任务 ${id}（跑 ls 查看列表）`); return 1; }
+  if (t.status !== 'merged') { console.log(`⚠ ${id} 状态 ${t.status}（非 merged）——补偿方案只适用于已合并任务；active/verifying 的打回走 resume.md 第 9 步`); return 1; }
+  if (!isGit) { console.log('⚠ 非 git 项目无回退对象'); return 1; }
+  const dir = taskDirOf(tasksDir, id);
+  const targetRef = git(['-C', mainRoot, 'rev-parse', '--verify', 'origin/main'], mainRoot, true) ? 'origin/main' : resolveMainRef(mainRoot);
+  if (!targetRef) { console.log('⚠ 主分支不可解析——无从定位合并区间'); return 1; }
+  const base = t.baseCommit ?? t.mergeSnapshot?.commit ?? null;
+  const branch = t.branch ?? null;
+  // 候选 merge commits：base..target 区间内所有 merge，再按「第二父提交与任务分支同源」过滤出本任务的合并点
+  let merges = [];
+  let note = '';
+  if (!base) {
+    note = '无 baseCommit/mergeSnapshot 基线在档——回退区间不可机械界定，人工 `git log --merges --oneline` 核对';
+  } else {
+    const rangeOut = git(['-C', mainRoot, 'log', '--merges', '--ancestry-path', '--oneline', `${base}..${targetRef}`], mainRoot, true) ?? '';
+    const candidates = rangeOut.split('\n').filter(Boolean).map((l) => ({ sha: l.split(' ')[0], subject: l.slice(l.indexOf(' ') + 1) }));
+    if (branch) {
+      for (const m of candidates) {
+        const parents = (git(['-C', mainRoot, 'rev-list', '--parents', '-n', '1', m.sha], mainRoot, true) ?? '').split(/\s+/).slice(1).filter(Boolean);
+        const p2 = parents[1];
+        // 第二父提交与本任务分支同源（任一可达另一）= 这次 merge 带入的是本任务的工作线
+        if (p2 && (isAnc(mainRoot, branch, p2) || isAnc(mainRoot, p2, branch))) merges.push(m);
+      }
+      if (!merges.length) note = candidates.length ? '区间内有 merge 但均非本任务分支的第二父——疑似 squash/ff 合并，未检出本任务 merge commit，回退=按 main 变更文件人工逆向或删任务分支' : '未检出 merge commit，回退=删任务分支（确认未并入后）';
+    } else {
+      merges = candidates;
+      note = '任务无分支记录（attached 工作流）——以上为区间内全部 merge，逐条人工核对是否本任务产出';
+    }
+  }
+  const ts = new Date().toISOString();
+  const short = (s) => String(s ?? '').slice(0, 7);
+  const lines = [];
+  lines.push(`# 回退方案 — ${id}（${t.title ?? ''}）`);
+  lines.push('');
+  lines.push(`> 生成时刻 ${ts}；分支 ${branch ?? '（无）'}；基线 ${base ? short(base) : '（无）'}；对账 ref ${targetRef}。`);
+  lines.push('> 本文件由 tf.mjs revert-plan 生成（只读）——**未执行任何 git 写操作**，执行前逐条与用户确认。');
+  lines.push('');
+  lines.push('## 状态快照（生成时原文）');
+  lines.push(`- status: ${t.status}（终态——回退代码不回退档案，禁手改 status）`);
+  lines.push(`- mergedAt: ${t.mergedAt ?? '—'}`);
+  if (t.deploy?.rollbackPoint) lines.push(`- deploy.rollbackPoint: ${t.deploy.rollbackPoint}`);
+  if (t.deploy?.version) lines.push(`- deploy.version: ${t.deploy.version}（回退代码后须从 ${targetRef} 重建替换包重部署：node tf.mjs deploy --branch ${resolveMainRef(mainRoot) ?? 'main'}）`);
+  if (t.mergeSnapshot?.commit) lines.push(`- mergeSnapshot: ${short(t.mergeSnapshot.commit)} @ ${t.mergeSnapshot.mainRef ?? 'main'}`);
+  lines.push('');
+  lines.push('## 逐条补偿命令（自新向旧，每条执行前确认）');
+  if (merges.length) {
+    merges.forEach((m, i) => lines.push(`${i + 1}. \`git revert -m 1 ${m.sha}\`  # ${m.subject}`));
+    lines.push('');
+    lines.push('撤销纪律（data.md：硬规则 1）：禁 reset --hard / force push；--no-ff 合并保证可 revert；revert 产生新提交，历史不改写。');
+  } else {
+    lines.push(`（${note || '未检出 merge commit，回退=删任务分支'}）`);
+  }
+  lines.push('');
+  lines.push('## 档案注记（执行回退后人工落痕）');
+  lines.push(`- task.json 手记 \`unmergedAt\`（时刻）与原因一行；status 保持 merged 终态**不回退**（merged→active 是状态倒退，J 墙/状态机均拒）。`);
+  lines.push('- 续迭代走 resume.md 第 10 步新任务，不复活旧档案。');
+  lines.push('');
+  lines.push('## 红线');
+  lines.push('- 共享分支（他人/main）禁 `git branch -D` / force push；任务自家分支删除属用户确认后的例外（data.md 状态机表撤销列）。');
+  lines.push('- 回退后线上包从 main 重建重部署（双包事故形态：旧分支包继续跑 = 滚回倒计时）。');
+  lines.push('');
+  lines.push('本方案由 tf.mjs 生成，未执行任何 git 写操作——执行需用户逐条确认');
+  const planP = path.join(dir, 'revert-plan.md');
+  fs.writeFileSync(planP, lines.join('\n') + '\n');
+  console.log(`✓ 回退方案已生成：${planP}（${merges.length ? `${merges.length} 条 git revert -m 1 候选` : note || '未检出 merge commit'}）；未执行任何 git 写操作`);
+  return 0;
+}
+
+/* ---------------- gates：门责任链聚合（只读，v2.69.0）----------------
+   把散在 mergegate/stale/accept 前置/doctor I16 的五道合并相关门一次跑完，统一「门名：过/红/黄——一句原因」
+   表输出 + verdict 收尾。不改任何状态；不替代 mergegate 的处置指引（mergegate 输出逐门完整修复路径）。 */
+function gatesCmd(args = []) {
+  const id = args.find((a) => !String(a).startsWith('--'));
+  if (!id) { console.error('用法：node tf.mjs gates <task-id>\n门责任链聚合（只读）：快照门/越界门/分支已并入预检/stale/I16 敞口 五道门一次跑完，尾行 verdict。不改任何状态；逐门完整处置指引跑 mergegate。'); return 1; }
+  const { isGit, mainRoot, tasksDir } = locate();
+  if (!isGit) { console.error('⚠ 非 git 项目无门可跑'); return 1; }
+  const t = loadTasks(tasksDir).find((x) => x.id === id);
+  if (!t) { console.error(`⚠ 任务不存在：${id}`); return 1; }
+  const mainRef = resolveMainRef(mainRoot);
+  if (!mainRef) { console.error('⚠ 主分支不可解析'); return 1; }
+  const rows = [];
+  const snap = mergeGateSnapshot(t, mainRoot, mainRef);
+  rows.push(['快照门', snap]);
+  const bound = mergeGateBoundary(t, mainRoot, mainRef);
+  rows.push(['越界门', bound]);
+  if (t.branch) {
+    const mm = isMergedIntoMain(t, mainRoot);
+    rows.push(['已并入预检', mm.merged === false
+      ? { red: true, yellow: false, reason: `分支未并入主分支（${mm.mainRefs.join('/')}）` }
+      : mm.merged === true
+        ? { red: false, yellow: false, reason: '分支可达主 ref（合并事实在档）' }
+        : { red: false, yellow: false, reason: '主 ref 不可解析，无法机械校验' }]);
+  } else {
+    rows.push(['已并入预检', { red: false, yellow: false, reason: '无分支记录（attached 工作流），合并事实由编排层确认' }]);
+  }
+  const sc = staleCheck(t, mainRoot, mainRef, tasksDir);
+  rows.push(['stale', {
+    red: sc.state === 'drift',
+    yellow: false,
+    reason: sc.state === 'drift' ? sc.line.replace(/^⚠ /, '')
+      : sc.state === 'fresh' ? '影响面新鲜（main 未触碰读写集）'
+        : sc.state === 'undeclared' ? '影响面无机读声明（防假绿不参与体检）'
+          : sc.line.replace(/^ℹ /, ''),
+  }]);
+  let i16;
+  if (!isVerifying(t)) i16 = { red: false, yellow: false, reason: '非等验收态，不适用' };
+  else if (!t.deploy?.deployedAt || !t.branch) i16 = { red: false, yellow: false, reason: '等验收但无部署在档（未走 --deployed 登记？）' };
+  else {
+    const inMain = ['origin/main', 'main', 'master'].some((r) => isAnc(mainRoot, t.branch, r));
+    const hrs = Math.floor((Date.now() - Date.parse(t.deploy.deployedAt)) / 3600000);
+    i16 = !inMain && hrs > 24
+      ? { red: true, yellow: false, reason: `已部署未合并 main ${hrs}h（超 24h 敞口——线上跑分支包，收口链 merge→重部署→accept）` }
+      : { red: false, yellow: false, reason: inMain ? '已部署内容已进 main（敞口关闭）' : `已部署未合并 main ${hrs}h（24h 容忍窗口内）` };
+  }
+  rows.push(['I16 敞口', i16]);
+  console.log(`# 门责任链 — ${id}（${t.status}）`);
+  for (const [name, g] of rows) console.log(`${name}：${g.red ? '红' : g.yellow ? '黄' : '过'}——${g.reason}`);
+  const red = rows.filter(([, g]) => g.red).length;
+  const yellow = rows.filter(([, g]) => g.yellow).length;
+  console.log(`gates verdict：${red} 红 ${yellow} 黄——${red ? '先消化红灯' : yellow ? '可进合并（先按黄项同步/刷新快照）' : '可进合并'}`);
+  return red ? 1 : 0;
 }
 function overlapCmd(args = []) {
   const id = args.find((a) => !String(a).startsWith('--'));
@@ -1865,12 +2115,14 @@ function commitCmd(args = []) {
       const dir = fs.existsSync(path.join(tasksDir, t.id)) ? path.join(tasksDir, t.id) : path.join(tasksDir, 'archive', t.id);
       try {
         const fresh = JSON.parse(fs.readFileSync(path.join(dir, 'task.json'), 'utf8'));
+        const prevStatus = fresh.status; // 事件判定基线：仅真翻转记事件（verifying 注记分支/拒绝分支不记）
         if (fresh.status === 'verifying') {
           fresh.deploy = { ...(fresh.deploy ?? {}), status: 'verifying', ...(deployNote ? { note: deployNote } : {}) };
           console.log(`ℹ ${t.id} 已是 verifying——仅更新部署注记`);
         } else if (fresh.status !== 'active') {
           console.log(`⚠ --deployed：${t.id} 状态为 ${fresh.status}（非 active）——拒绝翻转（merged/archived 无验收可言）`);
         } else {
+          assertTransition(fresh.status, 'verifying', 'commit --deployed');
           fresh.status = 'verifying';
           fresh.deploy = { status: 'verifying', deployedAt: new Date().toISOString(), ...(deployNote ? { note: deployNote } : {}) };
           console.log(`✓ ${t.id} active → verifying（部署待验收）`);
@@ -1878,6 +2130,7 @@ function commitCmd(args = []) {
         fresh.lastActiveAt = new Date().toISOString();
         fs.writeFileSync(path.join(dir, 'task.json'), JSON.stringify(fresh, null, 2));
         syncIndexRow(tasksDir, fresh);
+        if (prevStatus !== fresh.status) appendEvent(tasksDir, { task: t.id, from: prevStatus, to: fresh.status, cmd: 'commit --deployed' });
         console.log(`📌 待你验收：node tf.mjs accept ${t.id}`);
       } catch { console.log('⚠ --deployed 状态翻转失败（task.json 读写异常）——提交已成功，请人工补状态'); }
     }
@@ -2155,6 +2408,7 @@ function archiveCmd(args = []) {
     }
     const dst = path.join(archDir, t.id);
     if (src !== dst) fs.renameSync(src, dst);
+    appendEvent(tasksDir, { task: t.id, event: 'archive-moved' }); // 观察者事件：归层无 status 变更，只记动作（v2.69.0）
     console.log(`✓ ${t.id}${src === dst ? '（journal 归位）' : ` → archive/${movedJ ? `（journal 归位 ${movedJ} 件）` : ''}`}`);
     // managed worktree 清理（I5 的执行半边——棘轮：归档后残留第二次实证 2026-09-23，编排在 merge.md §8 但脚本从未接线）
     if (dead(t) && t.anchor === 'managed' && t.worktree && fs.existsSync(t.worktree)
@@ -2186,7 +2440,7 @@ const USAGE = `用法：
   node tf.mjs doctor [--all] [--self] [--data <path>] [task-id]  体检：不变量逐条检查（缺省=active/verifying + 根层死任务，--all 含 archive/ 内 merged）；--self=不变量 spec↔注册表↔实现 三源一致性（--data 指 spec 副本，测试用）（只读）
   node tf.mjs reconcile [--fix]         对账：I1 回写/幽灵清理/损坏报告；默认 dry-run，--fix=原子回写（唯一写命令，幂等）
   node tf.mjs scout <关键词…> [--files]  历史检索：约定→决策库→任务档案→git 考古；命中=线索，判断归模型（只读）
-  node tf.mjs skills [领域词]           领域技能在场检测：缺哪些+怎么装；呈用户选装（不装则如实注记）（只读）
+  node tf.mjs skills [领域词]           领域技能在场检测：缺哪些+怎么装；呈用户选装（不装则如实注记）（只读）；--usage=技能加载埋点报表（TF_SKILL_USAGE 单文件聚合，仅 omp 侧显式 skill:// 加载计数）
   node tf.mjs accept <task-id> [--pass]  缺省=验收简报：任务是什么/部署状态/验什么/怎么验/怎么回复；--pass=机械翻转 *→merged（前置=分支已并入主分支，幂等）
   node tf.mjs takeover <task-id> --session <本会话ID>  接管仪式：改 sessionID + 重写 .owner.json + 刷新 lease + 打印桌面清点清单（清点判断归编排层）
   node tf.mjs park <task-id> --reason "<原因>"   搁置在途任务（active→parked，簿记写入口）——档案保留、体检（缺省）与 G 门不再盘点；等验收中（含部署态）拒
@@ -2199,6 +2453,8 @@ const USAGE = `用法：
   node tf.mjs lock <name> [--release] [--session <本会话ID>] [--ttl <秒=120>]  排队锁：合并端局等关键窗口串行化（他人新鲜锁 → 拒绝排队；陈旧 → 强占；--release 释放/幂等）
   node tf.mjs snapshot <task-id>            合并快照：审查呈报后拍 main HEAD（事务 ID 类比）写入 task.json.mergeSnapshot
   node tf.mjs mergegate <task-id>           合并双门（MERGE_GATE）：①快照门（文件级分类）——main 现值≠审查快照时比对「main 变更×任务读写集」：命中=红（逐文件重审）、未触碰=黄（同步合并+刷新快照免第 3 步重审；黄红均 exit 1）；②越界门——分支 diff 超出 spec「改动文件集合声明」（matchPath 目录前缀）=红（req-confirm 补声明或收窄）
+  node tf.mjs gates <task-id>               门责任链聚合（只读）：快照/越界/已并入预检/stale/I16 敞口 五道门一次跑完，统一「门名：过/红/黄——一句原因」表+verdict 收尾；逐门完整处置指引跑 mergegate
+  node tf.mjs revert-plan <task-id>         Saga 补偿方案生成器（只读不执行）：为 merged 任务生成逐条 git revert -m 1 方案落 <taskDir>/revert-plan.md（含档案注记与红线）；非 merged 拒（active/verifying 打回走 resume.md 第 9 步）；执行需用户逐条确认
   node tf.mjs stale [task-id]              在途任务失效感知（STALE_CHECK，v2.59.0）：main 自任务基线 baseCommit 的改动 × 本任务读写集（写集声明∪影响面地图反引号资产）求交——命中=影响面漂移，先重验 spec 影响面地图对应行再动工；无 id 全量扫 active/verifying；无基线锚/分支已并入 main/无机读声明均 ℹ 降级（只读，不改任何状态）
   node tf.mjs overlap <task-id>            并行派发准入预检（DISPATCH_OVERLAP，v2.59.0）：子任务 spec「## 涉及文件」反引号路径两两 matchPath 求交——重叠对=不准并行（场景① 前提=写集两两不相交：改串行/调整拆分边界/呈用户仲裁）；无子任务 ℹ exit 0（只读）
   node tf.mjs deploy --branch <部署分支> [--web-only] [--dry-run] [--version V]  部署唯一入口：门禁（deploy-preflight）内嵌，红=拒绝；部署后自动 --record 登记（project.json deploy 配置命令序列；deploy.procProbe 可选=进程清点探针命令，透传 --proc-probe）
@@ -2208,6 +2464,8 @@ const USAGE = `用法：
   node tf.mjs svc claim <service> --port <p> [--task <id>] [--session <ses>] [--pid <pid>] [--note <注记>]  声明端口：空闲→登记；被占→拒绝+报告占用者+建议让位（绝不 kill）；同 task 重跑→补登/回收死租约（簿记写入口）
   node tf.mjs svc release <port>           释放端口租约（停服动作归编排层；不在册拒绝；簿记写入口）
   node tf.mjs lint                         流程文档自检：步骤引用/编号连续/兼容标注/闸门关键词/未入库引用/机制触点可达/机制fixture落痕/事实禁改写/模板中性（只读）
+  环境变量 TF_STATUS=<off|warn|enforce>    守门 J 状态翻转墙档位（v2.69.0；缺省 enforce——手改 task.json/index.json 的 status 物理拦截，翻转唯一写路径是扳机命令，档案修复走 reconcile --fix；off=单次豁免）
+  环境变量 TF_VERIFY_WARN=off              关闭守门 K 验收期提醒（v2.69.0；git push/merge 时在档等验收任务的时序核对提醒，缺省开，提醒不拦）
   node tf.mjs mech ls                      机制采纳清单：token/状态（已装/可装/漂移）+ 产物（只读；真相源=机制登记表「采纳产物」列）
   node tf.mjs mech check                   机制采纳对账：每机制 token/已装版本/当前版本/状态（一致|漂移|未装）；声明采纳者有漂移 → exit 1（统一谓词，doctor 采纳对账同源；只读）
   node tf.mjs mech install <token> [--yes] 机制生成安装：assets/harness+design 模板渲染入项目（assetExts 注入）+ docs/CHANGELOG.md 建档锚点 + conventions/AGENTS 补记 + project.json.mechanisms 登记（簿记写入口；幂等；CI 挂点只建议不自动改——经确认门写入）。确认闸（v2.65.0）：已装版本漂移刷新或将整文件覆盖已有文件 → 拒绝落盘并打印将覆盖文件清单，显式 --yes 才执行；首装空位不拦（懒加载，首装确认归 DEP_ASK_GATE 呈报流程）
@@ -2809,6 +3067,8 @@ if (cmd === 'lock') process.exit(lockCmd(rest));
 if (cmd === 'snapshot') process.exit(snapshotCmd(rest));
 if (cmd === 'mergegate') process.exit(mergegateCmd(rest));
 if (cmd === 'stale') process.exit(staleCmd(rest)); // STALE_CHECK（v2.59.0）：在途任务影响面漂移检查，只读
+if (cmd === 'revert-plan') process.exit(revertPlanCmd(rest)); // Saga 补偿方案生成器（v2.69.0）：merged 任务的 revert 方案，只读不执行
+if (cmd === 'gates') process.exit(gatesCmd(rest)); // 门责任链聚合（v2.69.0）：五道合并相关门一次跑完，只读
 if (cmd === 'overlap') process.exit(overlapCmd(rest)); // DISPATCH_OVERLAP（v2.59.0）：并行派发写集求交预检，只读
 if (cmd === 'deploy') process.exit(deployCmd(rest));
 if (cmd === 'migrate') process.exit(migrateCmd());

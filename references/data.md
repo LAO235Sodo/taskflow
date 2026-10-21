@@ -96,6 +96,7 @@ status 取值：`active` / `verifying` / `parked` / `merged` / `archived`。
 
 - **合并回退的合规路径**：硬规则 1 禁 reset --hard/force push → 撤回已合并代码只能 `git revert -m 1 <merge-commit>`（--no-ff 保证可 revert），档案保持 merged 终态叙事 + unmergedAt 注记；下一轮走 resume.md 第 10 步新任务，**禁手改 status 回 active**（merged→active 是状态倒退）。
 - 翻转命令三源对照：active→verifying = `commit --deployed`；*→merged = `accept --pass`；归层 = `archive`。手改 task.json/index.json 的 status 字段 = 违规（I1 漂移根因，v2.18.2/v2.19.0 两次实证）。
+- 机器可读源：scripts/taskflow-state-machine.mjs（v2.69.0——本表 7 行的代码镜像，tf.test.mjs 对账两者一致；宿主守门 J 墙快照同源，漂移由 mech check 兜底）。
 
 ## task.json（L2）
 

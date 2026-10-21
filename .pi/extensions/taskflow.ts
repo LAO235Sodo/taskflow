@@ -21,10 +21,13 @@
 //   1. 警告档降级：pi 的 tool_call 结果只有 block/reason/terminate（无 additionalContext，
 //      pi types.d.ts ToolCallEventResult）——A/G 的默认警告档在 pi 下实现为「拦截 + reason 尾附
 //      TF_WALL=off / TF_BOUND=off 重试指引」：比 omp 警告档多一次重试往返，语义更保守不更松；
-//      off/enforce 两档与 omp 完全一致。
+//      off/enforce 两档与 omp 完全一致。J 门（v2.69.0）同理：TF_STATUS=warn 档在 pi 降级为
+//      enforce-only（拦截 + 说明注记），off/enforce 与 omp 一致。
 //   2. 未移植（留后续版本）：B2 web-only 提醒（依赖 additionalContext）、E 输出规范注入、F 派发门
 //      （依赖 pi-subagents 实际工具名锚定，需单独验证）、H 报告提醒（依赖 omp task-result 信封形态）、
-//      I 词表反馈沉淀。
+//      I 词表反馈沉淀、K 验收期 git 提醒（v2.69.0，依赖 additionalContext）、E 实况状态行（v2.69.0，
+//      依赖 omp 版 before_provider_request 的 system 注入口形态）、T 技能埋点（v2.69.0，依赖 omp
+//      read 工具面与 skill:// 路径形态）。
 //   3. 采纳闸：同 project.json.mechanisms.TASKFLOW_GUARD——B/A/G/D 与 omp 版共用同一登记，双宿主一闸；
 //      映射注入与 C 接力不受闸控（不是强制力，是技能可读性，零干扰边界=项目内有 .taskflow）。
 import { execFileSync } from "node:child_process";
@@ -48,6 +51,49 @@ function readJsonSafe(p) { try { return JSON.parse(fs.readFileSync(p, 'utf8')); 
 
 // 路径基归一：git rev-parse 返回真实路径，path.resolve 保留符号链接——两端基不一致时比对恒错（omp 版 v2.49.1 实证）
 const realPath = (p) => { let cur = p; const suffix = []; for (;;) { try { return path.join(fs.realpathSync(cur), ...suffix); } catch { /* 该层不存在，上爬 */ } suffix.unshift(path.basename(cur)); const parent = path.dirname(cur); if (parent === cur) return p; cur = parent; } };
+
+// ---- J：状态翻转墙（v2.69.0 自 omp 版 1:1 同步）----
+// 机器快照与 scripts/taskflow-state-machine.mjs TRANSITIONS、assets/guard/taskflow-guard.js STATE_SNAPSHOT
+// 三处同源——改状态机必同步；版本漂移由 mech check 兜底。
+const STATE_SNAPSHOT = {
+  states: ['active', 'verifying', 'parked', 'merged', 'archived'],
+  legal: [ // [from, to] 白名单（from null=建档前）；archive 是物理归层无 status 翻转，不入本表
+    [null, 'active'], ['active', 'verifying'], ['active', 'merged'],
+    ['active', 'parked'], ['parked', 'active'], ['verifying', 'merged'],
+  ],
+};
+// 判定与 omp 版逐字同源：旧不存在（新建档案）仅 status=active 放行；坏 JSON 视同违规；
+// 顶层 status 或 deploy.status 任一变化即翻转。返回 null=放行，否则违规原因串。
+function judgeStatusFlip(abs, event) {
+  const oldJ = readJsonSafe(abs);
+  const toText = () => {
+    if (event.toolName === 'write') return typeof event.input?.content === 'string' ? event.input.content : null;
+    const disk = (() => { try { return fs.readFileSync(abs, 'utf8'); } catch { return null; } })();
+    if (disk === null) return null;
+    const os = event.input?.old_string; const ns = event.input?.new_string;
+    if (typeof os !== 'string' || typeof ns !== 'string') return null;
+    return disk.split(os).join(ns); // edit 语义模拟：字面替换（替换不命中=新内容=旧内容=放行）
+  };
+  let newJ = null;
+  try { newJ = JSON.parse(toText()); } catch { /* 坏 JSON */ }
+  const show = (v) => (v === undefined || v === null ? '（无）' : String(v));
+  const tail = `违规（data.md 状态机表：翻转唯一写路径 commit --deployed / accept --pass / park / unpark / archive；档案修复走 node tf.mjs reconcile --fix）。单次豁免：命令前加 TF_STATUS=off`;
+  if (!newJ || typeof newJ !== 'object') {
+    return `TASKFLOW_GUARD J 状态翻转墙：${abs} 新内容解析失败（坏档案）——${tail}`;
+  }
+  const fromS = oldJ?.status; const toS = newJ.status;
+  const fromD = oldJ?.deploy?.status; const toD = newJ.deploy?.status;
+  if (!oldJ) {
+    if (toS === 'active' && toD !== 'verifying') return null;
+    return `TASKFLOW_GUARD J 状态翻转墙：${abs} 新建档案 status ${show(toS)} 非法（仅 active 可建档）——${tail}`;
+  }
+  if (fromS === toS && fromD === toD) return null;
+  const flips = [];
+  if (fromS !== toS) flips.push(`status ${show(fromS)}→${show(toS)}`);
+  if (fromD !== toD) flips.push(`deploy.status ${show(fromD)}→${show(toD)}`);
+  const legal = STATE_SNAPSHOT.legal.some(([f, t]) => f === fromS && t === toS);
+  return `TASKFLOW_GUARD J 状态翻转墙：${abs} ${flips.join(' + ')} ${legal ? '' : '（该翻转亦不在状态机白名单）'}——${tail}`;
+}
 
 // 采纳闸：mechanisms.TASKFLOW_GUARD 登记（双宿主一闸；卸载=删文件或清登记皆可）
 function guardOn(cwd) {
@@ -112,6 +158,15 @@ function bashGate(event, ctx) {
     return mode === 'enforce'
       ? { block: true, reason: why }
       : { block: true, reason: `${why}\n（pi 适配器警告档说明：pi 的工具拦截结果没有「放行但附警告」通道，默认档以拦截+本指引代替 omp 版的警告放行——确要执行就按上面加 TF_WALL=off 重跑同一条命令。）` };
+  }
+  // J bash 通道（v2.69.0 自 omp 版同步）：重定向/tee/sed -i 触及任务档案且非 tf.mjs 命令 = 疑似手改 status。
+  // bash 写入整文件覆盖无法做翻转前后比对，按 TF_STATUS 档处理（pi 无警告通道：warn 降级 enforce-only）。
+  if (!cmd.includes('tf.mjs') && /(>|>>|\btee\s|\bsed\s+-i)[^|;&]*(task\.json|index\.json)/.test(cmd)) {
+    const modeJ = process.env.TF_STATUS;
+    if (modeJ !== 'off' && locateTasksDir(ctx?.cwd)) {
+      const why = 'TASKFLOW_GUARD J 状态翻转墙：bash 重定向/tee/sed 触及任务档案（task.json/index.json）——手改 status = 违规（data.md 状态机表：翻转唯一写路径 commit --deployed / accept --pass / park / unpark / archive；档案修复走 node tf.mjs reconcile --fix）。单次豁免：命令前加 TF_STATUS=off';
+      return { block: true, reason: modeJ === 'warn' ? `${why}\n（pi 适配器：TF_STATUS=warn 档在此降级为 enforce-only——无警告放行通道，确要执行加 TF_STATUS=off 重跑。）` : why };
+    }
   }
   if (cmd.includes('tf.mjs')) {
     // B1 --files 空格分隔 = 调用即红（无警告档，双宿主一致）
@@ -192,6 +247,17 @@ function editGate(event, ctx) {
   if (!dir) return undefined; // 零干扰边界
   const mainRoot = realPath(path.dirname(dir));
   const abs = realPath(path.resolve(cwd ?? process.cwd(), rawN)); // realpath 失败（新文件不存在）保 resolve 原值
+  // J 状态翻转墙（v2.69.0 自 omp 版同步）：先于 G 边界门——G 的簿记白名单会放行 .taskflow 内编辑，status 手改必须先在这里拦
+  const bname = path.basename(abs);
+  if ((bname === 'task.json' || bname === 'index.json') && abs.startsWith(dir + path.sep)) {
+    const whyJ = judgeStatusFlip(abs, event);
+    if (whyJ) {
+      const modeJ = process.env.TF_STATUS;
+      if (modeJ !== 'off') {
+        return { block: true, reason: modeJ === 'warn' ? `${whyJ}\n（pi 适配器：TF_STATUS=warn 档在此降级为 enforce-only——无警告放行通道，确要执行加 TF_STATUS=off 重试同一条编辑。）` : whyJ };
+      }
+    }
+  }
   const idx = readJsonSafe(path.join(dir, 'index.json'))?.tasks ?? [];
   const live = idx.filter((t) => t?.status === 'active' || t?.status === 'verifying');
   if (!live.length) return undefined;

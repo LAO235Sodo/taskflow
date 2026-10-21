@@ -2367,6 +2367,155 @@ try {
     ok(cRG.status === 0 && cRG.stdout.includes('基线对照门'), 'validate-changelog 串接：基线对照门入收尾链全过');
   }
 
+  // ---- 2.69.0：状态机机器源 + 事件日志 + revert-plan + gates + 守门 J 墙/K/E/T + skills --usage ----
+  {
+    // 状态机模块（纯函数直测）+ data.md 表对账 + STATUS 键集合一致
+    const sm = await import('file://' + path.join(path.dirname(script), 'taskflow-state-machine.mjs'));
+    ok(sm.STATES.length === 5 && sm.STATES.join(',') === 'active,verifying,parked,merged,archived', 'v2.69.0 状态机模块：STATES 五态枚举（archived 兼容保留，脚本从不写入）');
+    ok(sm.TRANSITIONS.length === 7, 'v2.69.0 状态机模块：TRANSITIONS 7 行（对齐 data.md 状态机表）');
+    for (const r of sm.TRANSITIONS) ok(sm.validateTransition(r.from, r.to, r.cmd).ok === true, `v2.69.0 validateTransition 合法路：${r.from ?? '（无）'}→${r.to} via ${r.cmd}`);
+    for (const [f, t2, c, tag] of [['parked', 'verifying', 'commit --deployed', 'parked→verifying'], ['verifying', 'parked', 'park', 'verifying→parked'], ['merged', 'active', 'unpark', 'merged→active'], ['active', 'archived', 'archive', 'active→archived']]) {
+      const v = sm.validateTransition(f, t2, c);
+      ok(v.ok === false && /data\.md/.test(v.reason), `v2.69.0 validateTransition 非法路：${tag} → ok:false 且 reason 引 data.md 状态机表`);
+    }
+    // data.md 状态机表 ↔ TRANSITIONS 逐行对账（机器源 = 文档表镜像）
+    const dataMd = fs.readFileSync(path.join(path.dirname(script), '..', 'references', 'data.md'), 'utf8');
+    const smTable = dataMd.match(/## 状态机[\s\S]*?(?=\n## )/)?.[0] ?? '';
+    const smRows = smTable.split('\n').filter((l) => /^\| (（无）|active|parked|verifying|merged) /.test(l));
+    ok(smRows.length === sm.TRANSITIONS.length, `v2.69.0 表↔模块行数对账：data.md ${smRows.length} 行 = TRANSITIONS ${sm.TRANSITIONS.length} 行`);
+    for (const l of smRows) {
+      const c = l.split('|').map((x) => x.trim());
+      const from = c[1] === '（无）' ? null : c[1];
+      const to = c[3].includes('物理归层') ? 'archive/' : c[3];
+      const cmdM = c[2].match(/tf\.mjs (.+?)`/) ?? c[2].match(/^(\S+)/);
+      const toks = (cmdM?.[1] ?? '').replace(/<[^>]*>/g, ' ').split(/\s+/).filter(Boolean); // 剥 <占位>：accept <id> --pass → [accept,--pass]
+      ok(sm.TRANSITIONS.some((r) => {
+        if (r.from !== from || r.to !== to) return false;
+        const rt = r.cmd.split(/\s+/);
+        return rt.every((w, i) => toks[i] === w) && toks.length >= rt.length; // 命令 token 前缀匹配（表单元格含占位符/参数散文）
+      }), `v2.69.0 表行对账：${from ?? '（无）'}→${to} via ${toks.join(' ')}`);
+    }
+    const tfSrc = fs.readFileSync(script, 'utf8');
+    const stKeys = (tfSrc.match(/^const STATUS = \{(.+?)\};/m)?.[1] ?? '').match(/(\w+):/g)?.map((x) => x.replace(':', '')).sort().join(',') ?? '';
+    ok(stKeys === [...sm.STATES].sort().join(','), 'v2.69.0 STATUS 显示映射键集合 === STATES（tf.mjs 与机器源对账）');
+    ok(sm.isVerifying({ status: 'active', deploy: { status: 'verifying' } }) === true && sm.isVerifying({ status: 'parked' }) === false, 'v2.69.0 isVerifying 双源：deploy.status=verifying 命中 / parked 不命中');
+
+    // 事件日志 + 写侧断言放行的命令级抽验（自建 ev-repo 夹具）
+    const evRepo = path.join(tmp, 'ev-repo');
+    fs.mkdirSync(path.join(evRepo, '.taskflow'), { recursive: true });
+    sh('git init -q -b main && git config user.email t@t && git config user.name t', evRepo);
+    fs.writeFileSync(path.join(evRepo, 'base.txt'), 'x\n');
+    sh("echo '.taskflow/' >> .git/info/exclude && git add -A && git commit -qm init", evRepo);
+    const evBase = execFileSync('git', ['-C', evRepo, 'rev-parse', 'main'], { encoding: 'utf8' }).trim();
+    const evNow = new Date().toISOString();
+    sh('git checkout -q -b task/ev-a-20260101 && echo a > src-a.txt && git add -A && git commit -qm a && git checkout -q main', evRepo);
+    const evDir = path.join(evRepo, '.taskflow', 'ev-a-20260101');
+    fs.mkdirSync(evDir, { recursive: true });
+    fs.writeFileSync(path.join(evDir, 'task.json'), J({ id: 'ev-a-20260101', title: '事件链主角', goal: 'g', tier: 'small', anchor: 'attached', status: 'active', branch: 'task/ev-a-20260101', baseCommit: evBase, createdAt: evNow, lastActiveAt: evNow, sessionID: 'ses_ev', subtasks: [], checkpoints: [] }));
+    const evSpecW = () => fs.writeFileSync(path.join(evDir, 'spec.md'), '# Spec — 事件链主角\n\n## 目标\n\n事件链。\n\n## 验收标准\n\n- [ ] 好（验证：x）\n\n## 边界与影响面\n\n- **改动文件集合声明**：`src-a.txt`\n');
+    evSpecW();
+    fs.writeFileSync(path.join(evRepo, '.taskflow', 'index.json'), J({ tasks: [
+      { id: 'ev-a-20260101', title: '事件链主角', status: 'active', tier: 'small', branch: 'task/ev-a-20260101', worktree: null, sessionID: 'ses_ev', createdAt: evNow, lastActiveAt: evNow },
+    ] }));
+    fs.writeFileSync(path.join(evRepo, '.taskflow', 'project.json'), J({ key: 'evproj', git: true }));
+    const evEvents = () => fs.readFileSync(path.join(evRepo, '.taskflow', 'events.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+    const evPark = run(['park', 'ev-a-20260101', '--reason', '测试'], evRepo);
+    const ePark = evEvents().pop();
+    ok(evPark.status === 0 && ePark.task === 'ev-a-20260101' && ePark.from === 'active' && ePark.to === 'parked' && ePark.cmd === 'park' && !Number.isNaN(Date.parse(ePark.ts)), 'v2.69.0 事件日志：park 后尾行 {ts,task,from:active,to:parked,cmd:park}');
+    const evUnpark = run(['unpark', 'ev-a-20260101'], evRepo);
+    const eUn = evEvents().pop();
+    ok(evUnpark.status === 0 && eUn.from === 'parked' && eUn.to === 'active' && eUn.cmd === 'unpark', 'v2.69.0 事件日志：unpark 后尾行 parked→active');
+    sh('git checkout -q task/ev-a-20260101 && echo x >> src-a.txt && git add -A', evRepo);
+    const evDep = run(['commit', '-m', '部署存档', '--all', '--session', 'ses_ev', '--deployed'], evRepo);
+    const eDep = evEvents().pop();
+    ok(evDep.status === 0 && eDep.from === 'active' && eDep.to === 'verifying' && eDep.cmd === 'commit --deployed', `v2.69.0 事件日志：--deployed 真翻转记事件${evDep.status ? ' ← ' + evDep.stdout + evDep.stderr : ''}`);
+    sh('git checkout -q main && git merge -q --no-ff task/ev-a-20260101 -m merge-ev-a', evRepo);
+    const evAcc = run(['accept', 'ev-a-20260101', '--pass'], evRepo);
+    const eAcc = evEvents().pop();
+    ok(evAcc.status === 0 && eAcc.from === 'verifying' && eAcc.to === 'merged' && eAcc.cmd === 'accept --pass', `v2.69.0 事件日志：accept --pass 翻转记事件${evAcc.status ? ' ← ' + evAcc.stdout + evAcc.stderr : ''}`);
+
+    // revert-plan：非 merged 红 / merged 绿（只读不执行）
+    const evBDir = path.join(evRepo, '.taskflow', 'ev-b-20260101');
+    fs.mkdirSync(evBDir, { recursive: true });
+    fs.writeFileSync(path.join(evBDir, 'task.json'), J({ id: 'ev-b-20260101', title: '非合并样例', goal: 'g', tier: 'small', anchor: 'attached', status: 'active', branch: null, createdAt: evNow, lastActiveAt: evNow, sessionID: 'ses_ev', subtasks: [], checkpoints: [] }));
+    const rpNeg = run(['revert-plan', 'ev-b-20260101'], evRepo);
+    ok(rpNeg.status === 1 && /非 merged/.test(rpNeg.stdout), 'v2.69.0 revert-plan 负路：active 任务 → exit 1（打回走 resume.md 第 9 步）');
+    const rpGo = run(['revert-plan', 'ev-a-20260101'], evRepo);
+    const rpFile = path.join(evDir, 'revert-plan.md');
+    const rpText = fs.existsSync(rpFile) ? fs.readFileSync(rpFile, 'utf8') : '';
+    ok(rpGo.status === 0 && rpText.includes('git revert -m 1') && rpText.trim().endsWith('本方案由 tf.mjs 生成，未执行任何 git 写操作——执行需用户逐条确认'), `v2.69.0 revert-plan 绿路：方案落盘含 revert 命令与「未执行」尾行${rpGo.status ? ' ← ' + rpGo.stdout + rpGo.stderr : ''}`);
+    ok(rpText.includes('unmergedAt') && rpText.includes('resume.md 第 10 步'), 'v2.69.0 revert-plan 方案含档案注记（unmergedAt）与续迭代指引');
+    ok(execFileSync('git', ['-C', evRepo, 'status', '--porcelain'], { encoding: 'utf8' }).trim() === '', 'v2.69.0 revert-plan 只读：git status --porcelain 干净（零 git 级变更）');
+
+    // gates：双绿 verdict 可进合并 / 越界红
+    const gGreen = run(['gates', 'ev-a-20260101'], evRepo);
+    ok(gGreen.status === 0 && /快照门：过/.test(gGreen.stdout) && /越界门：过/.test(gGreen.stdout) && /已并入预检：过/.test(gGreen.stdout) && /stale：过/.test(gGreen.stdout) && /I16 敞口：过/.test(gGreen.stdout) && /gates verdict：0 红 0 黄——可进合并/.test(gGreen.stdout), `v2.69.0 gates 双绿：五道门全过 + verdict 可进合并${gGreen.status ? ' ← ' + gGreen.stdout + gGreen.stderr : ''}`);
+    // 红路：分支追加声明集外提交（分支新提交未并入 main——越界门 diff 非空报红；同根预检红（未并入）+ stale 红（分支脱离主线），合计 3 红）
+    sh('git checkout -q task/ev-a-20260101 && echo b > b-out.txt && git add -A && git commit -qm out-of-scope && git checkout -q main', evRepo);
+    const gRed = run(['gates', 'ev-a-20260101'], evRepo);
+    ok(gRed.status === 1 && /越界门：红/.test(gRed.stdout) && /gates verdict：3 红 0 黄——先消化红灯/.test(gRed.stdout), `v2.69.0 gates 红路：分支越界提交 → 越界+预检+stale 三红 + verdict 先消化红灯${gRed.status !== 1 ? ' ← ' + gRed.stdout + gRed.stderr : ''}`);
+
+    // J 墙 / K / E / T（gproj 守门夹具伪造事件——遍历全部 tool_call handler，与宿主派发同序）
+    const jcall = async (toolName, input, env = {}) => {
+      for (const k of Object.keys(env)) process.env[k] = env[k];
+      let out;
+      for (const fn of handlers['tool_call'] ?? []) out = (await fn({ toolName, input }, mkCtx())) ?? out;
+      for (const k of Object.keys(env)) delete process.env[k];
+      return out;
+    };
+    const jT = path.join(gproj, '.taskflow', 'g-ver-20260101', 'task.json');
+    const jOld = fs.readFileSync(jT, 'utf8');
+    const jFlip = await jcall('write', { path: jT, content: JSON.stringify({ ...JSON.parse(jOld), status: 'active' }) });
+    ok(jFlip?.block === true && /J 状态翻转墙/.test(jFlip.reason) && /TF_STATUS=off/.test(jFlip.reason), 'v2.69.0 J 墙 enforce（缺省）：write 手改 status → block，reason 含豁免指引');
+    const jOff = await jcall('write', { path: jT, content: JSON.stringify({ ...JSON.parse(jOld), status: 'active' }) }, { TF_STATUS: 'off' });
+    ok(jOff === undefined, 'v2.69.0 J 墙 off：TF_STATUS=off 单次豁免放行');
+    const jWarn = await jcall('write', { path: jT, content: JSON.stringify({ ...JSON.parse(jOld), status: 'active' }) }, { TF_STATUS: 'warn' });
+    ok(jWarn?.additionalContext && /J 状态翻转墙/.test(jWarn.additionalContext) && !jWarn.block, 'v2.69.0 J 墙 warn：警告档放行附 additionalContext');
+    const jNote = await jcall('write', { path: jT, content: JSON.stringify({ ...JSON.parse(jOld), note: '备注变更' }) });
+    ok(jNote === undefined, 'v2.69.0 J 墙误报面：纯 note 字段变更放行');
+    const jNew = await jcall('write', { path: path.join(gproj, '.taskflow', 'g-new-20260101', 'task.json'), content: JSON.stringify({ id: 'g-new-20260101', status: 'active' }) });
+    ok(jNew === undefined, 'v2.69.0 J 墙建档路：新文件 status=active 放行');
+    const jNewV = await jcall('write', { path: path.join(gproj, '.taskflow', 'g-new2-20260101', 'task.json'), content: JSON.stringify({ id: 'g-new2-20260101', status: 'verifying' }) });
+    ok(jNewV?.block === true, 'v2.69.0 J 墙建档路：新文件 status=verifying 拦（仅 active 可建档）');
+    const jBad = await jcall('write', { path: jT, content: '{oops' });
+    ok(jBad?.block === true && /坏档案/.test(jBad.reason), 'v2.69.0 J 墙：坏 JSON 视同违规拦截');
+    const jEdit = await jcall('edit', { path: jT, old_string: '"status": "verifying"', new_string: '"status": "merged"' });
+    ok(jEdit?.block === true && /status verifying→merged/.test(jEdit.reason), 'v2.69.0 J 墙 edit 通道：字面替换模拟检出翻转 → block');
+    const jEditNote = await jcall('edit', { path: jT, old_string: '"title": "验收中"', new_string: '"title": "验收中二"' });
+    ok(jEditNote === undefined, 'v2.69.0 J 墙 edit 通道：非状态字段替换放行');
+    const jSed = await jcall('bash', { command: "sed -i 's/verifying/merged/' .taskflow/g-ver-20260101/task.json" });
+    ok(jSed?.block === true && /J 状态翻转墙/.test(jSed.reason), 'v2.69.0 J 墙 bash 通道：sed -i 触及 task.json 且不含 tf.mjs → block');
+    const jSedOff = await jcall('bash', { command: "sed -i 's/verifying/merged/' .taskflow/g-ver-20260101/task.json" }, { TF_STATUS: 'off' });
+    ok(jSedOff === undefined, 'v2.69.0 J 墙 bash 通道：TF_STATUS=off 放行');
+    const jTfmjs = await jcall('bash', { command: 'node tf.mjs park g-x --reason y' });
+    ok(jTfmjs === undefined, 'v2.69.0 J 墙 bash 通道：tf.mjs 命令零干扰');
+    const k1 = await jcall('bash', { command: 'git push origin main' });
+    ok(k1?.additionalContext && /TASKFLOW_GUARD K/.test(k1.additionalContext) && /g-ver-20260101/.test(k1.additionalContext) && !k1.block, 'v2.69.0 K：verifying 在档时 git push → 提醒不拦（点名任务）');
+    const k2 = await jcall('bash', { command: 'git push origin main' }, { TF_VERIFY_WARN: 'off' });
+    ok(k2 === undefined, 'v2.69.0 K：TF_VERIFY_WARN=off 关闭提醒');
+    const eLive = await call('before_provider_request', { payload: { system: 'BASE', messages: [] } });
+    ok(typeof eLive?.system === 'string' && eLive.system.includes('taskflow 实况：') && /等验收 g-ver-20260101（部署 \d{2}-\d{2} \d{2}:\d{2}）/.test(eLive.system) && eLive.system.includes('活 g-live-20260101'), 'v2.69.0 E 实况行：活/等验收（部署短格式）注入 system');
+    const tFile = path.join(tmp, 'skill-usage.jsonl');
+    fs.rmSync(tFile, { force: true });
+    await jcall('read', { path: 'skill://taskflow/SKILL.md' }, { TF_SKILL_USAGE: tFile });
+    await jcall('read', { path: 'skill://x/references/y.md' }, { TF_SKILL_USAGE: tFile });
+    await jcall('read', { path: '/etc/hosts' }, { TF_SKILL_USAGE: tFile });
+    const tRows = fs.existsSync(tFile) ? fs.readFileSync(tFile, 'utf8').trim().split('\n').map((l) => JSON.parse(l)) : [];
+    ok(tRows.length === 2 && tRows[0].skill === 'taskflow' && tRows[1].skill === 'x' && tRows.every((r) => r.project === 'guard-proj'), 'v2.69.0 T 埋点：skill:// 读取计数（非 skill 路径不记，技能名截去子路径，项目名取 cwd basename）');
+
+    // skills --usage 报表
+    const usgFile = path.join(tmp, 'usage-fix.jsonl');
+    fs.writeFileSync(usgFile, [
+      JSON.stringify({ ts: new Date().toISOString(), skill: 'taskflow', project: 'dx-snap-share' }),
+      JSON.stringify({ ts: new Date().toISOString(), skill: 'taskflow', project: 'ev-repo' }),
+      JSON.stringify({ ts: '2026-09-01T00:00:00Z', skill: 'code-review', project: 'old' }),
+    ].join('\n'));
+    const usg = spawnSync('node', [script, 'skills', '--usage'], { cwd: evRepo, encoding: 'utf8', env: { ...process.env, TF_SKILL_USAGE: usgFile } });
+    ok(usg.status === 0 && /taskflow：总 2｜近 30 天 2/.test(usg.stdout) && /code-review：总 1｜近 30 天 0/.test(usg.stdout) && /全文零加载（仅描述常驻）/.test(usg.stdout) && usg.stdout.includes('不含描述常驻效果；Claude Code 侧不在统计内'), `v2.69.0 skills --usage：计数/近30天/零加载标注/口径尾行${usg.status ? ' ← ' + usg.stdout + usg.stderr : ''}`);
+    const usgNone = spawnSync('node', [script, 'skills', '--usage'], { cwd: evRepo, encoding: 'utf8', env: { ...process.env, TF_SKILL_USAGE: path.join(tmp, 'no-such-usage.jsonl') } });
+    ok(usgNone.status === 0 && /暂无埋点数据/.test(usgNone.stdout), 'v2.69.0 skills --usage：无埋点文件 → 暂无埋点数据 exit 0');
+  }
+
   process.exitCode = failures ? 1 : 0; // 失败≠0：堵住链式调用「grep 匹配到失败文案也算成功」的放行洞
   console.log(failures ? `\n${failures} 项断言失败` : '\n全部通过');
 } finally {

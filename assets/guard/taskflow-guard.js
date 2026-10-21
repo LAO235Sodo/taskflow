@@ -5,6 +5,11 @@
 //   B 簿记校验：tf.mjs commit --files 空格分隔多文件 = 硬拦（连环踩坑实证）；deploy 不带 --web-only 且项目有 webCommands = 提醒
 //   C 压缩接力注入：session.compacting 向压缩摘要注入 taskflow 接力线索——压缩不再丢任务上下文（铁律"先存档再跑"的宿主兜底）
 //   A 部署墙：rsync/scp 部署特征、ssh+systemctl restart = 疑似绕过部署唯一入口（DEPLOY_ENTRY）
+//   J 状态翻转墙（v2.69.0）：tool_call(edit/write/bash)——task.json/index.json 的 status/deploy.status 手改 = 物理拦截
+//      （TF_STATUS 三档，缺省 enforce；翻转唯一合法写路径 = tf.mjs 各扳机命令，档案修复走 reconcile --fix）
+//   K 验收期提醒（v2.69.0）：tool_call(bash)——git push/merge 时在档等验收任务 → 追加合并时序核对提醒（不拦；TF_VERIFY_WARN=off 关）
+//   T 技能埋点（v2.69.0）：tool_call(read)——skill:// 加载计数入全局 skill-usage.jsonl（不受 guardOn 闸控，零内容仅计数，
+//      供 tf.mjs skills --usage 报表；handler 整体吞错——omp hook fail-closed，抛错=阻断读取）
 //   E 输出规范注入：before_provider_request 每轮把「双层输出规范 + 项目词表」前置进 system——
 //      非 taskflow 会话也有叙事体+结构化底线；词表活读（.taskflow/glossary.md），词条改写下一轮即生效
 //      （用户反馈「看不懂」→ 当场改写该词条白话到用户能理解的风格，无需重装 extension）
@@ -40,21 +45,79 @@ function readJsonSafe(p) { try { return JSON.parse(fs.readFileSync(p, 'utf8')); 
 // （/tmp/...）——两端基不一致时 startsWith/relative 恒错，F/G 比对在 symlink 环境全静默（/tmp 复现实证）。
 const realPath = (p) => { let cur = p; const suffix = []; for (;;) { try { return path.join(fs.realpathSync(cur), ...suffix); } catch { /* 该层不存在，上爬 */ } suffix.unshift(path.basename(cur)); const parent = path.dirname(cur); if (parent === cur) return p; cur = parent; } }; // 递归归一到最深层存在祖先（新文件连目录都可能不存在——/var→/private/var、/tmp→/private/tmp 两环境实证）
 
+// ---- J：状态翻转墙机器快照（v2.69.0）----
+// 与 scripts/taskflow-state-machine.mjs 的 TRANSITIONS、references/data.md 状态机表同源——
+// 改状态机必同步此处与该模块；版本漂移由 mech check 兜底。
+const STATE_SNAPSHOT = {
+  states: ['active', 'verifying', 'parked', 'merged', 'archived'],
+  legal: [ // [from, to] 白名单（from null=建档前）；archive 是物理归层无 status 翻转，不入本表
+    [null, 'active'], ['active', 'verifying'], ['active', 'merged'],
+    ['active', 'parked'], ['parked', 'active'], ['verifying', 'merged'],
+  ],
+};
+// J 门核心判定：对 edit/write 落在 task.json/index.json 的写入做「翻转前后」语义比对。
+// 返回 null=放行；否则返回违规原因串。旧文件不存在（新建档案）仅 status=active 放行；
+// 新内容解析失败视同违规（坏档案）；顶层 status 或 deploy.status 任一变化即翻转。
+function judgeStatusFlip(abs, event) {
+  const oldJ = readJsonSafe(abs);
+  const toText = () => {
+    if (event.toolName === 'write') return typeof event.input?.content === 'string' ? event.input.content : null;
+    const disk = (() => { try { return fs.readFileSync(abs, 'utf8'); } catch { return null; } })();
+    if (disk === null) return null;
+    const os = event.input?.old_string; const ns = event.input?.new_string;
+    if (typeof os !== 'string' || typeof ns !== 'string') return null;
+    return disk.split(os).join(ns); // edit 语义模拟：字面替换（与编辑工具同序；替换不命中=新内容=旧内容=放行）
+  };
+  let newJ = null;
+  try { newJ = JSON.parse(toText()); } catch { /* 坏 JSON */ }
+  const show = (v) => (v === undefined || v === null ? '（无）' : String(v));
+  const tail = `违规（data.md 状态机表：翻转唯一写路径 commit --deployed / accept --pass / park / unpark / archive；档案修复走 node tf.mjs reconcile --fix）。单次豁免：命令前加 TF_STATUS=off`;
+  if (!newJ || typeof newJ !== 'object') {
+    return `TASKFLOW_GUARD J 状态翻转墙：${abs} 新内容解析失败（坏档案）——${tail}`;
+  }
+  const fromS = oldJ?.status; const toS = newJ.status;
+  const fromD = oldJ?.deploy?.status; const toD = newJ.deploy?.status;
+  if (!oldJ) { // 新建档案：仅 status=active（且不带 verifying 部署态）放行
+    if (toS === 'active' && toD !== 'verifying') return null;
+    return `TASKFLOW_GUARD J 状态翻转墙：${abs} 新建档案 status ${show(toS)} 非法（仅 active 可建档）——${tail}`;
+  }
+  if (fromS === toS && fromD === toD) return null; // 无翻转
+  const flips = [];
+  if (fromS !== toS) flips.push(`status ${show(fromS)}→${show(toS)}`);
+  if (fromD !== toD) flips.push(`deploy.status ${show(fromD)}→${show(toD)}`);
+  const legal = STATE_SNAPSHOT.legal.some(([f, t]) => f === fromS && t === toS);
+  return `TASKFLOW_GUARD J 状态翻转墙：${abs} ${flips.join(' + ')} ${legal ? '' : '（该翻转亦不在状态机白名单）'}——${tail}`;
+}
+
+// ---- D：状态栏 / E：实况行共用的活任务分桶（v2.69.0 抽取） ----
+// verifying 用 isVerifying 双源口径（顶层 status 或 deploy.status 任一命中，v2.18.2 同源）
+function collectLive(tasksDir) {
+  const out = { active: [], verifying: [], parked: [] };
+  const idx = readJsonSafe(path.join(tasksDir, 'index.json'))?.tasks ?? [];
+  for (const row of idx) {
+    if (!row?.id) continue;
+    const tj = readJsonSafe(path.join(tasksDir, row.id, 'task.json')); // 事实源 task.json（I1），缺档回退 index 行
+    const status = tj?.status ?? row?.status;
+    const item = { id: row.id, status, deployedAt: tj?.deploy?.deployedAt ?? null };
+    if (status === 'verifying' || tj?.deploy?.status === 'verifying') out.verifying.push(item);
+    else if (status === 'active') out.active.push(item);
+    else if (status === 'parked') out.parked.push(item);
+  }
+  return out;
+}
+
+
 // ---- D：状态栏 ----
 function statusLine(tasksDir) {
-  const idx = readJsonSafe(path.join(tasksDir, 'index.json'))?.tasks ?? [];
-  const active = idx.filter((t) => t?.status === 'active').length;
-  const verifying = idx.filter((t) => t?.status === 'verifying');
-  if (!active && !verifying.length) return '';
-  let s = `tf:进行中${active}`;
-  if (verifying.length) {
+  const live = collectLive(tasksDir); // v2.69.0 改分桶数据源（verifying 双源口径），显示行为不变
+  if (!live.active.length && !live.verifying.length) return '';
+  let s = `tf:进行中${live.active.length}`;
+  if (live.verifying.length) {
     let exposure = 0;
-    for (const t of verifying) {
-      const tj = readJsonSafe(path.join(tasksDir, t.id, 'task.json'));
-      const at = tj?.deploy?.deployedAt;
-      if (at && Date.now() - Date.parse(at) > 86400000) exposure++; // I16 口径：已部署未合并超 24h
+    for (const t of live.verifying) {
+      if (t.deployedAt && Date.now() - Date.parse(t.deployedAt) > 86400000) exposure++; // I16 口径：已部署未合并超 24h
     }
-    s += ` 等你验收${verifying.length}${exposure ? ` ⚠${exposure}个已上线超24小时未合并` : ''}`;
+    s += ` 等你验收${live.verifying.length}${exposure ? ` ⚠${exposure}个已上线超24小时未合并` : ''}`;
   }
   return s;
 }
@@ -94,6 +157,16 @@ function buildInject(cwd) {
     lines.push('- 行话对照（写作时先对表说人话，词表可迭代——用户说看不懂就改写白话）：');
     for (const g of glossary) lines.push(`  ${g.term}=${g.plain}`);
   }
+  const live = collectLive(dir); // E 实况状态行（v2.69.0）：活任务分桶入 system，每轮刷新
+  const shortTs = (iso) => (typeof iso === 'string' && !Number.isNaN(Date.parse(iso)) ? iso.slice(5, 16).replace('T', ' ') : null);
+  const vPart = live.verifying
+    .map((t) => { const at = shortTs(t.deployedAt); return at ? `${t.id}（部署 ${at}）` : t.id; })
+    .join('、');
+  const parts = [];
+  if (live.active.length) parts.push(`活 ${live.active.map((t) => t.id).join('、')}`);
+  if (vPart) parts.push(`等验收 ${vPart}`);
+  if (live.parked.length) parts.push(`挂起 ${live.parked.map((t) => t.id).join('、')}`);
+  if (parts.length) lines.push(`taskflow 实况：${parts.join('；')}`);
   return lines.join('\n');
 }
 function readGlossary(p) {
@@ -251,6 +324,26 @@ export default function taskflowGuard(pi) {
       return mode === 'enforce' ? { block: true, reason: why } : { additionalContext: `⚠ ${why}` };
     }
 
+    // J bash 通道（v2.69.0）：重定向/tee/sed -i 触及任务档案且非 tf.mjs 命令 = 疑似手改 status。
+    // bash 写入是整文件覆盖，无法像 edit/write 那样做翻转前后比对，按 TF_STATUS 档直接处理。
+    if (!cmd.includes('tf.mjs') && /(>|>>|\btee\s|\bsed\s+-i)[^|;&]*(task\.json|index\.json)/.test(cmd)) {
+      const modeJ = process.env.TF_STATUS;
+      if (modeJ !== 'off' && locateTasksDir(ctx?.cwd)) {
+        const why = 'TASKFLOW_GUARD J 状态翻转墙：bash 重定向/tee/sed 触及任务档案（task.json/index.json）——手改 status = 违规（data.md 状态机表：翻转唯一写路径 commit --deployed / accept --pass / park / unpark / archive；档案修复走 node tf.mjs reconcile --fix）。单次豁免：命令前加 TF_STATUS=off';
+        return modeJ === 'warn' ? { additionalContext: `⚠ ${why}` } : { block: true, reason: why };
+      }
+    }
+
+    // K 验收期 git 操作提醒（v2.69.0）：在档等验收任务时 git push/merge 先提醒核对合并时序。
+    // 不拦——部署服务器拉取 push 属合法流量；TF_VERIFY_WARN=off 关闭（仅 off 档，缺省开）。
+    if (/\bgit (push|merge)\b/.test(cmd) && process.env.TF_VERIFY_WARN !== 'off') {
+      const dirK = locateTasksDir(ctx?.cwd);
+      const vt = dirK ? collectLive(dirK).verifying.filter((t) => t.status !== 'merged') : [];
+      if (vt.length) {
+        return { additionalContext: `⚠ TASKFLOW_GUARD K：任务 ${vt.map((t) => t.id).join('、')} 正在等验收——push/merge 前先核对 conventions.md 合并时序（默认先合并后部署验收；验收先行项目 verifying 悬置更长属正常）。确无涉任务或已核对时序：忽略本提醒；TF_VERIFY_WARN=off 关闭本提醒。` };
+      }
+    }
+
     if (cmd.includes('tf.mjs')) {
       // B1 --files 空格分隔 = 调用即红（旧形态：静默落错账，事后 doctor 补登）
       if (spaceSeparatedFiles(cmd)) {
@@ -331,6 +424,15 @@ export default function taskflowGuard(pi) {
     if (!dir) return undefined; // 零干扰边界
     const mainRoot = realPath(path.dirname(dir)); // 路径基归一：git 真实路径 ↔ resolve 符号链接路径统一（symlink 环境比对恒错实证）
     const abs = realPath(path.resolve(ctx?.cwd ?? process.cwd(), rawN)); // realpath 失败（新文件不存在）保 resolve 原值；v2.54.1 rawN=波浪号已展开
+    // J 状态翻转墙（v2.69.0）：先于 G 边界门——G 的簿记白名单会放行 .taskflow 内编辑，status 手改必须先在这里拦
+    const bname = path.basename(abs);
+    if ((bname === 'task.json' || bname === 'index.json') && abs.startsWith(dir + path.sep)) {
+      const whyJ = judgeStatusFlip(abs, event);
+      if (whyJ) {
+        const modeJ = process.env.TF_STATUS;
+        if (modeJ !== 'off') return modeJ === 'warn' ? { additionalContext: `⚠ ${whyJ}` } : { block: true, reason: whyJ };
+      }
+    }
     const idx = readJsonSafe(path.join(dir, 'index.json'))?.tasks ?? [];
     const live = idx.filter((t) => t?.status === 'active' || t?.status === 'verifying');
     if (!live.length) return undefined;
@@ -388,6 +490,22 @@ export default function taskflowGuard(pi) {
       sed.pending = 0;
       sed.seen.clear();
     }
+    return undefined;
+  });
+
+  // T 技能加载埋点（v2.69.0）：read(skill://) 计数入全局单文件（TF_SKILL_USAGE 或 ~/.omp/agent/skill-usage.jsonl）。
+  // 不受 guardOn 闸控——全局能力地图数据（项目外读取也要计数）；仅计数零内容（只记技能名与项目名）；
+  // handler 整体吞错——omp hook fail-closed，抛错=阻断读取，埋点绝不能拦主流程。
+  pi.on('tool_call', async (event, ctx) => {
+    try {
+      if (event?.toolName !== 'read') return undefined;
+      const p = event.input?.path;
+      if (typeof p !== 'string' || !p.startsWith('skill://')) return undefined;
+      const skill = p.slice('skill://'.length).split('/')[0];
+      if (!skill) return undefined;
+      const file = process.env.TF_SKILL_USAGE || path.join(os.homedir(), '.omp', 'agent', 'skill-usage.jsonl');
+      fs.appendFileSync(file, JSON.stringify({ ts: new Date().toISOString(), skill, project: path.basename(ctx?.cwd ?? process.cwd()) }) + '\n');
+    } catch { /* 埋点失败静默 */ }
     return undefined;
   });
 
