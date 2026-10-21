@@ -1,5 +1,5 @@
 {
-  "_comment": "taskflow 领域技能注册表（数据文件，随时可补）。install 字段=安装命令；本机 npx skills add 安装不留 remote，溯源不到的标「待补」——用户提供仓库地址后填入即永久生效。检测命令：node …/scripts/tf.mjs skills [领域词]。**流程编排器（superdx 等）不纳入本注册表**（2026-09-22 用户拍板：只参考不集成，双编排器抢路由）；其他工具的 worktree 噪音走 adopt-ignore 前缀模式。",
+  "_comment": "taskflow 领域技能注册表（数据文件，随时可补）。install 字段=安装命令；本机 npx skills add 安装不留 remote，缺地址时统一走 find-skills 技能（npx skills find <名>）查证后再下载填入（2026-10-21 用户拍板），仍查不到的标「待补」——用户提供仓库地址后填入即永久生效。检测命令：node …/scripts/tf.mjs skills [领域词]。**流程编排器（superdx 等）不纳入本注册表**（2026-09-22 用户拍板：只参考不集成，双编排器抢路由）；其他工具的 worktree 噪音走 adopt-ignore 前缀模式。",
   "skills": [
     {
       "id": "ui-ux-pro-max",
@@ -32,7 +32,7 @@
         "审查"
       ],
       "desc": "Standards+Spec 双轴结构化代码审查",
-      "install": null
+      "install": "npx skills add mattpocock/skills --skill code-review --yes"
     },
     {
       "id": "review-changes",
@@ -40,7 +40,7 @@
         "审查"
       ],
       "desc": "变更检测+影响分析的结构化审查",
-      "install": null
+      "install": "pip install code-review-graph && code-review-graph install（本技能由该 MCP 服务器的 install 子命令自动生成，随 PyPI 公开包分发）"
     },
     {
       "id": "diagnosing-bugs",
@@ -48,7 +48,7 @@
         "诊断"
       ],
       "desc": "疑难 bug/性能回归的诊断循环",
-      "install": null
+      "install": "npx skills add mattpocock/skills --skill diagnosing-bugs --yes"
     },
     {
       "id": "debug-issue",
@@ -56,7 +56,7 @@
         "诊断"
       ],
       "desc": "graph 驱动的系统化调试导航",
-      "install": null
+      "install": "pip install code-review-graph && code-review-graph install（本技能由该 MCP 服务器的 install 子命令自动生成，随 PyPI 公开包分发）"
     },
     {
       "id": "explore-codebase",
@@ -64,7 +64,7 @@
         "导航"
       ],
       "desc": "知识图谱代码库结构导航",
-      "install": null
+      "install": "pip install code-review-graph && code-review-graph install（本技能由该 MCP 服务器的 install 子命令自动生成，随 PyPI 公开包分发）"
     },
     {
       "id": "frontend-design",
@@ -171,7 +171,7 @@
         "领域建模"
       ],
       "desc": "领域模型/术语表（CONTEXT.md）/ADR 沉淀——硬规则 10「多义对口径」的技能载体",
-      "install": null
+      "install": "npx skills add mattpocock/skills --skill domain-modeling --yes（上游新版术语表文件已从 CONTEXT.md 改名 GLOSSARY.md，本机版仍用 CONTEXT.md）"
     },
     {
       "id": "to-spec",
@@ -179,7 +179,7 @@
         "spec"
       ],
       "desc": "把已讨论定的方案合成为 spec 并发布到任务追踪",
-      "install": null
+      "install": "npx skills add mattpocock/skills --skill to-spec --yes"
     },
     {
       "id": "to-tickets",
@@ -187,7 +187,7 @@
         "拆分"
       ],
       "desc": "方案/spec 拆成 tracer-bullet 票（每票声明阻塞边）",
-      "install": null
+      "install": "npx skills add mattpocock/skills --skill to-tickets --yes"
     },
     {
       "id": "implement",
@@ -195,7 +195,7 @@
         "实现"
       ],
       "desc": "按 spec 或票集实现一块工作",
-      "install": null
+      "install": "npx skills add mattpocock/skills --skill implement --yes"
     },
     {
       "id": "implement-spec",
@@ -203,7 +203,7 @@
         "实现"
       ],
       "desc": "按 spec 在代码中实现",
-      "install": null
+      "install": "npx skills add mattpocock/skills --skill implement-spec --yes（上游描述已演进为「实现 /to-spec 与 /to-tickets 的结果」，语义同源）"
     },
     {
       "id": "handoff",
@@ -211,7 +211,7 @@
         "交接"
       ],
       "desc": "把当前对话压缩成交接文档交给下一个 agent——checkpoint 交接的会话压缩帮手",
-      "install": null
+      "install": "npx skills add mattpocock/skills --skill handoff --yes"
     },
     {
       "id": "resolving-merge-conflicts",
@@ -219,7 +219,7 @@
         "合并"
       ],
       "desc": "进行中的 merge/rebase 冲突解决流程",
-      "install": null
+      "install": "npx skills add mattpocock/skills --skill resolving-merge-conflicts --yes（上游 2026-09-24 已删除该技能，本机为删前版本；重装需 git clone 后 checkout 321658273c 取 skills/engineering/resolving-merge-conflicts）"
     },
     {
       "id": "refactor-safely",
@@ -227,7 +227,7 @@
         "重构"
       ],
       "desc": "依赖分析驱动的安全重构规划与执行",
-      "install": null
+      "install": "pip install code-review-graph && code-review-graph install（本技能由该 MCP 服务器的 install 子命令自动生成，随 PyPI 公开包分发）"
     },
     {
       "id": "codebase-design",
@@ -236,7 +236,7 @@
         "架构"
       ],
       "desc": "深模块设计词汇（接口/接缝/可测试性）——深度重构与模块设计时加载",
-      "install": null
+      "install": "npx skills add mattpocock/skills --skill codebase-design --yes"
     },
     {
       "id": "wayfinder",
@@ -244,7 +244,7 @@
         "large拆解"
       ],
       "desc": "超单会话容量的大块工作=共享决策票图，跨会话逐票推进",
-      "install": null
+      "install": "npx skills add mattpocock/skills --skill wayfinder --yes"
     },
     {
       "id": "research",
@@ -252,7 +252,7 @@
         "调研"
       ],
       "desc": "对高信度一手来源调研问题，结论落成仓库内 Markdown",
-      "install": null
+      "install": "npx skills add mattpocock/skills --skill research --yes"
     },
     {
       "id": "prototype",
@@ -260,7 +260,7 @@
         "设计验证"
       ],
       "desc": "用一次性原型回答设计问题（状态模型/交互手感）",
-      "install": null
+      "install": "npx skills add mattpocock/skills --skill prototype --yes"
     },
     {
       "id": "install-skill",
