@@ -2166,6 +2166,7 @@ function reqConfirm(args = []) {
   fs.writeFileSync(tP, JSON.stringify(t, null, 2));
   syncIndexRow(tasksDir, t); // 写后必同步（v2.19.0 规约）
   console.log(`✓ ${idArg} 需求变更已留痕（goalHash=${h}，reqChanges 第 ${t.reqChanges.length} 条）——doctor I11 转绿`);
+  console.log(`ℹ 领域复核（domain.md）：本次变更是否触及新领域（新增前端页面/新语言栈文件/新测试面）？是 → 重跑领域检测（node tf.mjs skills <领域词>）并按 domain.md 映射表把新领域技能要求补进 spec 约束节——变更后领域漂移不重检 = 新领域无审查能力在场（2.69.3 补挂）`);
   return 0;
 }
 
