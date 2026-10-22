@@ -51,6 +51,9 @@ node <skill目录>/scripts/tf.mjs skills [领域词]   # 如：skills 前端UI /
 | large 档拆解 | SKILL.md 规模分档 | `wayfinder`（大块工作=决策票图，跨会话逐票推进） |
 | 调研 | 纯调研任务 | `research`（对高信源调研，结论落 Markdown 入仓库） |
 | 问答 | 提问类输入（无任务态），qa.md 问答管线第 2 段 | `explore-codebase`（代码导航）；`research`（外部信源调研）；`confirming-requirements`（「实现是否符合原始需求」类问题的正主） |
+| 报障/诊断 | 用户报障或审查发现缺陷 | diagnosing-bugs（3~5 假设排序呈报） |
+| 验收 | verifying 恢复/验收请求 | —（resume.md 第 9 步验收简报流程） |
+| 部署 | 发版/上线请求 | deploy-gate.md（DEPLOY_GATE，硬规则 23） |
 
 - **全绿** → 按映射表注入；
 - **有缺** → 把缺失清单（一句话用途 + 安装方式）呈给用户**选择安装哪些**——安装是网络动作，逐个确认后才执行；用户不装 → 该领域后续审查如实注记「未经 XX 审查」，**不假装在**；

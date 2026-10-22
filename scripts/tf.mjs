@@ -5,7 +5,8 @@
 //
 // ── 函数目录（新增函数按分区落位；定位用 grep '^function 名字'）──
 // 工具层（纯函数，命令间共享）: git / isAnc / refStatus / readJson / relTime /
-//   locate / loadTasks / loadIgnores / matchIgnore / corruptedReport / parseWriteSet / parseReadSet / matchPath
+//   locate / loadTasks / loadIgnores / matchIgnore / corruptedReport / parseWriteSet / parseReadSet / matchPath /
+//   parsePipeTables（lint 挂接对账管道表解析）/ mirrorDeployRecord（deploy → task.json.deploy 镜像回写）
 // 命令层（互不调用）: ls / strays / doctor / selfCheck / reconcile / scout / skillsCmd /
 //   accept / takeover / parkCmd / unparkCmd / lock / commitCmd / reqConfirm / testplan / diagnose / nextid / migrateCmd / archiveCmd / svcCmd / lintCmd / staleCmd / overlapCmd / mergegateCmd / revertPlanCmd / gatesCmd
 // 分发区: 文件尾 if (cmd === …) 一行一命令
@@ -210,7 +211,7 @@ function assertTransition(from, to, cmdName) {
 }
 
 // 事件日志（v2.69.0，观察者）：状态转换与 archive 归层的追加式审计流，落 .taskflow/events.jsonl
-// （铁律 1 不入 git，项目本地）。只写不读——不加 doctor 不变量，产物核对交给 revert-plan 与人工 tail。
+// （铁律 1 不入 git，项目本地）。只写不读——不加 doctor 不变量，产物核对交人工 tail（revert-plan 不读本文件）。
 function appendEvent(tasksDir, evt) {
   try {
     fs.appendFileSync(path.join(tasksDir, 'events.jsonl'), JSON.stringify({ ts: new Date().toISOString(), ...evt }) + '\n');
@@ -805,13 +806,29 @@ function doctor(args = []) {
         const mergeRefs = ['origin/main', 'main', 'master', t.baseBranch].filter(Boolean)
           .filter((r) => git(['-C', mainRoot, 'rev-parse', '--verify', r], mainRoot, true));
         const hit = mergeRefs.find((r) => r !== branch && isAnc(mainRoot, branch, r));
-        if (hit) console.log(`ℹ I18 ${t.id} 分支已并入 ${hit} 但状态仍 active → 疑似漏收口：已验收则 accept --pass；续做则明确恢复开发（收口链见 merge.md）`);
+        // 证伪点（v2.70.0，J04）：归因「漏收口」前先证伪——unmergedAt 在档=回退已拍板（revert-plan 执行后落痕），
+        // 禁再建议 accept --pass；progress 尾部打回/修复字样=修复在途，催收口会打断修线。
+        if (hit) {
+          let progTail = ''; try { progTail = fs.readFileSync(path.join(tasksDir, t.id, 'progress.md'), 'utf8').split('\n').slice(-20).join('\n'); } catch { /* 无 progress.md */ }
+          if (t.unmergedAt) console.log(`ℹ I18 ${t.id} 分支已并入 ${hit} 但状态仍 active，且回退注记 unmergedAt 在档（${t.unmergedAt}）→ 已回退注记在档，禁建议 accept --pass；续做按 resume.md 开新任务或明确恢复开发`);
+          else if (/打回|修复/.test(progTail)) console.log(`ℹ I18 ${t.id} 分支已并入 ${hit} 但 progress 尾部含打回/修复字样 → 疑似打回修复在途→恢复开发（勿催收口）`);
+          else console.log(`ℹ I18 ${t.id} 分支已并入 ${hit} 但状态仍 active → 疑似漏收口：已验收则 accept --pass；续做则明确恢复开发（收口链见 merge.md）`);
+        }
       }
       if (t.lastActiveAt) {
         const idleDays = (Date.now() - Date.parse(t.lastActiveAt)) / 86400000;
         const leaseLive = !!(t.activeLease?.heartbeatAt && (Date.now() - Date.parse(t.activeLease.heartbeatAt)) <= 30 * 60000);
         if (Number.isFinite(idleDays) && idleDays >= 14 && !leaseLive) {
-          console.log(`ℹ I18 ${t.id} 已 ${Math.floor(idleDays)} 天无簿记动作且租约过期 → 疑似搁置：直接 park --reason 留档（可逆低影响，事后报告——v2.60.2 档位），或刷新续做`);
+          // 证伪点（v2.70.0，J05）：park 建议前先跑 I2 同款对照——分支存在未被 checkpoint 登记的提交=疑似在干活未存档
+          // （「14 天没动静」可能只是没簿记不是没干活），先补登再判定搁置。
+          const cps = (t.checkpoints ?? []).map((c) => c?.commit).filter(Boolean);
+          let unreg = '';
+          if (isGit && branch) {
+            if (cps.length) unreg = String(git(['rev-list', '--no-merges', '--count', `${cps[cps.length - 1]}..${branch}`], mainRoot, true) ?? '').trim();
+            else unreg = String(git(['rev-list', '--no-merges', '--count', `${resolveMainRef(mainRoot) ?? 'main'}..${branch}`], mainRoot, true) ?? '').trim(); // 零存档任务：分支独有提交都算未登记
+          }
+          if (Number(unreg) > 0) console.log(`ℹ I18 ${t.id} 已 ${Math.floor(idleDays)} 天无簿记动作且租约过期，但分支有未登记 commit（${unreg} 笔）→ 疑似在干活未存档：先补登 checkpoint 再判定，勿直接 park`);
+          else console.log(`ℹ I18 ${t.id} 已 ${Math.floor(idleDays)} 天无簿记动作且租约过期 → 疑似搁置：直接 park --reason 留档（可逆低影响，事后报告——v2.60.2 档位），或刷新续做`);
         }
       }
     }
@@ -1431,6 +1448,35 @@ function unparkCmd(args = []) {
   return 0;
 }
 
+/* deploy 记录镜像（v2.70.0 B2）：自动 --record 成功后从 live-state 读 version/rollbackPoint 镜像回写任务
+   task.json.deploy（此前真值只进 live-state，accept 简报/revert-plan 消费的 task.json.deploy 永远缺省）。
+   目标任务：分支与部署分支一致者；无命中回退唯一等验收（isVerifying）任务；零命中或多命中=静默跳过。
+   version/rollbackPoint 两键覆盖、其余键保留；live-state 顶层无此两键时从 jar 字段推导（rollbackPoint
+   兜底=部署 commit，回退重建的代码锚）。找不到 live-state/字段缺失=静默跳过——镜像失败不阻断部署收尾。 */
+function mirrorDeployRecord({ tasksDir, branch, stateFile, dep }) {
+  try {
+    let raw = '';
+    if (stateFile) raw = fs.readFileSync(stateFile, 'utf8');
+    else if (dep?.server) raw = String(execFileSync('ssh', [dep.server, `cat ${dep.statePath ?? '/opt/<app>/live-state.json'}`], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 15000 }));
+    const live = JSON.parse(raw);
+    const jar = live?.jar ?? {};
+    const ver = String(live?.version || jar.version || '').trim(); // 空串视同缺省（record 会显式写 rollbackPoint:''——?? 不跳空串，B2 夹具实证）
+    const rb = String(live?.rollbackPoint || jar.rollbackPoint || jar.commit || '').trim();
+    if (!ver && !rb) return;
+    const cands = loadTasks(tasksDir).filter((t) => t.branch === branch);
+    if (!cands.length) cands.push(...loadTasks(tasksDir).filter((t) => isVerifying(t)));
+    if (cands.length !== 1) return;
+    const t = cands[0];
+    const p = path.join(tasksDir, t.id, 'task.json');
+    const j = readJson(p);
+    if (!j) return;
+    j.deploy = { ...(j.deploy ?? {}) };
+    if (ver) j.deploy.version = ver;
+    if (rb) j.deploy.rollbackPoint = rb;
+    fs.writeFileSync(p, JSON.stringify(j, null, 2) + '\n');
+    console.log(`✓ 部署记录镜像：${t.id}.deploy ← live-state（version ${ver || '—'} / rollbackPoint ${rb || '—'}）`);
+  } catch { /* 静默跳过（v2.70.0 B2 契约）：live-state 不可得/目标不唯一——部署主流程不因镜像失败而红 */ }
+}
 /* ---------------- deploy：部署唯一入口（v2.42.0 四件套①） ----------------
    治「门在但绕得过去」（2026-09-30 双包事故根因：血统门本可拦，部署会话没跑 preflight，
    且 preflight 不在项目部署确认清单里）：把 preflight 从"该跑的检测"变成部署路径的物理组成。
@@ -1515,9 +1561,10 @@ function deployCmd(args = []) {
   if (webOnly) {
     console.log('→ web-only：jar 沿用基线；--record --web-only 登记（--web-version 请按实际版本补跑或人工登记 web 指纹）');
   } else if (md5 && commit) {
-    const rr = execFileSyncNode([pre, '--record', '--branch', branch, '--commit', commit, '--jar-md5', md5, '--jar-path', dep.jarPath, '--by', by, ...(version ? ['--version', version] : []), ...(dep.statePath ? ['--state-path', dep.statePath] : [])], mainRoot);
+    const rr = execFileSyncNode([pre, '--record', '--branch', branch, '--commit', commit, '--jar-md5', md5, '--jar-path', dep.jarPath, '--by', by, ...(version ? ['--version', version] : []), ...(dep.statePath ? ['--state-path', dep.statePath] : []), ...(optArg(args, 'state-file') ? ['--state-file', optArg(args, 'state-file')] : [])], mainRoot);
     if (rr.stdout?.trim()) console.log(rr.stdout.trim());
     if (rr.status !== 0) { console.log('⚠ 自动登记失败——人工补跑 deploy-preflight --record（不登记=下次对账必红）'); }
+    else mirrorDeployRecord({ tasksDir, branch, stateFile: optArg(args, 'state-file'), dep }); // v2.70.0 B2：登记成功→真值镜像回写任务档案
   } else {
     console.log('⚠ 未能自动取 md5/commit——人工补跑 deploy-preflight --record --jar-md5 <md5> --commit <c>（不登记=下次对账必红）');
   }
@@ -1580,6 +1627,8 @@ function lockCmd(args = []) {
     fs.rmSync(lockDir, { recursive: true, force: true });
   }
   // v2.54.0 原子获取（对抗审查高危：旧 existsSync→mkdir 两步非原子，两会话毫秒级并发双抢均打「✓已获取」——MERGE_LOCK 在其唯一存在时刻互斥量为零）；mkdir 不带 recursive：已存在（含空目录）抛 EEXIST=竞争失败
+  // v2.70.0 配套（B2 夹具实证）：.locks 父目录首次使用自举（recursive 只到父层）——新项目首把锁（deploy 入口自管 lock）曾 ENOENT 裸崩；叶子层仍非 recursive，原子竞争语义不变
+  fs.mkdirSync(path.join(tasksDir, '.locks'), { recursive: true });
   try { fs.mkdirSync(lockDir); }
   catch (e) { if (e.code === 'EEXIST') { console.log(`⚠ ${name} 锁刚被他人抢先占位（原子竞争失败）→ 排队等候`); return 1; } throw e; }
   fs.writeFileSync(tsP, String(Date.now()));
@@ -2172,7 +2221,7 @@ function reqConfirm(args = []) {
 
 /* ---------------- testplan：测试计划选择器（只读） ----------------
    闭环第①步：按改动文件集命中规则表 → 输出四道门（pre-commit/merge/冒烟/accept）测试计划。
-   知识层住 references/testing.md（失败模式归属/设计技术/诊断五步）；本命令只做选择，
+   知识层住 references/testing.md（失败模式归属/设计技术/诊断六步）；本命令只做选择，
    执行永远在专家工具；取舍判断归模型+用户。 */
 
 const TEST_RULES = [
@@ -2255,7 +2304,7 @@ function testplan(args = []) {
   return 0;
 }
 
-/* ---------------- diagnose：诊断证据包装配（只读）——诊断五步第②步的机械部分 ---------------- */
+/* ---------------- diagnose：诊断证据包装配（只读）——诊断六步第②步的机械部分 ---------------- */
 function diagnose(idArg) {
   if (!idArg) { console.error('用法：node tf.mjs diagnose <task-id>'); return 1; }
   const { isGit, mainRoot, tasksDir } = locate();
@@ -2286,10 +2335,11 @@ function diagnose(idArg) {
     const runs = fs.readdirSync(runsDir).map((d) => { const p = path.join(runsDir, d); return { d, mt: fs.statSync(p).mtimeMs }; }).sort((a, b) => b.mt - a.mt).slice(0, 3);
     for (const r of runs) console.log(`  .testbed/runs/${r.d}（${relTime(new Date(r.mt).toISOString())}）`);
   } else console.log('  （未发现 .testbed/runs 目录——未用测试床目录约定或路径不同）');
-  console.log('\n## ⑤ 下一步（testing.md §五 诊断五步）');
+  console.log('\n## ⑤ 下一步（testing.md §五 诊断六步）');
   console.log('  - 判性质：node <skill目录>/scripts/tf.mjs scout <症状关键词>（修过=🔁回归，先查复发原因禁直接再补丁——硬规则 9）');
   console.log('  - 取证：服务器日志按时间窗 grep（命令见项目 conventions「环境与端口注意事项」）；平台类疑似问题完整记录请求/响应（AGENTS.md 红线）');
   console.log('  - 缩范围+出方案：按 references/testing.md §五/§六 执行（方案输出格式模板）');
+  console.log('  - 出方案前先列 2~5 个排序假设（各带证伪点）呈报用户，单假设禁直接出方案');
   return 0;
 }
 /* ---------------- nextid：共享计数器占号（默认只读；--reserve 写占号登记） ----------------
@@ -2420,16 +2470,24 @@ function archiveCmd(args = []) {
       else console.log(`⚠ worktree 移除被 git 拒绝（未提交/未跟踪文件？）→ 禁 --force，人工核查：${t.worktree}`);
     }
     // 续迭代入口：归档闭环的出口——用户下次开新会话直接复制这句重入（resume.md 第 10 步接住）。
-    // 种子摘自 handoff 未勾项（已勾不混入）；纯机械输出，脚本保证每次归档都在场。
+    // 种子摘自 handoff：未勾 checkbox（已勾不混入）+「下一步」节编号列表行（v2.70.0 B1：种子常写成编号项，
+    // 只认 checkbox 会漏）；两源合并去重取前 3。纯机械输出，脚本保证每次归档都在场。
     const hp = path.join(dst, 'handoff.md');
     const seeds = fs.existsSync(hp)
-      ? fs.readFileSync(hp, 'utf8').split('\n')
-          .filter((l) => /^\s*[-*]\s*\[\s\]/.test(l))
-          .map((l) => l.replace(/^\s*[-*]\s*\[\s\]\s*/, '').trim())
-          .filter(Boolean).slice(0, 3).map((s) => trunc(s, 46))
+      ? (() => {
+          const txt = fs.readFileSync(hp, 'utf8');
+          const cb = txt.split('\n').filter((l) => /^\s*[-*]\s*\[\s\]/.test(l)).map((l) => l.replace(/^\s*[-*]\s*\[\s\]\s*/, '').trim());
+          let inNext = false;
+          const num = [];
+          for (const l of txt.split('\n')) {
+            if (/^##\s/.test(l)) { inNext = /^##\s*下一步/.test(l); continue; } // 「下一步」节止于下一标题（$ 在 m 模式逐行尾匹配，正则前瞻会提前截断——B1 首跑实证）
+            if (inNext && /^\s*\d+\.\s*\S/.test(l)) num.push(l.replace(/^\s*\d+\.\s*/, '').trim());
+          }
+          return [...new Set([...cb, ...num].filter(Boolean))].slice(0, 3).map((s) => trunc(s, 46));
+        })()
       : [];
     console.log(`📌 续迭代入口（下次新会话直接复制）：\n「@taskflow 继续 ${t.id} 的迭代，做<你的方向>」`);
-    console.log(seeds.length ? `待办种子（摘自 handoff 未勾项）：\n${seeds.map((s) => `  - ${s}`).join('\n')}` : '待办种子：handoff 无未勾项 → 翻 journal/ 与项目级 decisions/');
+    console.log(seeds.length ? `待办种子（摘自 handoff 未勾项/下一步编号项）：\n${seeds.map((s) => `  - ${s}`).join('\n')}` : '待办种子：handoff 无未勾项 → 翻 journal/ 与项目级 decisions/');
   }
   console.log('ℹ 根层只剩活任务；ls 缺省折叠已归档（--all 展开）');
   return 0;
@@ -2450,7 +2508,7 @@ const USAGE = `用法：
   node tf.mjs commit -m "…" [--files|--all] [--session <本会话ID>] [--deployed [部署注记]]  安全提交：不声明范围=拒绝；--session 乐观锁（属主不符拒写，空则回填）；--deployed 部署扳机（active→verifying+deploy 记录+index 同步）；提交后报桌上剩余；首个 commit 自动锚定 goalHash
   node tf.mjs req-confirm <task-id> --note "<拍板记录>"  需求变更门落痕：刷新 goalHash + reqChanges 追加 + index 同步（spec 承重节变更的唯一合法写路径；--note 必填）
   node tf.mjs testplan [task-id] [--files]  测试计划选择器：按改动集命中规则表 → 四道门计划（只读；知识层 references/testing.md）
-  node tf.mjs diagnose <task-id>          诊断证据包：提交史/改动集/测试资产/.testbed 运行/五步提示（只读）
+  node tf.mjs diagnose <task-id>          诊断证据包：提交史/改动集/测试资产/.testbed 运行/六步提示（只读）
   node tf.mjs nextid --pattern V --path <路径> [--reserve|--versions]  共享计数器占号（扫全分支/--reserve 原子占号/--versions 版本占面）
   node tf.mjs lock <name> [--release] [--session <本会话ID>] [--ttl <秒=120>]  排队锁：合并端局等关键窗口串行化（他人新鲜锁 → 拒绝排队；陈旧 → 强占；--release 释放/幂等）
   node tf.mjs snapshot <task-id>            合并快照：审查呈报后拍 main HEAD（事务 ID 类比）写入 task.json.mergeSnapshot
@@ -2465,7 +2523,7 @@ const USAGE = `用法：
   node tf.mjs svc ls                       服务端口租约清单：端口/服务/任务/会话/pid + 活性标注 live/pid未登记/stale（orphan 为独立后缀，复合态并列）（只读）
   node tf.mjs svc claim <service> --port <p> [--task <id>] [--session <ses>] [--pid <pid>] [--note <注记>]  声明端口：空闲→登记；被占→拒绝+报告占用者+建议让位（绝不 kill）；同 task 重跑→补登/回收死租约（簿记写入口）
   node tf.mjs svc release <port>           释放端口租约（停服动作归编排层；不在册拒绝；簿记写入口）
-  node tf.mjs lint                         流程文档自检：步骤引用/编号连续/兼容标注/闸门关键词/未入库引用/机制触点可达/机制fixture落痕/事实禁改写/模板中性（只读）
+  node tf.mjs lint                         流程文档自检：步骤引用/编号连续/兼容标注/闸门关键词/未入库引用/机制触点可达/机制fixture落痕/事实禁改写/模板中性/挂接对账（只读）
   环境变量 TF_STATUS=<off|warn|enforce>    守门 J 状态翻转墙档位（v2.69.0；缺省 enforce——手改 task.json/index.json 的 status 物理拦截，翻转唯一写路径是扳机命令，档案修复走 reconcile --fix；off=单次豁免）
   环境变量 TF_VERIFY_WARN=off              关闭守门 K 验收期提醒（v2.69.0；git push/merge 时在档等验收任务的时序核对提醒，缺省开，提醒不拦）
   node tf.mjs mech ls                      机制采纳清单：token/状态（已装/可装/漂移）+ 产物（只读；真相源=机制登记表「采纳产物」列）
@@ -2893,7 +2951,24 @@ function svcCmd(args = []) {
   return 1;
 }
 
-/* ---------------- lint：流程文档锚点检查（SKILL.md + references/*.md，防漂移） ---------------- */
+/* ---------------- lint：流程文档锚点检查（SKILL.md + references/*.md，防漂移） ----------------
+   管道表解析（v2.70.0 挂接对账数据源，解析先例=mechRegistry 的 data.md 表）：连续 | 行成表，
+   首行=表头，分隔线（|---|）跳过。列取值按表头名定位（列序漂移不破坏解析）。 */
+function parsePipeTables(text) {
+  const tables = [];
+  let cur = null;
+  for (const line of text.split('\n')) {
+    if (/^\s*\|/.test(line)) {
+      if (!cur) { cur = { header: [], rows: [] }; tables.push(cur); }
+      const cells = line.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map((c) => c.trim());
+      if (!cur.header.length) cur.header = cells;
+      else if (!cells.every((c) => c === '' || /^:?-+:?$/.test(c))) cur.rows.push(cells);
+      continue;
+    }
+    cur = null;
+  }
+  return tables;
+}
 function lintCmd(args = []) {
   const rootOverride = args.includes('--root') ? path.resolve(String(args[args.indexOf('--root') + 1] ?? '')) : null;
   const root = rootOverride ? path.join(rootOverride, 'scripts') : path.dirname(new URL(import.meta.url).pathname); // root 恒为 <repo>/scripts，读文档走 join(root,'..')
@@ -3046,7 +3121,63 @@ function lintCmd(args = []) {
       else if (inDesc10[1] !== dv10[1]) { console.log(`⛔ lint：description 版本串 ${inDesc10[1]} ≠ version ${dv10[1]} → 升版本时两处同步改`); bad++; }
     }
   }
-  console.log(bad ? `\nlint：${bad} 项待修（spec 见 data.md；修文档不是修 lint）` : 'lint：全绿（步骤引用 / 编号连续 / 兼容标注 / 闸门关键词 / 未入库引用 / 机制触点 / 机制fixture落痕 / 事实禁改写 / 模板中性 / 版本一致）');
+  // 11) 挂接对账（v2.70.0，JVM 可达性模型）：references/entry-routes.md 注册表 = root set，「指向/载体」= 边，
+  //     本检查 = 可达性遍历——入口指向的文件与锚词必须真实可达（悬空=红）；SKILL.md description（加载面）
+  //     与注册表双面对账（注册表宣称要覆盖的话术，description 里必须有锚词）；判定点纪律锚词必须 grep 得到
+  //     （锚词落不了文件=死规则=红）。孤儿命令（分发区命令在 references/*.md 零提及）= ⚠ 提示级不计数
+  //     （svc/nextid 等纯簿记命令可无话语入口，先观察再定级）。TF_ENTRY_ROUTES 可覆盖注册表路径（测试用）。
+  const erP = process.env.TF_ENTRY_ROUTES ? path.resolve(process.env.TF_ENTRY_ROUTES) : path.join(root, '..', 'references', 'entry-routes.md');
+  let erText = ''; try { erText = fs.readFileSync(erP, 'utf8'); } catch { /* 缺失走下方红 */ }
+  const erTables = erText ? parsePipeTables(erText) : [];
+  const rTab = erTables.find((tb) => (tb.header[0] ?? '') === '入口id');
+  const jTab = erTables.find((tb) => (tb.header[0] ?? '') === '判定id');
+  if (!erText || !rTab || !jTab) { console.log('⛔ lint：入口路由注册表缺失或不可解析（entry-routes.md 须含「入口id」「判定id」两表）——挂接对账失明（纪律：新入口先入表，再写触发表散文）'); bad++; }
+  else {
+    const stripTick = (s) => String(s ?? '').replace(/^`+|`+$/g, '').trim();
+    const reach = (label, ref) => {
+      const i = String(ref ?? '').indexOf('::');
+      const f = i < 0 ? String(ref ?? '').trim() : String(ref).slice(0, i).trim();
+      const kw = i < 0 ? '' : String(ref).slice(i + 2).trim();
+      const fp = f ? path.join(root, '..', f) : '';
+      if (!f || !fp || !fs.existsSync(fp)) { console.log(`⛔ lint 挂接对账 ${label}：指向/载体文件不存在「${f}」（悬空边）→ 修注册表或补文件`); bad++; return null; }
+      if (!kw) { console.log(`⛔ lint 挂接对账 ${label}：缺 ::锚词（${f}）→ 指向/载体须「文件路径::锚词」两段式`); bad++; return null; }
+      const ftxt = fs.readFileSync(fp, 'utf8');
+      if (!ftxt.includes(kw)) { console.log(`⛔ lint 挂接对账 ${label}：锚词缺失「${kw}」@ ${f} → 锚词落文件或修注册表`); bad++; }
+      return ftxt;
+    };
+    const descLine = fs.readFileSync(path.join(root, '..', 'SKILL.md'), 'utf8').split('\n').find((l) => l.startsWith('description:')) ?? '';
+    for (const cells of rTab.rows) {
+      const g = (name) => stripTick(cells[rTab.header.indexOf(name)]);
+      const eid = g('入口id');
+      if (!eid) continue;
+      reach(`入口 ${eid}`, g('指向'));
+      if (g('加载面') === '是') {
+        const a = g('description锚');
+        if (!a) { console.log(`⛔ lint 挂接对账 入口 ${eid}：加载面=是 但 description锚 为空 → 填锚词或改加载面=否`); bad++; }
+        else if (!descLine.includes(a)) { console.log(`⛔ lint 挂接对账 入口 ${eid}：description 无锚「${a}」→ 触发话术入 SKILL.md description（双面对账）`); bad++; }
+      }
+    }
+    for (const cells of jTab.rows) {
+      const g = (name) => stripTick(cells[jTab.header.indexOf(name)]);
+      const jid = g('判定id');
+      if (!jid) continue;
+      const label = `判定 ${jid}${g('判定点') ? `（${g('判定点')}）` : ''}`;
+      const i = g('载体').indexOf('::');
+      const ftxt = reach(label, g('载体'));
+      const kw = g('纪律锚词');
+      if (ftxt && kw && i > 0) {
+        const cf = g('载体').slice(0, i).trim();
+        if (!ftxt.includes(kw)) { console.log(`⛔ lint 挂接对账 ${label}：纪律锚词缺失「${kw}」@ ${cf} → 载体落锚或修注册表`); bad++; }
+      }
+    }
+    try {
+      const tfSrc = fs.readFileSync(path.join(root, 'tf.mjs'), 'utf8');
+      const docPool = refs.map((f) => path.join(root, '..', f)).filter((p) => fs.existsSync(p)).map((p) => fs.readFileSync(p, 'utf8')).join('\n');
+      const orphans = [...new Set([...tfSrc.matchAll(/if \(cmd === '([\w-]+)'\)/g)].map((m) => m[1]))].filter((c) => !docPool.includes(c));
+      for (const c of orphans) console.log(`⚠ lint 挂接对账：命令 ${c} 在 references/*.md 零提及（孤儿话语入口？）——纯簿记命令可无话语入口，确认后忽略（提示级不拦截）`);
+    } catch { /* tf.mjs 不可读（--root 副本缺文件）→ 跳过孤儿检查 */ }
+  }
+  console.log(bad ? `\nlint：${bad} 项待修（spec 见 data.md；修文档不是修 lint）` : 'lint：全绿（步骤引用 / 编号连续 / 兼容标注 / 闸门关键词 / 未入库引用 / 机制触点 / 机制fixture落痕 / 事实禁改写 / 模板中性 / 版本一致 / 挂接对账）');
   return bad ? 1 : 0;
 }
 const rangeNums = (a, b) => Array.from({ length: b - a + 1 }, (_, i) => a + i);

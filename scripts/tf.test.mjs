@@ -304,7 +304,7 @@ try {
   const tpNoTask = run(['testplan', 'no-such-task'], repo);
   ok(tpNoTask.status === 1 && tpNoTask.stdout.includes('未找到'), '任务不存在 → 退出码 1 + 提示');
 
-  // ---- diagnose：诊断证据包装配（诊断五步第②步的机械部分）----
+  // ---- diagnose：诊断证据包装配（诊断六步第②步的机械部分）----
   const dg = run(['diagnose', 't1-ok-20260101'], repo);
   ok(dg.status === 0 && dg.stdout.includes('诊断证据包'), 'diagnose 输出证据包标题');
   ok(dg.stdout.includes('提交史') && dg.stdout.includes('测试资产'), '证据包含提交史与测试资产节');
@@ -678,6 +678,8 @@ try {
   ok(lnt2.stdout.includes('get_impact_radius_tool'), 'lint 模板中性：项目专属工具标识符被点名');
 
   // ---- v2.52.0 lint 检查器自身修复的红绿两路（对抗审查 A1/A2/B1/B3/C1/C2/F 实证形态，副本真跑）----
+  // v2.70.0：--root 夹具须自带最小入口路由注册表（挂接对账红「缺失」会淹没本节红绿语义；行指向夹具内真实文件=绿）
+  const MIN_ER = ['## 表一：意图入口路由', '', '| 入口id | 话术样例 | 路由动作 | 指向 | 纪律形态 | 加载面 | description锚 |', '| --- | --- | --- | --- | --- | --- | --- |', '| R01 | x | x | references/data.md::机制登记表 | x | 否 | |', '', '## 表二：判定点纪律', '', '| 判定id | 判定点 | 纪律形态 | 载体 | 纪律锚词 |', '| --- | --- | --- | --- | --- |', '| J01 | x | x | references/data.md::机制登记表 | 机制登记表 |', ''].join('\n');
   const mkLintCase = (name, dataMd) => {
     const fr = path.join(tmp, name);
     for (const d of ['references', 'templates', 'scripts']) fs.mkdirSync(path.join(fr, d), { recursive: true });
@@ -686,6 +688,7 @@ try {
     fs.writeFileSync(path.join(fr, 'README.md'), '');
     fs.writeFileSync(path.join(fr, 'references', 'resume.md'), 'GOODTOKEN\n\n需求锚定\n');
     fs.writeFileSync(path.join(fr, 'references', 'data.md'), dataMd + '\n状态机（唯一事实源\n');
+    fs.writeFileSync(path.join(fr, 'references', 'entry-routes.md'), MIN_ER);
     return run(['lint', '--root', fr], repo);
   };
   const hdr7 = ['| token | 定义处 | 触点 | 采纳产物 | fixture 落痕 | 检测 | 大白话 |', '| --- | --- | --- | --- | --- | --- | --- |'];
@@ -712,6 +715,7 @@ try {
     fs.writeFileSync(path.join(fr, 'README.md'), '');
     fs.writeFileSync(path.join(fr, 'references', 'resume.md'), 'GOODTOKEN\n\n需求锚定\n');
     fs.writeFileSync(path.join(fr, 'references', 'data.md'), ['# data', '', '## 机制登记表', '', ...hdr7, '| GOODTOKEN | x | `resume.md`, references/resume.md | —（无产物，理由写足长度） | —（无脚本，理由写足长度） | t | 一句解释 |', ''].join('\n') + '\n状态机（唯一事实源\n');
+    fs.writeFileSync(path.join(fr, 'references', 'entry-routes.md'), MIN_ER); // v2.70.0：最小注册表夹具（挂接对账不因缺失红淹没本节红绿语义）
     return run(['lint', '--root', fr], repo);
   };
   const dvMiss = mkDescVer('fake-descver-miss', '管理长任务。');
@@ -2515,6 +2519,94 @@ try {
     const usgNone = spawnSync('node', [script, 'skills', '--usage'], { cwd: evRepo, encoding: 'utf8', env: { ...process.env, TF_SKILL_USAGE: path.join(tmp, 'no-such-usage.jsonl') } });
     ok(usgNone.status === 0 && /暂无埋点数据/.test(usgNone.stdout), 'v2.69.0 skills --usage：无埋点文件 → 暂无埋点数据 exit 0');
   }
+
+  // ---- 2.70.0 挂接对账 + findings 修复（B1 种子扩展 / B2 deploy 镜像回写 / C4 I18 证伪点 / C2⑤ 假设纪律行 / lint 挂接对账）----
+  const r2 = path.join(tmp, 'r2-repo');
+  fs.mkdirSync(path.join(r2, '.taskflow'), { recursive: true });
+  sh('git init -q -b main && git config user.email t@t && git config user.name t', r2);
+  sh("echo '.taskflow/' >> .git/info/exclude", r2);
+  fs.writeFileSync(path.join(r2, 'a.txt'), 'a\n');
+  sh('git add -A && git commit -qm init', r2);
+  const r2Now = new Date().toISOString();
+  const r2Idle = new Date(Date.now() - 20 * 86400000).toISOString();
+  const r2Dir = (id) => path.join(r2, '.taskflow', id);
+  const r2Tj = (id) => JSON.parse(fs.readFileSync(path.join(r2Dir(id), 'task.json'), 'utf8'));
+  const r2IdxAdd = (row) => { const ip = path.join(r2, '.taskflow', 'index.json'); const db = fs.existsSync(ip) ? JSON.parse(fs.readFileSync(ip, 'utf8')) : { tasks: [] }; db.tasks.push(row); fs.writeFileSync(ip, JSON.stringify(db, null, 2) + '\n'); };
+  const r2AddT = (id, extra = {}) => {
+    fs.mkdirSync(r2Dir(id), { recursive: true });
+    fs.writeFileSync(path.join(r2Dir(id), 'task.json'), J({ id, title: id, goal: 'g', tier: 'small', anchor: 'attached', status: 'active', branch: extra.branch === null ? null : `task/${id}`, createdAt: r2Now, lastActiveAt: extra.idle ? r2Idle : r2Now, sessionID: 'ses_x', subtasks: [], checkpoints: [], ...extra }));
+    r2IdxAdd({ id, title: id, status: extra.status ?? 'active', tier: 'small', branch: extra.branch === null ? null : `task/${id}`, worktree: null, sessionID: 'ses_x', createdAt: r2Now, lastActiveAt: extra.idle ? r2Idle : r2Now });
+  };
+  const r2Branch = (id, body) => { sh(`git checkout -q -b task/${id} && echo ${id} > ${id}.txt && git add -A && git commit -qm ${id} && git checkout -q main`, r2); return execFileSync('git', ['-C', r2, 'rev-parse', '--short=7', `task/${id}`], { encoding: 'utf8' }).trim(); };
+  // C4 夹具：c4-a（unmergedAt 在档）/ c4-b（progress 尾部打回字样）/ c4-c（无证伪命中=原漏收口提示回归）——分支均并入 main
+  for (const id of ['c4-a-20260101', 'c4-b-20260101', 'c4-c-20260101']) {
+    const tip = r2Branch(id);
+    sh(`git merge -q --no-ff task/${id} -m merge-${id}`, r2);
+    r2AddT(id, { checkpoints: [{ ts: r2Now, commit: tip, summary: id, files: [`${id}.txt`] }], ...(id === 'c4-a-20260101' ? { unmergedAt: '2026-10-20T10:00:00Z' } : {}) });
+  }
+  fs.writeFileSync(path.join(r2Dir('c4-b-20260101'), 'progress.md'), [...Array(25).keys()].map((i) => `过程行 ${i}`).join('\n') + '\n打回：验收发现回滚缺口，修复中\n修复：补 rollback 用例\n');
+  // C4② 夹具：c4-d（闲置但分支有未登记 commit）/ c4-e（闲置且存档干净）——分支不并入 main
+  const c4dTip = r2Branch('c4-d-20260101');
+  sh('git checkout -q task/c4-d-20260101 && echo more >> c4-d-20260101.txt && git add -A && git commit -qm c4d-extra && git checkout -q main', r2);
+  const c4dCp = execFileSync('git', ['-C', r2, 'rev-parse', '--short=7', 'task/c4-d-20260101~1'], { encoding: 'utf8' }).trim();
+  r2AddT('c4-d-20260101', { idle: true, checkpoints: [{ ts: r2Idle, commit: c4dCp, summary: 'd1', files: [] }] });
+  const c4eTip = r2Branch('c4-e-20260101');
+  r2AddT('c4-e-20260101', { idle: true, checkpoints: [{ ts: r2Idle, commit: c4eTip, summary: 'e1', files: [] }] });
+  const docC4 = run(['doctor'], r2);
+  ok(docC4.stdout.includes('c4-a-20260101') && /已回退注记在档，禁建议 accept/.test(docC4.stdout), `v2.70.0 C4 I18①证伪a：unmergedAt 在档 → 禁建议 accept${docC4.status ? ' ← ' + docC4.stdout.slice(0, 400) : ''}`);
+  ok(/疑似打回修复在途→恢复开发/.test(docC4.stdout) && docC4.stdout.includes('c4-b-20260101'), 'v2.70.0 C4 I18①证伪b：progress 尾部打回/修复字样 → 疑似打回修复在途');
+  ok(/疑似漏收口：已验收则 accept --pass/.test(docC4.stdout) && docC4.stdout.includes('c4-c-20260101'), 'v2.70.0 C4 I18①回归：无证伪命中仍走原漏收口提示（级联不误伤）');
+  ok(/先补登 checkpoint 再判定，勿直接 park/.test(docC4.stdout) && docC4.stdout.includes('c4-d-20260101'), 'v2.70.0 C4 I18②证伪：分支有未登记 commit → 先补登勿 park');
+  ok(/疑似搁置：直接 park --reason 留档/.test(docC4.stdout) && docC4.stdout.includes('c4-e-20260101'), 'v2.70.0 C4 I18②回归：存档干净仍给 park 建议（对照不误伤）');
+  // C2⑤：diagnose 第⑤步假设纪律行 + 六步称谓
+  const dg2 = run(['diagnose', 'c4-a-20260101'], r2);
+  ok(dg2.status === 0 && dg2.stdout.includes('诊断六步') && dg2.stdout.includes('2~5 个排序假设') && dg2.stdout.includes('单假设禁直接出方案'), 'v2.70.0 C2⑤ diagnose 第⑤步：六步称谓 + 列假设纪律行（单假设禁直接出方案）');
+  // B1：archive 种子提取扩展（checkbox + 「下一步」编号行合并去重取前 3）
+  const archId = 'c4-arch-20260101';
+  fs.mkdirSync(r2Dir(archId), { recursive: true });
+  fs.writeFileSync(path.join(r2Dir(archId), 'task.json'), J({ id: archId, title: archId, goal: 'g', tier: 'small', anchor: 'attached', status: 'merged', branch: `task/${archId}`, createdAt: r2Now, lastActiveAt: r2Now, sessionID: 'ses_x', subtasks: [], checkpoints: [], mergedAt: r2Now }));
+  r2IdxAdd({ id: archId, title: archId, status: 'merged', tier: 'small', branch: `task/${archId}`, worktree: null, sessionID: 'ses_x', createdAt: r2Now, lastActiveAt: r2Now });
+  fs.writeFileSync(path.join(r2Dir(archId), 'handoff.md'), [
+    '## 已完成', '- [x] 已勾掉的不该出现', '', '## 下一步', '1. 编号种子丙（优先补验证）', '2. 复选框种子甲', '3. 编号种子丁（第四条应被截断）', '', '## 涉及文件', '- [ ] 复选框种子乙', '',
+  ].join('\n'));
+  const arch2 = run(['archive', archId], r2);
+  ok(arch2.status === 0 && arch2.stdout.includes('摘自 handoff 未勾项/下一步编号项'), `v2.70.0 B1 archive：种子标签含双源${arch2.status ? ' ← ' + arch2.stdout + arch2.stderr : ''}`);
+  ok(['复选框种子甲', '复选框种子乙', '编号种子丙'].every((s) => arch2.stdout.includes(s)), 'v2.70.0 B1 archive：checkbox 行与「下一步」编号行都进种子');
+  ok(!arch2.stdout.includes('编号种子丁') && !arch2.stdout.includes('已勾掉的不该出现'), 'v2.70.0 B1 archive：前 3 截断生效 + 已勾项不混入');
+  ok(arch2.stdout.split('复选框种子甲').length - 1 === 1, 'v2.70.0 B1 archive：双源去重（甲在 checkbox 与编号行重复只出一次）');
+  // B2：deploy 自动登记成功 → live-state 真值镜像回写 task.json.deploy
+  r2AddT('c4-dep-20260101', { status: 'verifying', branch: null, deploy: { status: 'verifying', deployedAt: r2Now, note: '既有注记保留' } });
+  fs.writeFileSync(path.join(r2, '.taskflow', 'project.json'), J({ key: 'r2proj', git: true, deploy: { server: '127.0.0.1', statePath: '/tmp/unused-live.json', jarPath: '/tmp/does-not-matter.jar', jarProbe: `echo ${'b'.repeat(32)}`, commands: [`echo deployed-ok > ${tmp}/r2-deployed.txt`] } }));
+  fs.mkdirSync(path.join(r2, 'scripts', 'harness'), { recursive: true });
+  fs.copyFileSync(new URL('../assets/harness/deploy-preflight.mjs', import.meta.url).pathname, path.join(r2, 'scripts', 'harness', 'deploy-preflight.mjs'));
+  const r2State = path.join(tmp, 'r2-live-state.json');
+  const r2MainSha = execFileSync('git', ['-C', r2, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+  fs.writeFileSync(r2State, JSON.stringify({ schema: 'live-deploy-state/1', jar: { commit: r2MainSha, version: '0.9.0', branch: 'main' } }));
+  const dep2 = run(['deploy', '--branch', 'main', '--version', '1.2.3', '--state-file', r2State], r2);
+  const dep2Tj = r2Tj('c4-dep-20260101');
+  ok(dep2.status === 0 && /部署记录镜像/.test(dep2.stdout), `v2.70.0 B2 deploy：登记成功 → 镜像回写提示${dep2.status ? ' ← ' + dep2.stdout + dep2.stderr : ''}`);
+  ok(dep2Tj.deploy.version === '1.2.3' && !!dep2Tj.deploy.rollbackPoint, 'v2.70.0 B2 deploy：task.json.deploy.version/rollbackPoint 非空（真值入档）');
+  ok(dep2Tj.deploy.status === 'verifying' && dep2Tj.deploy.note === '既有注记保留', 'v2.70.0 B2 deploy：镜像只覆盖两键，其余键保留');
+  ok(fs.existsSync(path.join(tmp, 'r2-deployed.txt')), 'v2.70.0 B2 deploy：部署命令照常执行（镜像不改变主流程）');
+  // lint 挂接对账：真表绿路（含时序差兜底）+ 变异攻击三连 + 缺表红
+  const erReal = path.join(path.dirname(script), '..', 'references', 'entry-routes.md');
+  const erCopy = path.join(tmp, 'er-real-copy.md');
+  fs.copyFileSync(erReal, erCopy);
+  const runEnv = (args, cwd, extra) => spawnSync('node', [script, ...args], { cwd, encoding: 'utf8', env: { ...process.env, ...extra } });
+  const lg = runEnv(['lint'], r2, { TF_ENTRY_ROUTES: erCopy });
+  const hookReds = lg.stdout.split('\n').filter((l) => l.includes('⛔ lint 挂接对账'));
+  const pendingOnly = hookReds.length > 0 && hookReds.every((l) => l.includes('按序')); // 时序差白名单：并行文档同事未落地的载体锚词（resume.md「按序」）
+  if (lg.status === 0) ok(/lint：全绿/.test(lg.stdout) && lg.stdout.includes('挂接对账'), 'v2.70.0 lint 挂接对账绿路：真表 → 全绿且摘要含挂接对账');
+  else ok(lg.stdout.includes('挂接对账') && pendingOnly, `v2.70.0 lint 挂接对账绿路（时序差档）：唯一红=待同事落地的锚词「按序」${lg.status ? ' ← ' + hookReds.join(' | ') : ''}`);
+  const mut = (re, rep) => { const p = path.join(tmp, `er-mut-${Math.random().toString(36).slice(2, 7)}.md`); fs.writeFileSync(p, fs.readFileSync(erCopy, 'utf8').replace(re, rep)); return p; };
+  const lgDangle = runEnv(['lint'], r2, { TF_ENTRY_ROUTES: mut(/references\/deploy-gate\.md::部署/, 'references/deploy-gate-nope.md::部署') });
+  ok(lgDangle.status === 1 && /指向\/载体文件不存在/.test(lgDangle.stdout) && lgDangle.stdout.includes('deploy-gate-nope.md'), 'v2.70.0 lint 挂接对账红路①：指向文件删除 → 悬空红 exit 1');
+  const lgDesc = runEnv(['lint'], r2, { TF_ENTRY_ROUTES: mut(/\| 是 \| 部署 \|/, '| 是 | 发版上线词 |') });
+  ok(lgDesc.status === 1 && /description 无锚「发版上线词」/.test(lgDesc.stdout), 'v2.70.0 lint 挂接对账红路②：加载面锚词不在 description → 双面对账红');
+  const lgCarrier = runEnv(['lint'], r2, { TF_ENTRY_ROUTES: mut(/\| references\/merge\.md::STUCK \| STUCK \|/, '| references/merge.md::STUCK | 绝无此词XY |') });
+  ok(lgCarrier.status === 1 && /纪律锚词缺失「绝无此词XY」/.test(lgCarrier.stdout), 'v2.70.0 lint 挂接对账红路③：载体纪律锚词不可 grep → 载体红');
+  const lgMiss = runEnv(['lint'], r2, { TF_ENTRY_ROUTES: path.join(tmp, 'no-such-registry.md') });
+  ok(lgMiss.status === 1 && /入口路由注册表缺失或不可解析/.test(lgMiss.stdout), 'v2.70.0 lint 挂接对账红路⓪：注册表缺失 → 红且不裸崩');
 
   process.exitCode = failures ? 1 : 0; // 失败≠0：堵住链式调用「grep 匹配到失败文案也算成功」的放行洞
   console.log(failures ? `\n${failures} 项断言失败` : '\n全部通过');
