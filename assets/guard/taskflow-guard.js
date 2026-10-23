@@ -11,6 +11,10 @@
 //   L 档案删除告警（v2.71.0）：tool_call(bash)——rm 触及 .taskflow/ 任务档案 = 不可逆删除风险 → 告警档提醒
 //      （对齐 J 墙 off/warn/enforce 档位风格，缺省 warn；TF_RM_WARN=enforce 硬拦 / off 关闭；删除已归档任务须呈报
 //      档案不可变原则逐用户确认——任务档案是跨会话账本，rm 删了没有 undo）
+//   J19/J20 牵连排查+数据边界提醒（v2.72.0）：tool_call(edit/write)——普通源码文件两检查（.taskflow/ 档案走 J 墙/G 门不归这）：
+//      ①J19 目标 basename 被引用文件数 ≥ TF_IMPACT_THRESHOLD（缺省 3）→ 提醒呈报须含影响面清单（可跑 tf.mjs impact）；
+//      ②J20 内容命中数据管道特征 → 提醒枚举真空形态（空集/单条/首期无参照/异常值）。纯提醒不拦：TF_J19_WARN /
+//      TF_J20_WARN=off 各自关，缺省 warn、无 enforce 档——定位是「提醒必达」不是墙；两提醒同调用合并一条 additionalContext。
 //   T 技能埋点（v2.69.0）：tool_call(read)——skill:// 加载计数入全局 skill-usage.jsonl（不受 guardOn 闸控，零内容仅计数，
 //      供 tf.mjs skills --usage 报表；handler 整体吞错——omp hook fail-closed，抛错=阻断读取）
 //   E 输出规范注入：before_provider_request 每轮把「双层输出规范 + 项目词表」前置进 system——
@@ -522,6 +526,59 @@ export default function taskflowGuard(pi) {
     return undefined;
   });
 
+  // J19 牵连排查 + J20 数据边界提醒（v2.72.0）：edit/write 触及普通源码文件时两检查（.taskflow/ 档案走上方 J 墙/G 门，
+  // 本 handler 直接放行）。①J19：目标 basename 在仓内被引用文件数 ≥ TF_IMPACT_THRESHOLD（缺省 3，与 tf.mjs impact 共用）
+  // → 提醒呈报带影响面清单；②J20：内容命中数据管道特征 → 提醒枚举真空形态。纯提醒不拦：TF_J19_WARN / TF_J20_WARN
+  // 各自 off 关闭，缺省 warn、无 enforce 档——定位是「提醒必达」不是墙。同一调用两提醒合并一条 additionalContext（换行分隔）。
+  // 性能纪律：检索走 git grep（tracked+未忽略；node_modules/.git 天然排除），内容只读前 500 行做特征探测。
+  // 挂 tool_call 末位：既有测试按 handlers['tool_call'] 下标定位 handler（0=bash/1=task/2=G 门/3=I 消账/4=T 埋点），追加不挪既有下标。
+  pi.on('tool_call', async (event, ctx) => {
+    try {
+      if (!guardOn(ctx?.cwd)) return undefined;
+      if (event.toolName !== 'edit' && event.toolName !== 'write') return undefined;
+      const raw = event.input?.path;
+      if (!raw || typeof raw !== 'string') return undefined;
+      if (/^[a-zA-Z][a-zA-Z0-9+.-]+:/.test(raw)) return undefined; // 协议地址（agent:// / xd:// 等）与 G 门同款过滤
+      const dir = locateTasksDir(ctx?.cwd);
+      if (!dir) return undefined; // 零干扰边界
+      const rawN = (raw === '~' || raw.startsWith('~/') || raw.startsWith('~\\')) ? path.join(os.homedir(), raw.slice(1)) : raw;
+      const abs = realPath(path.resolve(ctx?.cwd ?? process.cwd(), rawN)); // realpath 归一（symlink 环境路径基一致；不存在的新文件保最深存在祖先）
+      // 文件自己的工作区为检索根（worktree 会话也算——主仓 .taskflow 定位采纳面，检索面跟文件走）
+      let top = null;
+      try { top = execFileSync('git', ['-C', path.dirname(abs), 'rev-parse', '--show-toplevel'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim(); } catch { /* 目录尚未落盘等 */ }
+      if (!top) { try { top = execFileSync('git', ['-C', ctx?.cwd ?? process.cwd(), 'rev-parse', '--show-toplevel'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim(); } catch { return undefined; } }
+      const rel = path.relative(top, abs);
+      if (!rel || rel.startsWith('..')) return undefined; // 仓库之外零干扰
+      if (rel === '.taskflow' || rel.startsWith(`.taskflow${path.sep}`)) return undefined; // 档案归 J 墙/G 门管
+      const warns = [];
+      if (process.env.TF_J19_WARN !== 'off') {
+        const th = (() => { const v = parseInt(process.env.TF_IMPACT_THRESHOLD ?? '', 10); return Number.isFinite(v) && v >= 1 ? v : 3; })();
+        let n = 0;
+        try {
+          const out = execFileSync('git', ['-C', top, 'grep', '--untracked', '-I', '-l', '-F', '-e', path.basename(rel), '--', '.', `:!${rel}`],
+            { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 16 * 1024 * 1024 });
+          n = out.split('\n').filter(Boolean).length;
+        } catch (e) { if (e?.status !== 1) n = 0; } // 1=无匹配；检索失败按 0 处理（提醒不拦，宁缺勿噪）
+        if (n >= th) warns.push(`TASKFLOW_GUARD J19 牵连排查提醒：${rel} 被 ${n} 个文件引用——改动呈报须含影响面清单（可跑 node tf.mjs impact --files ${rel}）；分析由 impact-analysis 技能引导（13+ 引用形态清单+检索序列）`);
+      }
+      if (process.env.TF_J20_WARN !== 'off') {
+        let text = null;
+        if (event.toolName === 'write' && typeof event.input?.content === 'string') text = event.input.content; // 未落盘新文件也有探测面
+        else { try { text = fs.readFileSync(abs, 'utf8'); } catch { text = null; } }
+        if (text != null) {
+          const head = text.split('\n').slice(0, 500).join('\n');
+          const words = [...new Set(head.match(/环比|同比|上期|较上期|对比|排名|统计/g) ?? [])];
+          const codes = [...new Set((head.match(/\b(?:sum|count|avg|max|min|sort)\s*\(/g) ?? []).map((s) => s.replace(/\s+/g, '')))];
+          if (words.length || codes.length >= 2) { // 词特征任一命中；代码特征 ≥2 个不同算子（单 sort(/count( 全仓皆是无害噪音）
+            warns.push(`TASKFLOW_GUARD J20 数据边界提醒：${rel} 疑涉数据管道（命中特征：${[...words, ...codes].slice(0, 6).join('、')}）——枚举真空形态（空集/单条/首期无参照/异常值），禁算了不传/传空容器/硬凑对比；分析由 data-boundary 技能引导（五维度检查清单+三禁）`);
+          }
+        }
+      }
+      if (!warns.length) return undefined;
+      return { additionalContext: warns.map((w) => `⚠ ${w}`).join('\n') };
+    } catch { return undefined; } // 提醒失败静默——hook fail-closed，绝不拦主流程
+  });
+
   // H 同类排查提醒（v2.49.1 事件面重设计；v2.61.0 触发源收紧为子代理报告）：子代理报告不走 tool_result——活体实证
   // tool_result(task) 的 content 只是 spawn 回执（「Spawned agent…」），报告以 task-result 消息进入后续 context 链。
   // 挂 context：尾部消息中「含 task-result 标签且命中特征词」→ 追加一条三问提醒消息（幂等；非 taskflow 静默）。
@@ -541,7 +598,7 @@ export default function taskflowGuard(pi) {
     if (tail.some((m) => textOf(m).includes('TASKFLOW_GUARD H：'))) return undefined; // 幂等：本轮已提醒
     const dir = locateTasksDir(ctx?.cwd);
     if (!dir) return undefined; // 零干扰边界：非 taskflow 项目不提醒
-    return { messages: [...msgs, { role: 'user', content: '⚠ TASKFLOW_GUARD H：这是第 H 号提醒（taskflow 装在 omp 里的自动检查脚本发的），可能猜错，不拦任何操作——子代理报告里出现了「阻塞 / blocker / 卡点」字样，猜测你可能在处理一个被卡住的问题。如果确实要修 bug，动手前先答三个问题（同类排查，CLASS_SWEEP_GATE：修一处之前先查清影响范围的规矩）：① 上游——坏结果的输入/前提从哪来，源头干净吗；② 下游——修好的东西被谁在用，要不要同步改；③ 同类——同样的写法还有几处（用 grep：按关键词在代码里搜索的工具——搜同模式），多处就逐处修或逐处注记。排查结论记到任务记录本（findings：.taskflow/<任务id>/findings.md），修复代码要附这份清单。如果报告说的其实是「无阻塞」、或只是在讨论「阻塞」这个词本身，忽略本条。' }] };
+    return { messages: [...msgs, { role: 'user', content: '⚠ TASKFLOW_GUARD H：这是第 H 号提醒（taskflow 装在 omp 里的自动检查脚本发的），可能猜错，不拦任何操作——子代理报告里出现了「阻塞 / blocker / 卡点」字样，猜测你可能在处理一个被卡住的问题。如果确实要修 bug，动手前先答三个问题（同类排查，CLASS_SWEEP_GATE：修一处之前先查清影响范围的规矩）：① 上游——坏结果的输入/前提从哪来，源头干净吗；② 下游——修好的东西被谁在用，要不要同步改；③ 同类——同样的写法还有几处（用 grep：按关键词在代码里搜索的工具——搜同模式），多处就逐处修或逐处注记。排查结论记到任务记录本（findings：.taskflow/<任务id>/findings.md），修复代码要附这份清单。如果报告说的其实是「无阻塞」、或只是在讨论「阻塞」这个词本身，忽略本条。\n受影响面定位可跑 tf.mjs impact 或挂 impact-analysis 技能。' }] };
   });
   // I 词表反馈沉淀检测（v2.57.0）：context 每轮重放全量消息——只数 user 角色强信号（含 TASKFLOW_GUARD 的自家注入不数）；
   // 字符串 Set 去重防重放重复计数；检测只计数不追加消息（提醒走 E 通道，避免双通道噪音）

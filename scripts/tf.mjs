@@ -8,7 +8,7 @@
 //   locate / loadTasks / loadIgnores / matchIgnore / corruptedReport / parseWriteSet / parseReadSet / matchPath /
 //   parsePipeTables（lint 挂接对账管道表解析）/ mirrorDeployRecord（deploy → task.json.deploy 镜像回写+部署事件状态扳机）
 // 命令层（互不调用）: ls / strays / doctor / selfCheck / reconcile / scout / skillsCmd /
-//   accept / takeover / parkCmd / unparkCmd / lock / commitCmd / reqConfirm / testplan / diagnose / nextid / migrateCmd / archiveCmd / svcCmd / lintCmd / staleCmd / overlapCmd / mergegateCmd / revertPlanCmd / gatesCmd
+//   accept / takeover / parkCmd / unparkCmd / lock / commitCmd / reqConfirm / testplan / diagnose / nextid / migrateCmd / archiveCmd / svcCmd / lintCmd / staleCmd / overlapCmd / impactCmd / mergegateCmd / revertPlanCmd / gatesCmd
 // 分发区: 文件尾 if (cmd === …) 一行一命令
 // 不变量 spec: references/data.md「不变量」表——脚本侧唯一登记处 = INVARIANTS 注册表，
 //   三源一致性由 `doctor --self` 机械强制；新增检查必须同时落注册表+data.md 行+实现体。
@@ -2081,6 +2081,111 @@ function overlapCmd(args = []) {
   return 0;
 }
 
+/* ---------------- impact：J19 牵连排查 + J20 数据边界 机械保底（只读，恒 exit 0，v2.72.0） ----------------
+   纯文档纪律的「提醒必达」缺口：J19/J20 只活在文档里时靠模型自觉。本命令给「改动呈报前」一个机械底：
+   逐文件 ①basename 引用计数/清单（grep 级非语义级）②数据管道特征探测。提醒不拦截。
+   检索面 = git grep --untracked（tracked+未忽略新文件；node_modules/.git 等忽略面天然排除）——比裸 grep -r 快且稳。
+   阈值 TF_IMPACT_THRESHOLD（缺省 3，与守门 J19 共用）；语义级影响面归 code-review-graph impact 工具（如已挂载）。 */
+// J19/J20 机械面（impact 命令用；guard 侧持独立副本——守门是独立渲染产物必须自包含）：
+const thresholdEnv = () => { const v = parseInt(process.env.TF_IMPACT_THRESHOLD ?? '', 10); return Number.isFinite(v) && v >= 1 ? v : 3; };
+const J20_WORD_RE = /环比|同比|上期|较上期|对比|排名|统计/g;
+const J20_CODE_RE = /\b(?:sum|count|avg|max|min|sort)\s*\(/g;
+// 数据管道特征探测（内容前 500 行——大文件不拖慢调用）：词特征任一命中；代码特征须 ≥2 个不同算子（单 sort(/count( 全仓皆是无害噪音）
+function j20Scan(text) {
+  const head = String(text ?? '').split('\n').slice(0, 500).join('\n');
+  const words = [...new Set(head.match(J20_WORD_RE) ?? [])];
+  const codes = [...new Set((head.match(J20_CODE_RE) ?? []).map((s) => s.replace(/\s+/g, '')))];
+  return { hit: words.length > 0 || codes.length >= 2, detail: [...words, ...codes].slice(0, 6).join('、') };
+}
+function impactCmd(args = []) {
+  const th = thresholdEnv();
+  const { isGit, mainRoot, tasksDir } = locate();
+  const since = optArg(args, 'since');
+  const filesArg = optArg(args, 'files');
+  console.log(`impact（J19 牵连排查 + J20 数据边界 机械保底；阈值=引用文件数≥${th}）：`);
+  const done = () => { console.log('—— grep 级分析（非语义级）；语义影响面可用 code-review-graph impact 工具（如已挂载）'); return 0; };
+  let files = [];
+  if (filesArg !== undefined) {
+    files = filesArg.split(',').map((s) => s.trim()).filter(Boolean);
+  } else if (isGit) {
+    if (since !== undefined) {
+      if (!git(['rev-parse', '--verify', '--quiet', `${since}^{commit}`], mainRoot, true)) {
+        console.log(`⚠ --since ${since} 无法解析为 commit（ref 不存在？）——按无改动处理`);
+      } else {
+        files = git(['diff', '--name-only', `${since}..HEAD`], mainRoot, true).split('\n').filter(Boolean);
+      }
+    } else {
+      const tasks = loadTasks(tasksDir).filter((t) => t.status === 'active' || isVerifying(t));
+      if (tasks.length) {
+        const mainRef = resolveMainRef(mainRoot);
+        const set = new Set();
+        for (const t of tasks) {
+          const base = t.baseCommit ?? mainRef;
+          if (!base) { console.log(`ℹ ${t.id} 无 baseCommit 且项目无主分支 ref，跳过该任务改动集`); continue; }
+          for (const f of git(['diff', '--name-only', `${base}..HEAD`], mainRoot, true).split('\n')) if (f) set.add(f);
+        }
+        files = [...set];
+      } else {
+        files = git(['diff', '--name-only', 'HEAD'], mainRoot, true).split('\n').filter(Boolean); // 已暂存+工作区（tracked）
+      }
+    }
+  }
+  files = [...new Set(files)];
+  if (!files.length) { console.log('ℹ 无可分析的改动'); return done(); }
+  const fanFiles = []; const j20Files = [];
+  for (const f of files) {
+    const abs = path.resolve(mainRoot, f);
+    console.log(`\n── ${f}`);
+    if (!fs.existsSync(abs)) { console.log('  ℹ 文件不存在（已删除？）跳过引用分析'); continue; }
+    const rel = path.relative(mainRoot, abs);
+    const base = path.basename(f);
+    // ①/②：basename 固定串检索（排除目标自身；git grep 检索面=tracked+未忽略）
+    let lines = null;
+    try {
+      const out = execFileSync('git', ['-C', mainRoot, 'grep', '--untracked', '-I', '-n', '-F', '-e', base, '--', '.', `:!${rel}`],
+        { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 64 * 1024 * 1024 });
+      lines = out.split('\n').filter(Boolean);
+    } catch (e) {
+      if (e?.status !== 1) lines = null; else lines = []; // 1=无匹配（正常空）；其余=真错误
+    }
+    if (lines === null) {
+      console.log('  ①引用计数：⚠ basename 引用检索失败——计数与清单缺失（输出过大或 git 异常；可改用语义级工具）');
+    } else {
+      const byFile = new Map();
+      for (const ln of lines) {
+        const i = ln.indexOf(':'); // <path>:<行号>:<内容>——路径含冒号属病态形态，grep 级分析不设防
+        if (i <= 0) continue;
+        const fp = ln.slice(0, i);
+        const rest = ln.slice(i + 1);
+        const li = rest.indexOf(':');
+        if (!byFile.has(fp)) byFile.set(fp, []);
+        byFile.get(fp).push(li >= 0 ? rest.slice(0, li) : '?');
+      }
+      console.log(`  ①引用计数：引用文件数 ${byFile.size}，命中次数 ${lines.length}（basename「${base}」固定串检索，排除自身）`);
+      const flat = [...byFile.entries()].flatMap(([fp, lns]) => lns.map((ln) => `${fp}:${ln}`));
+      if (!flat.length) console.log('  ②引用清单：ℹ 无引用命中');
+      else {
+        console.log('  ②引用清单：');
+        for (const x of flat.slice(0, 5)) console.log(`    ${x}`);
+        if (flat.length > 5) console.log(`    … ${flat.length - 5} more`);
+      }
+      if (byFile.size >= th) fanFiles.push(f);
+    }
+    // ③：数据管道特征（内容前 500 行——大文件不拖慢分析；词特征任一命中，代码特征须≥2 个不同算子防单 sort(/count( 全仓噪音）
+    const j20 = j20Scan((() => { try { return fs.readFileSync(abs, 'utf8'); } catch { return ''; } })());
+    if (j20.hit) {
+      j20Files.push(f);
+      console.log(`  ③数据管道特征：J20 风险：涉数据管道（命中：${j20.detail}）`);
+    } else {
+      console.log('  ③数据管道特征：未命中');
+    }
+  }
+  if (fanFiles.length) console.log(`\nJ19 牵连排查：以上 ${fanFiles.length} 个文件被多处引用，改动呈报须含影响面清单（${fanFiles.join('、')}）`);
+  if (j20Files.length) console.log(`J20 数据边界：枚举真空形态（空集/单条/首期无参照/异常值），禁算了不传/传空容器/硬凑对比（${j20Files.join('、')}）`);
+  if (!fanFiles.length && !j20Files.length) console.log('ℹ 无高扇出/数据管道文件');
+  return done();
+}
+
 /* ---------------- commit：安全提交（把「临场刹车」固化成命令） ----------------
    治双会话同桌事故的源头：git add -A 会无差别卷入他会在途工作。
    不声明范围 → 拒绝并列清单；--files 只装订指定文件；--all 显式确认卷入全部。
@@ -2568,6 +2673,7 @@ const USAGE = `用法：
   node tf.mjs revert-plan <task-id>         Saga 补偿方案生成器（只读不执行）：为 merged 任务生成逐条 git revert -m 1 方案落 <taskDir>/revert-plan.md（含档案注记与红线）；非 merged 拒（active/verifying 打回走 resume.md 第 9 步）；执行需用户逐条确认
   node tf.mjs stale [task-id]              在途任务失效感知（STALE_CHECK，v2.59.0）：main 自任务基线 baseCommit 的改动 × 本任务读写集（写集声明∪影响面地图反引号资产）求交——命中=影响面漂移，先重验 spec 影响面地图对应行再动工；无 id 全量扫 active/verifying；无基线锚/分支已并入 main/无机读声明均 ℹ 降级（只读，不改任何状态）
   node tf.mjs overlap <task-id>            并行派发准入预检（DISPATCH_OVERLAP，v2.59.0）：子任务 spec「## 涉及文件」反引号路径两两 matchPath 求交——重叠对=不准并行（场景① 前提=写集两两不相交：改串行/调整拆分边界/呈用户仲裁）；无子任务 ℹ exit 0（只读）
+  node tf.mjs impact [--files f1,f2,…] [--since <git-ref>]  牵连排查+数据边界机械保底（J19/J20，v2.72.0，只读恒 exit 0）：缺省文件集=active/verifying 任务 baseCommit..HEAD 改动（无 baseCommit 用主分支..HEAD；无在档任务=已暂存+工作区改动；--since 覆盖区间）——逐文件 basename 引用计数/清单（前 5 处）+数据管道特征（J20 风险标注）；阈值 TF_IMPACT_THRESHOLD（缺省 3）；语义级影响面用 code-review-graph impact（如已挂载）
   node tf.mjs deploy --branch <部署分支> [--web-only] [--dry-run] [--version V]  部署唯一入口：门禁（deploy-preflight）内嵌，红=拒绝；部署后自动 --record 登记（project.json deploy 配置命令序列；deploy.procProbe 可选=进程清点探针命令，透传 --proc-probe）
   node tf.mjs migrate                      一次性数据搬迁：.opencode/tasks/ → .taskflow/（exclude 顶替+待改引用清单；并存拒动）
   node tf.mjs archive [task-id]            死档案归层：merged/archived → archive/（journal 三件套归位；活任务拒动；幂等；输出可复制的续迭代入口句）
@@ -2577,6 +2683,7 @@ const USAGE = `用法：
   node tf.mjs lint                         流程文档自检：步骤引用/编号连续/兼容标注/闸门关键词/未入库引用/机制触点可达/机制fixture落痕/事实禁改写/模板中性/挂接对账（只读）
   环境变量 TF_STATUS=<off|warn|enforce>    守门 J 状态翻转墙档位（v2.69.0；缺省 enforce——手改 task.json/index.json 的 status 物理拦截，翻转唯一写路径是扳机命令，档案修复走 reconcile --fix；off=单次豁免）
   环境变量 TF_VERIFY_WARN=off              关闭守门 K 验收期提醒（v2.69.0；git push/merge 时在档等验收任务的时序核对提醒，缺省开，提醒不拦）
+  环境变量 TF_IMPACT_THRESHOLD=<N 缺省 3>  basename 引用文件数阈值（impact 命令与守门 J19 共用）；TF_J19_WARN / TF_J20_WARN=off 各自关闭守门 J19/J20 提醒（v2.72.0；缺省 warn，纯提醒不拦、无 enforce 档）
   node tf.mjs mech ls                      机制采纳清单：token/状态（已装/可装/漂移）+ 产物（只读；真相源=机制登记表「采纳产物」列）
   node tf.mjs mech check                   机制采纳对账：每机制 token/已装版本/当前版本/状态（一致|漂移|未装）；声明采纳者有漂移 → exit 1（统一谓词，doctor 采纳对账同源；只读）
   node tf.mjs mech install <token> [--yes] 机制生成安装：assets/harness+design 模板渲染入项目（assetExts 注入）+ docs/CHANGELOG.md 建档锚点 + conventions/AGENTS 补记 + project.json.mechanisms 登记（簿记写入口；幂等；CI 挂点只建议不自动改——经确认门写入）。确认闸（v2.65.0）：已装版本漂移刷新或将整文件覆盖已有文件 → 拒绝落盘并打印将覆盖文件清单，显式 --yes 才执行；首装空位不拦（懒加载，首装确认归 DEP_ASK_GATE 呈报流程）
@@ -3276,6 +3383,7 @@ if (cmd === 'stale') process.exit(staleCmd(rest)); // STALE_CHECK（v2.59.0）�
 if (cmd === 'revert-plan') process.exit(revertPlanCmd(rest)); // Saga 补偿方案生成器（v2.69.0）：merged 任务的 revert 方案，只读不执行
 if (cmd === 'gates') process.exit(gatesCmd(rest)); // 门责任链聚合（v2.69.0）：五道合并相关门一次跑完，只读
 if (cmd === 'overlap') process.exit(overlapCmd(rest)); // DISPATCH_OVERLAP（v2.59.0）：并行派发写集求交预检，只读
+if (cmd === 'impact') process.exit(impactCmd(rest)); // J19 牵连排查+J20 数据边界机械保底（v2.72.0）：basename 引用面+数据管道特征，只读恒 0
 if (cmd === 'deploy') process.exit(deployCmd(rest));
 if (cmd === 'migrate') process.exit(migrateCmd());
 if (cmd === 'archive') process.exit(archiveCmd(rest));

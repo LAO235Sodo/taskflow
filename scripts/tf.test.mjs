@@ -2731,6 +2731,102 @@ try {
   const lgLoadDrift = runEnv(['lint'], r2, { TF_ENTRY_ROUTES: mut(/\| 是 \| 部署 \|/, '| 主链路 | 部署 |') });
   ok(lgLoadDrift.status === 1 && /加载面值漂移「主链路」/.test(lgLoadDrift.stdout), 'v2.71.0 A4 lint：加载面值非 是*/否* → 值漂移红');
 
+  // ---- 2.72.0 机械保底：impact 命令（J19 引用面 + J20 数据管道特征）+ guard J19/J20 提醒 ----
+  // 三前提（上轮实证踩坑）：guardOn 采纳闸（mech 渲染 project.json 登记）/env 卫生（档位变量用完即删）/fixture 完整性（真 git 仓 + index.json）
+  {
+    const iRepo = path.join(tmp, 'impact-proj');
+    fs.mkdirSync(path.join(iRepo, 'src'), { recursive: true });
+    sh('git init -q -b main && git config user.email t@t && git config user.name t && echo \'.taskflow/\' >> .git/info/exclude', iRepo);
+    // 三文件互引夹具：report.ts 被 calc/store/view 引用（3 处 ≥ 阈值 3）；calc.ts 含环比词特征 → J20
+    fs.writeFileSync(path.join(iRepo, 'src', 'report.ts'), [
+      "import { calcSum, mom } from './calc.ts';",
+      "import { store } from './store.ts';",
+      'export const report = { build: (xs) => ({ sum: calcSum(xs), top: store.top(xs) }) };',
+      '',
+    ].join('\n'));
+    fs.writeFileSync(path.join(iRepo, 'src', 'calc.ts'), [
+      "import { report } from './report.ts';",
+      'export const calcSum = (xs) => xs.reduce((a, b) => a + b, 0);',
+      '// 环比口径：较上期对比（统计报表）',
+      'export const mom = (cur, prev) => report.pct(cur, prev);',
+      '',
+    ].join('\n'));
+    fs.writeFileSync(path.join(iRepo, 'src', 'store.ts'), [
+      "import { report } from './report.ts';",
+      'export const store = { top: (xs) => [...xs].sort((a, b) => b - a)[0], ref: report };',
+      '',
+    ].join('\n'));
+    fs.writeFileSync(path.join(iRepo, 'src', 'view.ts'), [
+      "import { report } from './report.ts';",
+      'export const view = () => report.build([1, 2]);',
+      '',
+    ].join('\n'));
+    sh('git add -A && git commit -qm init', iRepo);
+    const r1 = run(['impact', '--files', 'src/report.ts,src/calc.ts'], iRepo);
+    ok(r1.status === 0, '2.72.0 impact：恒 exit 0（提醒不拦截）');
+    ok(/── src\/report\.ts/.test(r1.stdout) && /引用文件数 3，命中次数 3/.test(r1.stdout), '2.72.0 impact ①引用计数：report.ts 引用文件数 3（calc/store/view）+ 命中次数 3（双口径都给）');
+    ok(/src\/calc\.ts:1/.test(r1.stdout) && /src\/view\.ts:1/.test(r1.stdout), '2.72.0 impact ②引用清单：文件:行号 形态（calc.ts:1 / view.ts:1）');
+    ok(/③数据管道特征：J20 风险：涉数据管道（命中：环比/.test(r1.stdout) && /── src\/report\.ts[\s\S]*③数据管道特征：未命中/.test(r1.stdout), '2.72.0 impact ③数据管道特征：calc.ts 词特征命中标 J20 风险，report.ts 未命中不标（单 sort( 不算——report 无特征）');
+    ok(/J19 牵连排查：以上 1 个文件被多处引用，改动呈报须含影响面清单（src\/report\.ts）/.test(r1.stdout), '2.72.0 impact 尾行 J19：超阈值文件点名+影响面清单纪律');
+    ok(/J20 数据边界：枚举真空形态（空集\/单条\/首期无参照\/异常值），禁算了不传\/传空容器\/硬凑对比/.test(r1.stdout), '2.72.0 impact 尾行 J20：真空形态枚举纪律');
+    ok(r1.stdout.includes('grep 级分析（非语义级）'), '2.72.0 impact 尾注：grep 级声明+语义级工具指引');
+    const r1n = run(['impact'], iRepo);
+    ok(r1n.status === 0 && /无可分析的改动/.test(r1n.stdout), '2.72.0 impact：无在档任务+干净工作区 → ℹ 无可分析的改动（恒 exit 0）');
+    // 缺省文件集：在档 active 任务 baseCommit..HEAD
+    fs.mkdirSync(path.join(iRepo, '.taskflow', 'imp-1'), { recursive: true });
+    const iBase = execFileSync('git', ['-C', iRepo, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+    fs.writeFileSync(path.join(iRepo, '.taskflow', 'imp-1', 'task.json'), J({ id: 'imp-1', title: 'impact 缺省集样例', status: 'active', baseCommit: iBase }));
+    fs.writeFileSync(path.join(iRepo, '.taskflow', 'index.json'), J({ tasks: [{ id: 'imp-1', status: 'active' }] }));
+    fs.writeFileSync(path.join(iRepo, 'src', 'extra.ts'), "import { report } from './report.ts';\nexport const extra = 1;\n");
+    sh('git add -A && git commit -qm add-extra', iRepo);
+    const r2 = run(['impact'], iRepo);
+    ok(/── src\/extra\.ts/.test(r2.stdout) && !/── src\/report\.ts/.test(r2.stdout), '2.72.0 impact 缺省文件集：active 任务 baseCommit..HEAD 改动（extra.ts 在列，基线已含的 report.ts 不在列）');
+    const r3 = run(['impact', '--since', iBase], iRepo);
+    ok(/── src\/extra\.ts/.test(r3.stdout), '2.72.0 impact --since：覆盖缺省区间（same 改动集）');
+    // guard J19/J20 提醒：mech 渲染 + mock pi 真执行；直接取末位 tool_call handler（本节新增，不挪既有下标）
+    const jproj = path.join(tmp, 'impact-guard-proj');
+    fs.mkdirSync(path.join(jproj, '.taskflow'), { recursive: true });
+    sh('git init -q -b main && git config user.email t@t && git config user.name t && echo \'.taskflow/\' >> .git/info/exclude', jproj);
+    fs.writeFileSync(path.join(jproj, '.taskflow', 'project.json'), J({ key: 'impactguard', git: true, mechanisms: {}, assetExts: 'ts|js', deploy: { webCommands: [] } }));
+    fs.writeFileSync(path.join(jproj, '.taskflow', 'index.json'), J({ tasks: [] }));
+    fs.mkdirSync(path.join(jproj, 'src', 'core'), { recursive: true });
+    fs.writeFileSync(path.join(jproj, 'src', 'core', 'rep.ts'), '// 环比口径统计\nexport const rep = (xs) => xs.map((v) => v * 2);\n');
+    for (const n of ['a1', 'a2', 'a3']) fs.writeFileSync(path.join(jproj, 'src', n + '.ts'), `import { rep } from './core/rep.ts';\nexport const ${n} = rep;\n`);
+    sh('git add -A && git commit -qm src', jproj);
+    const instJ = run(['mech', 'install', 'TASKFLOW_GUARD'], jproj);
+    ok(instJ.status === 0 && fs.existsSync(path.join(jproj, '.omp', 'hooks', 'pre', 'taskflow-guard.js')), '2.72.0 guard J19/J20 夹具：mech 渲染 guard（guardOn 采纳闸前提）');
+    const guardModJ = await import('file://' + path.join(jproj, '.omp', 'hooks', 'pre', 'taskflow-guard.js'));
+    const handlersJ = {};
+    guardModJ.default({ setLabel() {}, on: (ev, fn) => { (handlersJ[ev] ??= []).push(fn); } });
+    const mineJ = handlersJ['tool_call'][handlersJ['tool_call'].length - 1];
+    const jx = async (toolName, input, env = {}) => {
+      for (const k of Object.keys(env)) process.env[k] = env[k];
+      try { return await mineJ({ toolName, input }, { cwd: jproj, ui: {} }); }
+      finally { for (const k of Object.keys(env)) delete process.env[k]; } // env 卫生：档位变量用完即删，防串档
+    };
+    const bothJ = await jx('edit', { path: 'src/core/rep.ts', old_string: '环比', new_string: '同比' });
+    ok(typeof bothJ?.additionalContext === 'string' && /⚠ TASKFLOW_GUARD J19/.test(bothJ.additionalContext) && /⚠ TASKFLOW_GUARD J20/.test(bothJ.additionalContext)
+      && bothJ.additionalContext.indexOf('J19') < bothJ.additionalContext.indexOf('J20') && !bothJ.block,
+      '2.72.0 guard：J19+J20 双命中合并为一条 additionalContext（换行分隔两行，不注入两条）');
+    ok(/被 3 个文件引用/.test(bothJ?.additionalContext ?? '') && /impact --files src\/core\/rep\.ts/.test(bothJ?.additionalContext ?? ''), '2.72.0 guard J19：提醒含引用文件数（阈=3 达标）与 impact 指引');
+    const j19off = await jx('edit', { path: 'src/core/rep.ts', old_string: '环比', new_string: '同比' }, { TF_J19_WARN: 'off' });
+    ok(j19off?.additionalContext?.includes('J20') && !j19off.additionalContext.includes('J19'), '2.72.0 guard 档位：TF_J19_WARN=off → 仅 J20 注入');
+    const j20off = await jx('edit', { path: 'src/core/rep.ts', old_string: '环比', new_string: '同比' }, { TF_J20_WARN: 'off' });
+    ok(j20off?.additionalContext?.includes('J19') && !j20off.additionalContext.includes('J20'), '2.72.0 guard 档位：TF_J20_WARN=off → 仅 J19 注入');
+    const bothOff = await jx('edit', { path: 'src/core/rep.ts', old_string: '环比', new_string: '同比' }, { TF_J19_WARN: 'off', TF_J20_WARN: 'off' });
+    ok(bothOff === undefined, '2.72.0 guard 档位：两档全 off → 零注入（纯提醒无 enforce）');
+    const lowJ = await jx('edit', { path: 'src/a1.ts', old_string: 'rep', new_string: 'rep2' });
+    ok(lowJ === undefined, '2.72.0 guard J19 阈下：零引用文件不注入（a1.ts 无引用且无 J20 特征）');
+    const hiTh = await jx('edit', { path: 'src/core/rep.ts', old_string: '环比', new_string: '同比' }, { TF_IMPACT_THRESHOLD: '99' });
+    ok(hiTh?.additionalContext?.includes('J20') && !hiTh.additionalContext.includes('J19'), '2.72.0 guard 阈值：TF_IMPACT_THRESHOLD=99 → J19 不达不注入（J20 不受阈值影响）');
+    const newFileJ = await jx('write', { path: 'src/pipe.ts', content: '导出统计\nconst t = sum(1) + count(2);\n' });
+    ok(newFileJ?.additionalContext?.includes('J20') && !newFileJ.additionalContext.includes('J19'), '2.72.0 guard J20：未落盘 write 用 input.content 探测（新文件也有面；J19 零引用不注入）');
+    const bkJ = await jx('edit', { path: '.taskflow/index.json', old_string: '[]', new_string: '[{"id":"x"}]' });
+    ok(bkJ === undefined, '2.72.0 guard 零干扰①：.taskflow/ 档案归既有 J 墙/G 门，本 handler 不注入');
+    const outJ = await jx('edit', { path: path.join(tmp, 'outside-impact.md'), old_string: 'a', new_string: 'b' });
+    ok(outJ === undefined, '2.72.0 guard 零干扰②：仓库外文件不注入');
+  }
+
   process.exitCode = failures ? 1 : 0; // 失败≠0：堵住链式调用「grep 匹配到失败文案也算成功」的放行洞
   console.log(failures ? `\n${failures} 项断言失败` : '\n全部通过');
 } finally {
