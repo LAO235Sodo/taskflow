@@ -56,7 +56,7 @@ grep -qx '.taskflow/' <主仓库根>/.git/info/exclude 2>/dev/null \
    **基线分支（baseBranch）**：默认 `origin/main`。任务依赖另一**未合并**任务的产物时，经用户确认可以该任务分支为基线：`git worktree add ../<repo名>-<task-id> -b task/<task-id> task/<基线任务id>`，task.json 记 `"baseBranch": "task/<id>"`，handoff.md 注明 deviation 与 rebase 责任。此后 resume/merge 检测到基线分支已合入 main → 提示本任务分支需 rebase。
    **派生来源（derivedFrom，v2.41.0）**：会话内从既有任务派生新任务（任务 A 进行中/刚收尾，同会话又立任务 B——用户提出新需求、验收中冒出问题、链式基线开工均算）时，task.json 落 `"derivedFrom": "<源任务id>"`。与 baseBranch 分工：链式（依赖未合并产物）两者都落；纯话题衍生（从 main 直接拉）只落 derivedFrom。ls 双列层级（v2.45.1）：一级任务列=簇头（孤儿自带源标注）、二级任务列=派生；`⛓<src>` 后缀=链式（有 rebase/并集部署约束）。
    **依赖目录链接**（缓解全新检出无依赖的代价）：worktree 创建后，检测主仓库的 gitignored 依赖目录（node_modules / .venv / vendor / 构建缓存等），逐个符号链接进 worktree（`ln -s`）；链接不可行时提示用户按项目方式安装依赖。
-   **服务端口租约**：实现期启动项目 dev 服务（本地验证）前，先 `node <skill目录>/scripts/tf.mjs svc claim <service> --port <约定端口>` 登记 services.json 租约——被占（其他任务在测服务/旧项目遗留进程）→ 按输出建议**让位换端口，绝不 kill 抢占**；项目端口带（如 9 开头归属）住项目 conventions.md「环境与端口」节；测试完成停服后 `svc release` 释放。
+   **服务端口租约**：实现期启动项目 dev 服务（本地验证）前，先 `node <skill目录>/scripts/tf.mjs svc claim <service> --port <约定端口>` 登记 services.json 租约——被占（其他任务在测服务/旧项目遗留进程）→ 按输出建议**让位换端口，绝不 kill 抢占**；项目端口带（如 9 开头归属）住项目 conventions.md「环境与端口」节；测试完成停服后 `svc release` 释放。**环境/依赖/端口类报障信号（装不上/被占/版本过期）→ 先查本节 + `svc ls` 租约占用，再进假设排序——环境查本地，运行时查代码，两类排查方向不同（判定点 J16）**。
    **属主凭证（建档即写，OWNER_JSON）**：managed worktree 创建后原子写 `<worktree>/.owner.json`（`{sessionID, pid, started_at}`——doctor I10 数据源）并初始化 task.json `activeLease`（LEASE，checkpoint 第 4 步持续刷新心跳）；attached 挂靠**不自动写**（用户目录零打扰原则），跨会话接管时经 `tf.mjs takeover` 补写。
 
 6. 会话迁移：若主代理具备会话工作目录迁移能力（如 OpenCode 的 `tools.opencode.session_move`），把当前会话迁入 worktree；不具备则明确告知用户后续应在 worktree 目录下工作，并提示路径。

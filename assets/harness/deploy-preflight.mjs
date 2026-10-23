@@ -182,16 +182,16 @@ if (has('web-only')) {
 } else {
   let ancestor = false;
   try {
-    sh(`git merge-base --is-ancestor '${live.jar.commit}' '${branch}'`);
+    sh(`git merge-base --is-ancestor '${live.jar?.commit ?? '?'}' '${branch}'`);
     ancestor = true;
   } catch { /* 非祖先=血统门红 */ }
   if (!ancestor) {
     problems.push(
-      `血统门: 线上 jar commit ${live.jar.commit}(${live.jar.branch || live.jar.version || '?'})` +
+      `血统门: 线上 jar commit ${live.jar?.commit ?? '?'}(${live.jar?.branch || live.jar?.version || '?'})` +
       ` 不在部署分支 ${branch} 血统内 → **并集优先**: 先 merge 线上任务分支再构建部署,否则=覆盖滚回`
     );
   } else {
-    console.log(`✓ 血统门: 线上 ${live.jar.commit}(${live.jar.version}) ⊆ ${branch}`);
+    console.log(`✓ 血统门: 线上 ${live.jar?.commit ?? '?'}(${live.jar?.version ?? '?'}) ⊆ ${branch}`);
   }
 }
 

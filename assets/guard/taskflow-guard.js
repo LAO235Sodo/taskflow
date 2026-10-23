@@ -8,6 +8,9 @@
 //   J 状态翻转墙（v2.69.0）：tool_call(edit/write/bash)——task.json/index.json 的 status/deploy.status 手改 = 物理拦截
 //      （TF_STATUS 三档，缺省 enforce；翻转唯一合法写路径 = tf.mjs 各扳机命令，档案修复走 reconcile --fix）
 //   K 验收期提醒（v2.69.0）：tool_call(bash)——git push/merge 时在档等验收任务 → 追加合并时序核对提醒（不拦；TF_VERIFY_WARN=off 关）
+//   L 档案删除告警（v2.71.0）：tool_call(bash)——rm 触及 .taskflow/ 任务档案 = 不可逆删除风险 → 告警档提醒
+//      （对齐 J 墙 off/warn/enforce 档位风格，缺省 warn；TF_RM_WARN=enforce 硬拦 / off 关闭；删除已归档任务须呈报
+//      档案不可变原则逐用户确认——任务档案是跨会话账本，rm 删了没有 undo）
 //   T 技能埋点（v2.69.0）：tool_call(read)——skill:// 加载计数入全局 skill-usage.jsonl（不受 guardOn 闸控，零内容仅计数，
 //      供 tf.mjs skills --usage 报表；handler 整体吞错——omp hook fail-closed，抛错=阻断读取）
 //   E 输出规范注入：before_provider_request 每轮把「双层输出规范 + 项目词表」前置进 system——
@@ -331,6 +334,16 @@ export default function taskflowGuard(pi) {
       if (modeJ !== 'off' && locateTasksDir(ctx?.cwd)) {
         const why = 'TASKFLOW_GUARD J 状态翻转墙：bash 重定向/tee/sed 触及任务档案（task.json/index.json）——手改 status = 违规（data.md 状态机表：翻转唯一写路径 commit --deployed / accept --pass / park / unpark / archive；档案修复走 node tf.mjs reconcile --fix）。单次豁免：命令前加 TF_STATUS=off';
         return modeJ === 'warn' ? { additionalContext: `⚠ ${why}` } : { block: true, reason: why };
+      }
+    }
+
+    // L 档案删除告警（v2.71.0）：rm 触及 .taskflow/ 任务档案 = 不可逆删除风险 → 告警档（对齐 J 墙档位风格，缺省 warn）。
+    // 档案是跨会话账本（任务状态、checkpoint、决策、交接记录），rm 删了没有 undo；删除已归档任务须走归档清理确认（逐用户确认）。
+    if (/\brm\b/.test(cmd) && /\.taskflow/.test(cmd) && process.env.TF_RM_WARN !== 'off') {
+      const dirL = locateTasksDir(ctx?.cwd);
+      if (dirL) {
+        const why = 'TASKFLOW_GUARD L 档案删除告警：rm 命令触及 .taskflow/ 任务档案——档案是跨会话账本（任务状态、checkpoint（检查点）、决策、交接记录都在里面），删除不可恢复。删除已归档任务须先呈报档案不可变原则并逐用户确认；确属有意删除（废弃临时目录等）：命令前加 TF_RM_WARN=off 单次豁免，并在 progress.md（任务进度文件）记一行原因。';
+        return process.env.TF_RM_WARN === 'enforce' ? { block: true, reason: why } : { additionalContext: `⚠ ${why}` };
       }
     }
 
