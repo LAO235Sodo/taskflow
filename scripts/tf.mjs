@@ -2084,19 +2084,35 @@ function overlapCmd(args = []) {
 /* ---------------- impact：J19 牵连排查 + J20 数据边界 机械保底（只读，恒 exit 0，v2.72.0） ----------------
    纯文档纪律的「提醒必达」缺口：J19/J20 只活在文档里时靠模型自觉。本命令给「改动呈报前」一个机械底：
    逐文件 ①basename 引用计数/清单（grep 级非语义级）②数据管道特征探测。提醒不拦截。
-   检索面 = git grep --untracked（tracked+未忽略新文件；node_modules/.git 等忽略面天然排除）——比裸 grep -r 快且稳。
+   检索面 = git grep --untracked（tracked+未忽略；node_modules/.git 等忽略面天然排除）——比裸 grep -r 快且稳。
+   v2.76.0（A2 审查 E1/D1/D3）：检索串去扩展名取主名（.vue 例外）+ -w 整词防子串误中；命中面分代码/文档两组——
+   文档散文提及不计 J19 阈值；同名孪生命中列歧义标注；J20 特征扫首 500+尾 200 行、注释行剔除、词表补英文/SQL 形态。
    阈值 TF_IMPACT_THRESHOLD（缺省 3，与守门 J19 共用）；语义级影响面归 code-review-graph impact 工具（如已挂载）。 */
 // J19/J20 机械面（impact 命令用；guard 侧持独立副本——守门是独立渲染产物必须自包含）：
 const thresholdEnv = () => { const v = parseInt(process.env.TF_IMPACT_THRESHOLD ?? '', 10); return Number.isFinite(v) && v >= 1 ? v : 3; };
-const J20_WORD_RE = /环比|同比|上期|较上期|对比|排名|统计/g;
-const J20_CODE_RE = /\b(?:sum|count|avg|max|min|sort)\s*\(/g;
-// 数据管道特征探测（内容前 500 行——大文件不拖慢调用）：词特征任一命中；代码特征须 ≥2 个不同算子（单 sort(/count( 全仓皆是无害噪音）
-function j20Scan(text) {
-  const head = String(text ?? '').split('\n').slice(0, 500).join('\n');
-  const words = [...new Set(head.match(J20_WORD_RE) ?? [])];
-  const codes = [...new Set((head.match(J20_CODE_RE) ?? []).map((s) => s.replace(/\s+/g, '')))];
-  return { hit: words.length > 0 || codes.length >= 2, detail: [...words, ...codes].slice(0, 6).join('、') };
+// v2.76.0（A2 审查 D3②③/S10-8）：词表补英文管道形态（previousPeriod/last month/month over month 等，i 志大小写）；
+// 算子补 reduce/aggregate + i 志 + SQL GROUP BY 形态；注释行（//、/*、*、<!--、# 开头）剔除后再计数——
+// 注释/UI 文案里的词提及不算管道证据（真仓实测误报主源）
+const J20_WORD_RE = /环比|同比|上期|较上期|对比|排名|统计|previous[\s_-]*(?:period|month|week)|last[\s_-]*(?:period|month|week)|month[\s_-]*over[\s_-]*month|year[\s_-]*over[\s_-]*year/gi;
+const J20_CODE_RE = /\b(?:sum|count|avg|max|min|sort|reduce|aggregate)\s*\(/gi;
+// 特征探测窗口：首 500 行 + 尾 200 行（v2.76.0 D3④——固定 500 行窗口漏文件尾部管道）；注释行剔除（S10-8）
+function j20CodeLines(text) {
+  const lines = String(text ?? '').split('\n');
+  const win = lines.length > 700 ? [...lines.slice(0, 500), ...lines.slice(-200)] : lines;
+  return win.filter((l) => { const t = l.trim(); return t && !/^(?:\/\/|\/\*|\*|<!--|#)/.test(t); });
 }
+// 数据管道特征探测：词特征任一命中；代码特征须 ≥2 个不同算子（单 sort(/count( 全仓皆是无害噪音）；GROUP BY 单独记一算子
+function j20Scan(text) {
+  const body = j20CodeLines(text).join('\n');
+  const words = [...new Set(body.match(J20_WORD_RE) ?? [])];
+  const codes = new Set((body.match(J20_CODE_RE) ?? []).map((s) => s.replace(/\s+/g, '')));
+  if (/\bGROUP\s+BY\b/i.test(body)) codes.add('GROUP BY');
+  return { hit: words.length > 0 || codes.size >= 2, detail: [...words, ...codes].slice(0, 6).join('、') };
+}
+// basename 主名（J19 检索串口径，v2.76.0 E1）：.vue 保留扩展名（import 习惯带 .vue），其余去扩展名
+const impactKey = (p) => { const e = path.extname(p); return e === '.vue' ? path.basename(p) : path.basename(p, e); };
+// 文档与帮助文本判定（J19 阈值不计这组；guard 侧持独立副本同款——两处同步改）
+const isDocPath = (f) => /\.(?:md|mdx|txt|rst|adoc)$/i.test(f) || /^(?:README|CHANGELOG|LICENSE|CONTRIBUTING)/i.test(path.basename(f)) || /(?:^|\/)docs?\//i.test(f);
 function impactCmd(args = []) {
   const th = thresholdEnv();
   const { isGit, mainRoot, tasksDir } = locate();
@@ -2138,11 +2154,14 @@ function impactCmd(args = []) {
     console.log(`\n── ${f}`);
     if (!fs.existsSync(abs)) { console.log('  ℹ 文件不存在（已删除？）跳过引用分析'); continue; }
     const rel = path.relative(mainRoot, abs);
-    const base = path.basename(f);
-    // ①/②：basename 固定串检索（排除目标自身；git grep 检索面=tracked+未忽略）
+    // v2.76.0（A2 审查 E1/D1）：检索串去扩展名取主名（.vue 例外）+ -w 整词（api.ts 检索不再误中 myapi.ts 子串）；
+    // 命中面分「代码文件 / 文档与帮助文本」两组——文档散文提及不计 J19 阈值（散文充数曾把真仓 44% 前端文件顶过
+    // 阈值）；同名异扩展/同名异路径孪生命中列歧义标注（com.a/com.b 同名类互不污染面不可辨，呈报给人工核对）。
+    const ext = path.extname(f);
+    const key = impactKey(f);
     let lines = null;
     try {
-      const out = execFileSync('git', ['-C', mainRoot, 'grep', '--untracked', '-I', '-n', '-F', '-e', base, '--', '.', `:!${rel}`],
+      const out = execFileSync('git', ['-C', mainRoot, 'grep', '--untracked', '-I', '-n', '-F', '-w', '-e', key, '--', '.', `:!${rel}`],
         { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 64 * 1024 * 1024 });
       lines = out.split('\n').filter(Boolean);
     } catch (e) {
@@ -2151,27 +2170,36 @@ function impactCmd(args = []) {
     if (lines === null) {
       console.log('  ①引用计数：⚠ basename 引用检索失败——计数与清单缺失（输出过大或 git 异常；可改用语义级工具）');
     } else {
-      const byFile = new Map();
+      const codeByFile = new Map(); const docByFile = new Map();
       for (const ln of lines) {
         const i = ln.indexOf(':'); // <path>:<行号>:<内容>——路径含冒号属病态形态，grep 级分析不设防
         if (i <= 0) continue;
         const fp = ln.slice(0, i);
         const rest = ln.slice(i + 1);
         const li = rest.indexOf(':');
-        if (!byFile.has(fp)) byFile.set(fp, []);
-        byFile.get(fp).push(li >= 0 ? rest.slice(0, li) : '?');
+        const sink = isDocPath(fp) ? docByFile : codeByFile;
+        if (!sink.has(fp)) sink.set(fp, []);
+        sink.get(fp).push(li >= 0 ? rest.slice(0, li) : '?');
       }
-      console.log(`  ①引用计数：引用文件数 ${byFile.size}，命中次数 ${lines.length}（basename「${base}」固定串检索，排除自身）`);
-      const flat = [...byFile.entries()].flatMap(([fp, lns]) => lns.map((ln) => `${fp}:${ln}`));
-      if (!flat.length) console.log('  ②引用清单：ℹ 无引用命中');
+      console.log(`  ①引用计数：代码引用文件数 ${codeByFile.size}（阈值判定），文档提及 ${docByFile.size}，命中次数 ${lines.length}（主名「${key}」整词检索，排除自身；grep 级，含注释/文案，非引用语义）`);
+      console.log('  ②引用清单：');
+      const codeFlat = [...codeByFile.entries()].flatMap(([fp, lns]) => lns.map((ln) => `${fp}:${ln}`));
+      if (!codeFlat.length) console.log('  代码文件：ℹ 无引用命中');
       else {
-        console.log('  ②引用清单：');
-        for (const x of flat.slice(0, 5)) console.log(`    ${x}`);
-        if (flat.length > 5) console.log(`    … ${flat.length - 5} more`);
+        for (const x of codeFlat.slice(0, 5)) console.log(`    ${x}`);
+        if (codeFlat.length > 5) console.log(`    … ${codeFlat.length - 5} more`);
       }
-      if (byFile.size >= th) fanFiles.push(f);
+      if (docByFile.size) {
+        console.log('  文档与帮助文本（不计阈值）：');
+        const docFlat = [...docByFile.entries()].flatMap(([fp, lns]) => lns.map((ln) => `${fp}:${ln}`));
+        for (const x of docFlat.slice(0, 5)) console.log(`    ${x}`);
+        if (docFlat.length > 5) console.log(`    … ${docFlat.length - 5} more`);
+      }
+      const twins = [...codeByFile.keys()].filter((h) => impactKey(h) === key && (path.extname(h) !== ext || path.basename(h) === path.basename(f)));
+      if (twins.length) console.log(`  ⚠ 同名歧义：主名「${key}」另命中 ${twins.slice(0, 5).join('、')}${twins.length > 5 ? ' 等' : ''}——grep 级命中面可能跨同名文件，逐个核对`);
+      if (codeByFile.size >= th) fanFiles.push(f);
     }
-    // ③：数据管道特征（内容前 500 行——大文件不拖慢分析；词特征任一命中，代码特征须≥2 个不同算子防单 sort(/count( 全仓噪音）
+    // ③：数据管道特征（首 500+尾 200 行窗口；注释行剔除；词特征任一命中，代码特征须≥2 个不同算子防单 sort(/count( 全仓噪音）
     const j20 = j20Scan((() => { try { return fs.readFileSync(abs, 'utf8'); } catch { return ''; } })());
     if (j20.hit) {
       j20Files.push(f);
@@ -2181,7 +2209,7 @@ function impactCmd(args = []) {
     }
   }
   if (fanFiles.length) console.log(`\nJ19 牵连排查：以上 ${fanFiles.length} 个文件被多处引用，改动呈报须含影响面清单（${fanFiles.join('、')}）`);
-  if (j20Files.length) console.log(`J20 数据边界：枚举真空形态（空集/单条/首期无参照/异常值），禁算了不传/传空容器/硬凑对比（${j20Files.join('、')}）`);
+  if (j20Files.length) console.log(`J20 数据边界：枚举真空与失真形态（空集/单条/首期无参照/异常值/口径变更/范围串扰），禁算了不传/传空容器/硬凑对比（${j20Files.join('、')}）`);
   if (!fanFiles.length && !j20Files.length) console.log('ℹ 无高扇出/数据管道文件');
   return done();
 }

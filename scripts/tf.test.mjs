@@ -1753,41 +1753,9 @@ try {
   const gPA = await gcall({ toolName: 'edit', input: { path: 'src/real-a.swift' } });
   const gPN = await gcall({ toolName: 'edit', input: { path: 'src/never.swift' } });
   ok(gPA === undefined && gPN?.additionalContext && /编辑边界门/.test(gPN.additionalContext), 'TASKFLOW_GUARD G 活体热修②：冒号后反引号路径入清单（real-a 放行）；「明确不做」行路径不入（never 越界警告）；bold 标签垃圾不再当路径');
-  // ---- v2.63.0 pi 宿主适配器（.pi/extensions/taskflow.ts）：映射注入 + guard 子集 mock 真执行（硬规则 17）----
-  const piAdapterPath = path.join(path.dirname(script), '..', '.pi', 'extensions', 'taskflow.ts');
-  ok(fs.existsSync(piAdapterPath), 'pi 适配器在仓：.pi/extensions/taskflow.ts（单文件宿主适配层，架构同 superpowers 的 .pi/extensions/）');
-  const piMod = await import('file://' + piAdapterPath);
-  const piHandlers = {}; const piStatus = [];
-  piMod.default({ on: (ev, fn) => { (piHandlers[ev] ??= []).push(fn); } });
-  const piCtx = () => ({ cwd: gproj, ui: { setStatus: (k, t) => piStatus.push([k, t]) } });
-  const pifire = async (ev, event) => piHandlers[ev]?.[0]?.(event, piCtx());
-  await pifire('session_start', {});
-  ok(piStatus.some(([k, t]) => k === 'tf' && String(t).includes('进行中')), 'PI 适配器 D：session_start 状态栏常显（ctx.ui.setStatus 同名挂点）');
-  const pInj = await pifire('before_provider_request', { payload: { messages: [{ role: 'system', content: 'BASE' }, { role: 'user', content: 'u' }] } });
-  ok(typeof pInj?.messages?.[0]?.content === 'string' && pInj.messages[0].content.startsWith('[taskflow 宿主映射表') && pInj.messages[0].content.includes('taskflow:pi-host-mapping') && pInj.messages[0].content.includes('BASE'), 'PI 适配器 映射注入：provider 层 messages[0] system 前缀（print 模式 context 变更不生效 + payload 无 system 字段——2026-10-15 e2e 日志实证，通道实测后改定）');
-  ok(!pInj.messages[0].content.includes('接力线索'), 'PI 适配器 C 待命：未压缩不附接力线索（省 token，缓存友好）');
-  const pZeroInj = await pifire('before_provider_request', { payload: { messages: [{ role: 'system', content: 'BASE2' }] } });
-  ok(pZeroInj?.messages?.[0]?.content.startsWith('[taskflow 宿主映射表') && pZeroInj.messages[0].content.includes('BASE2'), 'PI 适配器 映射每请求：静态前缀 byte-identical（prompt cache 保持）');
-  await pifire('session_compact', {});
-  const pHandoff = await pifire('before_provider_request', { payload: { messages: [{ role: 'system', content: 'BASE3' }] } });
-  ok(pHandoff.messages[0].content.includes('接力线索') && pHandoff.messages[0].content.includes('g-live-20260101'), 'PI 适配器 C 接力：压缩后下一请求附活任务线索（一次性）');
-  const pHandoff2 = await pifire('before_provider_request', { payload: { messages: [{ role: 'system', content: 'BASE4' }] } });
-  ok(!pHandoff2.messages[0].content.includes('接力线索') && pHandoff2.messages[0].content.includes('BASE4'), 'PI 适配器 C 一次性：接力线索消费后不再附（允许破缓存一次）');
-  const pNonTf = await piHandlers['before_provider_request']?.[0]?.({ payload: { messages: [{ role: 'system', content: 'X' }] } }, { cwd: tmp, ui: {} });
-  ok(pNonTf === undefined, 'PI 适配器 零干扰：非 taskflow 项目不注入');
-  const pB1 = await pifire('tool_call', { toolName: 'bash', input: { command: 'node tf.mjs commit -m x --files a.md b.md' } });
-  ok(pB1?.block === true && /逗号/.test(pB1.reason), 'PI 适配器 B1：--files 空格分隔多文件 → block（判定与 omp 双宿主一致）');
-  const pA = await pifire('tool_call', { toolName: 'bash', input: { command: 'rsync -a dist/ test-host:/opt/app/web/' } });
-  ok(pA?.block === true && /部署墙/.test(pA.reason) && /TF_WALL=off/.test(pA.reason), 'PI 适配器 A 警告档降级：pi 拦截结果无 additionalContext（types.d.ts ToolCallEventResult）→ block+绕行指引，语义比 omp 警告档更保守');
-  process.env.TF_WALL = 'off';
-  const pAoff = await pifire('tool_call', { toolName: 'bash', input: { command: 'scp app.jar test-host:/opt/x.jar' } });
-  delete process.env.TF_WALL;
-  ok(pAoff === undefined, 'PI 适配器 A off：TF_WALL=off 放行（与 omp 一致）');
-  const pGin = await pifire('tool_call', { toolName: 'edit', input: { path: 'src/in-scope.ts' } });
-  const pGout = await pifire('tool_call', { toolName: 'edit', input: { path: 'src/random-out.ts' } });
-  ok(pGin === undefined && pGout?.block === true && /编辑边界门/.test(pGout.reason) && /TF_BOUND=off/.test(pGout.reason), 'PI 适配器 G：清单内放行 / 越界 block+绕行指引（警告档降级同 A；簿记白名单含 .pi/）');
-  const pZero = await pifire('tool_call', { toolName: 'bash', input: { command: 'echo hi' } });
-  ok(pZero === undefined, 'PI 适配器 零干扰：无特征命令不拦');
+  // （v2.76.0 S10-9：.pi/extensions/taskflow.ts 2.69.0 死副本已删除——5 handler vs 活体 12 handler、非 omp 发现根，
+  //   其 v2.63.0 适配器测试节随之移除；活体守卫测试住 2.72.0/2.76.0 guard 节）
+
 
   const paraBad = path.join(tmp, 'briefing-para.md');
   fs.writeFileSync(paraBad, [
@@ -2747,7 +2715,7 @@ try {
     fs.writeFileSync(path.join(iRepo, 'src', 'calc.ts'), [
       "import { report } from './report.ts';",
       'export const calcSum = (xs) => xs.reduce((a, b) => a + b, 0);',
-      '// 环比口径：较上期对比（统计报表）',
+      "export const momLabel = '环比口径：较上期对比（统计报表）';",
       'export const mom = (cur, prev) => report.pct(cur, prev);',
       '',
     ].join('\n'));
@@ -2764,11 +2732,11 @@ try {
     sh('git add -A && git commit -qm init', iRepo);
     const r1 = run(['impact', '--files', 'src/report.ts,src/calc.ts'], iRepo);
     ok(r1.status === 0, '2.72.0 impact：恒 exit 0（提醒不拦截）');
-    ok(/── src\/report\.ts/.test(r1.stdout) && /引用文件数 3，命中次数 3/.test(r1.stdout), '2.72.0 impact ①引用计数：report.ts 引用文件数 3（calc/store/view）+ 命中次数 3（双口径都给）');
+    ok(/── src\/report\.ts/.test(r1.stdout) && /代码引用文件数 3（阈值判定），文档提及 0，命中次数 6（主名「report」整词检索，排除自身；grep 级，含注释\/文案，非引用语义）/.test(r1.stdout), '2.72.0 impact ①引用计数：report.ts 代码引用文件数 3（calc/store/view，2.76.0 主名整词+分组口径）+ 命中次数 6');
     ok(/src\/calc\.ts:1/.test(r1.stdout) && /src\/view\.ts:1/.test(r1.stdout), '2.72.0 impact ②引用清单：文件:行号 形态（calc.ts:1 / view.ts:1）');
     ok(/③数据管道特征：J20 风险：涉数据管道（命中：环比/.test(r1.stdout) && /── src\/report\.ts[\s\S]*③数据管道特征：未命中/.test(r1.stdout), '2.72.0 impact ③数据管道特征：calc.ts 词特征命中标 J20 风险，report.ts 未命中不标（单 sort( 不算——report 无特征）');
     ok(/J19 牵连排查：以上 1 个文件被多处引用，改动呈报须含影响面清单（src\/report\.ts）/.test(r1.stdout), '2.72.0 impact 尾行 J19：超阈值文件点名+影响面清单纪律');
-    ok(/J20 数据边界：枚举真空形态（空集\/单条\/首期无参照\/异常值），禁算了不传\/传空容器\/硬凑对比/.test(r1.stdout), '2.72.0 impact 尾行 J20：真空形态枚举纪律');
+    ok(/J20 数据边界：枚举真空与失真形态（空集\/单条\/首期无参照\/异常值\/口径变更\/范围串扰），禁算了不传\/传空容器\/硬凑对比/.test(r1.stdout), '2.72.0 impact 尾行 J20：真空与失真形态枚举纪律（2.76.0 A1b 口径）');
     ok(r1.stdout.includes('grep 级分析（非语义级）'), '2.72.0 impact 尾注：grep 级声明+语义级工具指引');
     const r1n = run(['impact'], iRepo);
     ok(r1n.status === 0 && /无可分析的改动/.test(r1n.stdout), '2.72.0 impact：无在档任务+干净工作区 → ℹ 无可分析的改动（恒 exit 0）');
@@ -2808,7 +2776,7 @@ try {
     ok(typeof bothJ?.additionalContext === 'string' && /⚠ TASKFLOW_GUARD J19/.test(bothJ.additionalContext) && /⚠ TASKFLOW_GUARD J20/.test(bothJ.additionalContext)
       && bothJ.additionalContext.indexOf('J19') < bothJ.additionalContext.indexOf('J20') && !bothJ.block,
       '2.72.0 guard：J19+J20 双命中合并为一条 additionalContext（换行分隔两行，不注入两条）');
-    ok(/被 3 个文件引用/.test(bothJ?.additionalContext ?? '') && /impact --files src\/core\/rep\.ts/.test(bothJ?.additionalContext ?? ''), '2.72.0 guard J19：提醒含引用文件数（阈=3 达标）与 impact 指引');
+    ok(/字符串命中 3 个代码文件（grep 级，含注释\/文案，非引用语义）/.test(bothJ?.additionalContext ?? '') && /impact --files src\/core\/rep\.ts/.test(bothJ?.additionalContext ?? ''), '2.72.0 guard J19：提醒含代码文件命中数（阈=3 达标）与 impact 指引（2.76.0 grep 级对冲口径）');
     const j19off = await jx('edit', { path: 'src/core/rep.ts', old_string: '环比', new_string: '同比' }, { TF_J19_WARN: 'off' });
     ok(j19off?.additionalContext?.includes('J20') && !j19off.additionalContext.includes('J19'), '2.72.0 guard 档位：TF_J19_WARN=off → 仅 J20 注入');
     const j20off = await jx('edit', { path: 'src/core/rep.ts', old_string: '环比', new_string: '同比' }, { TF_J20_WARN: 'off' });
@@ -2825,6 +2793,83 @@ try {
     ok(bkJ === undefined, '2.72.0 guard 零干扰①：.taskflow/ 档案归既有 J 墙/G 门，本 handler 不注入');
     const outJ = await jx('edit', { path: path.join(tmp, 'outside-impact.md'), old_string: 'a', new_string: 'b' });
     ok(outJ === undefined, '2.72.0 guard 零干扰②：仓库外文件不注入');
+  }
+
+  // ---- 2.76.0 机械修复（A2 对抗审查 D3/E1/D1/S10-8/A1b/S10-9）：guard J19/J20 弹脸 + impact 检索修正 ----
+  // 三前提照守：guardOn 采纳闸（mech 渲染登记）/env 卫生（档位变量用完即删）/fixture 真 git 仓 + index.json
+  {
+    // ① E1/D1（impact）：主名整词检索 + 代码/文档分组 + 同名歧义
+    const e1 = path.join(tmp, 'impact-e1-proj');
+    fs.mkdirSync(path.join(e1, 'src', 'docs'), { recursive: true });
+    fs.mkdirSync(path.join(e1, '.taskflow'), { recursive: true });
+    sh('git init -q -b main && git config user.email t@t && git config user.name t && echo \'.taskflow/\' >> .git/info/exclude', e1);
+    fs.writeFileSync(path.join(e1, '.taskflow', 'project.json'), J({ key: 'impacte1', git: true, mechanisms: {}, deploy: { webCommands: [] } }));
+    fs.writeFileSync(path.join(e1, '.taskflow', 'index.json'), J({ tasks: [] }));
+    fs.writeFileSync(path.join(e1, 'src', 'api.ts'), 'export const api = 1;\n');
+    fs.writeFileSync(path.join(e1, 'src', 'use.tsx'), "import { api } from './api';\nexport const u = api;\n"); // 无扩展名导入（旧带扩展名检索系统性漏）
+    fs.writeFileSync(path.join(e1, 'src', 'api.tsx'), "export const apiX = 'api';\n"); // 同名异扩展孪生 → 歧义标注
+    fs.writeFileSync(path.join(e1, 'src', 'myapi.ts'), "export const fromMyapi = './myapi.ts';\n"); // 子串污染样例（旧 -F 'api.ts' 误中）
+    fs.writeFileSync(path.join(e1, 'README.md'), 'see api.ts for details\n'); // 文档提及（旧混入计数充数）
+    fs.writeFileSync(path.join(e1, 'src', 'docs', 'guide.md'), 'api.ts 用法见上\n'); // 文档提及之二（把旧混合计数顶过阈值）
+    sh('git add -A && git commit -qm e1', e1);
+    const re1 = run(['impact', '--files', 'src/api.ts'], e1);
+    ok(re1.status === 0, '2.76.0 E1：恒 exit 0');
+    ok(/代码引用文件数 2（阈值判定），文档提及 2，命中次数 5（主名「api」整词检索，排除自身；grep 级，含注释\/文案，非引用语义）/.test(re1.stdout), '2.76.0 E1 ①：主名整词检索分组计数——代码 2（use.tsx/api.tsx）文档 2（README/guide），myapi.ts 子串不再误中');
+    ok(/src\/use\.tsx:1/.test(re1.stdout), '2.76.0 E1 ②：无扩展名导入消费方（.tsx）计入（旧带扩展名检索漏）');
+    ok(!/myapi\.ts:/.test(re1.stdout), '2.76.0 E1 ②：myapi.ts 子串污染不命中（-w 整词）');
+    ok(/文档与帮助文本（不计阈值）：/.test(re1.stdout) && /README\.md:1/.test(re1.stdout), '2.76.0 E1 ②：文档提及单列可见');
+    ok(/⚠ 同名歧义：主名「api」/.test(re1.stdout) && /src\/api\.tsx/.test(re1.stdout), '2.76.0 E1 ②：同名异扩展孪生标注歧义');
+    ok(!re1.stdout.includes('J19 牵连排查：'), '2.76.0 E1 尾行：文档充数后代码 2<阈值 3 不点名 J19（旧混合计数 3+ 会点名——散文充数根除）');
+    // ② D3②③④（impact j20Scan）：英文词 / SQL 大写+GROUP BY / 首尾窗口 / 注释行剔除
+    fs.writeFileSync(path.join(e1, 'src', 'pipeEn.ts'), 'const total = rows.reduce((a, r) => a + r.previousPeriod, 0);\nexport const summarize = (xs) => xs.join(\',\');\n');
+    fs.writeFileSync(path.join(e1, 'src', 'repSql.xml'), '<select>\nSELECT SUM(amount), COUNT(*) FROM orders GROUP BY day\n</select>\n');
+    fs.writeFileSync(path.join(e1, 'src', 'bigShift.ts'), [...Array.from({ length: 555 }, (_, i) => `export const v${i} = ${i};`), "export const cmp = '对比';", ''].join('\n'));
+    fs.writeFileSync(path.join(e1, 'src', 'onlyComment.ts'), '// 环比同比统计对比\nexport const plain = 1;\n');
+    sh('git add -A && git commit -qm j20', e1);
+    const rj20 = run(['impact', '--files', 'src/pipeEn.ts,src/repSql.xml,src/bigShift.ts,src/onlyComment.ts'], e1);
+    const secOf = (stdout, f) => stdout.split('\n── ').find((s) => s.startsWith(`${f}\n`)) ?? ''; // 按文件节切分（禁跨节惰性匹配假绿）
+    ok(/③数据管道特征：J20 风险：涉数据管道（命中：previousPeriod/.test(secOf(rj20.stdout, 'src/pipeEn.ts')), '2.76.0 D3②：英文管道词（previousPeriod）计入特征（旧闭集中文词表全 miss）');
+    ok(/③数据管道特征：J20 风险/.test(secOf(rj20.stdout, 'src/repSql.xml')), '2.76.0 D3③：SQL 大写 SUM(/COUNT(+GROUP BY 计入（旧正则大小写敏感且无 SQL 形态全 miss）');
+    ok(/③数据管道特征：J20 风险/.test(secOf(rj20.stdout, 'src/bigShift.ts')), '2.76.0 D3④：首 500 行+尾 200 行窗口——文件尾部特征可见（旧固定 500 行窗口漏）');
+    ok(/③数据管道特征：未命中/.test(secOf(rj20.stdout, 'src/onlyComment.ts')), '2.76.0 S10-8：注释行词特征不计（// 环比…注释不再是管道证据）');
+    // ③ guard：mech 渲染 + D3① edit 增量扫描 + 泛名降档 + 文档不计阈值 + 新提醒词
+    const gp = path.join(tmp, 'guard-e1-proj');
+    fs.mkdirSync(path.join(gp, '.taskflow'), { recursive: true });
+    sh('git init -q -b main && git config user.email t@t && git config user.name t && echo \'.taskflow/\' >> .git/info/exclude', gp);
+    fs.writeFileSync(path.join(gp, '.taskflow', 'project.json'), J({ key: 'guarde1', git: true, mechanisms: {}, assetExts: 'ts|js', deploy: { webCommands: [] } }));
+    fs.writeFileSync(path.join(gp, '.taskflow', 'index.json'), J({ tasks: [] }));
+    fs.mkdirSync(path.join(gp, 'src', 'core'), { recursive: true });
+    fs.writeFileSync(path.join(gp, 'src', 'core', 'rep.ts'), 'export const rep = (xs) => xs.map((v) => v * 2);\n');
+    for (const n of ['a1', 'a2', 'a3']) fs.writeFileSync(path.join(gp, 'src', n + '.ts'), `import { rep } from './core/rep.ts';\nexport const ${n} = rep;\n`);
+    fs.writeFileSync(path.join(gp, 'NOTES.md'), 'rep.ts 是核心工具\n'); // 文档提及：不计 J19 阈值
+    fs.writeFileSync(path.join(gp, 'src', 'index.ts'), 'export const idx = 1;\n');
+    for (const n of ['f1', 'f2', 'f3']) fs.writeFileSync(path.join(gp, 'src', n + '.ts'), "import { idx } from './index.ts';\n"); // 3 个代码引用（泛名降档用）
+    fs.writeFileSync(path.join(gp, 'src', 'cold.ts'), 'export const cold = 1;\n');
+    sh('git add -A && git commit -qm g', gp);
+    const instG = run(['mech', 'install', 'TASKFLOW_GUARD'], gp);
+    ok(instG.status === 0 && fs.existsSync(path.join(gp, '.omp', 'hooks', 'pre', 'taskflow-guard.js')), '2.76.0 guard 夹具：mech 渲染（guardOn 采纳闸前提）');
+    const gMod = await import('file://' + path.join(gp, '.omp', 'hooks', 'pre', 'taskflow-guard.js'));
+    const gH = {};
+    gMod.default({ setLabel() {}, on: (ev, fn) => { (gH[ev] ??= []).push(fn); } });
+    const gJ = gH['tool_call'][gH['tool_call'].length - 1];
+    const gx = async (toolName, input, env = {}) => {
+      for (const k of Object.keys(env)) process.env[k] = env[k];
+      try { return await gJ({ toolName, input }, { cwd: gp, ui: {} }); }
+      finally { for (const k of Object.keys(env)) delete process.env[k]; } // env 卫生：用完即删防串档
+    };
+    const d3 = await gx('edit', { path: 'src/cold.ts', old_string: 'cold = 1', new_string: "const label = '环比统计';" });
+    ok(d3?.additionalContext?.includes('J20') && !d3.additionalContext.includes('J19'), '2.76.0 D3①：edit 新增环比特征 → J20 弹（旧读编辑前磁盘内容，最该弹的那次恰好不弹）');
+    const d3en = await gx('edit', { path: 'src/cold.ts', old_string: 'cold = 1', new_string: 'const t = row.previousPeriod;' });
+    ok(d3en?.additionalContext?.includes('J20'), '2.76.0 D3②：edit 注入英文管道词（previousPeriod）→ J20 弹');
+    const d3c = await gx('edit', { path: 'src/cold.ts', old_string: 'cold = 1', new_string: '// 环比同比统计对比' });
+    ok(d3c === undefined, '2.76.0 S10-8：注释行词特征不弹 J20（纯注释编辑零噪音）');
+    const j19 = await gx('edit', { path: 'src/core/rep.ts', old_string: 'rep', new_string: 'rep2' });
+    ok(j19?.additionalContext?.includes('J19') && /字符串命中 3 个代码文件（grep 级，含注释\/文案，非引用语义）/.test(j19.additionalContext), '2.76.0 D1：J19 只计代码文件（a1/a2/a3=3；NOTES.md 提及不计）且文案带 grep 级对冲');
+    ok(!/13\+ 引用形态/.test(j19?.additionalContext ?? ''), '2.76.0 D4：J19 提醒不再带会漂移的形态清单数字');
+    const gen = await gx('edit', { path: 'src/index.ts', old_string: 'idx', new_string: 'idx2' });
+    ok(gen === undefined, '2.76.0 S10-8：泛名（index）不弹 J19（防噪音疲劳——真仓实测前端噪音率 44%）');
+    const j20w = await gx('edit', { path: 'src/cold.ts', old_string: 'cold = 1', new_string: "const label = '统计口径';" });
+    ok(j20w?.additionalContext?.includes('枚举真空与失真形态（空集/单条/首期无参照/异常值/口径变更/范围串扰）'), '2.76.0 A1b：J20 提醒词升级为真空与失真形态（含口径变更/范围串扰，与 data-boundary 清单同步）');
   }
 
   process.exitCode = failures ? 1 : 0; // 失败≠0：堵住链式调用「grep 匹配到失败文案也算成功」的放行洞

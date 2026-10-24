@@ -11,10 +11,11 @@
 //   L 档案删除告警（v2.71.0）：tool_call(bash)——rm 触及 .taskflow/ 任务档案 = 不可逆删除风险 → 告警档提醒
 //      （对齐 J 墙 off/warn/enforce 档位风格，缺省 warn；TF_RM_WARN=enforce 硬拦 / off 关闭；删除已归档任务须呈报
 //      档案不可变原则逐用户确认——任务档案是跨会话账本，rm 删了没有 undo）
-//   J19/J20 牵连排查+数据边界提醒（v2.72.0）：tool_call(edit/write)——普通源码文件两检查（.taskflow/ 档案走 J 墙/G 门不归这）：
-//      ①J19 目标 basename 被引用文件数 ≥ TF_IMPACT_THRESHOLD（缺省 3）→ 提醒呈报须含影响面清单（可跑 tf.mjs impact）；
-//      ②J20 内容命中数据管道特征 → 提醒枚举真空形态（空集/单条/首期无参照/异常值）。纯提醒不拦：TF_J19_WARN /
-//      TF_J20_WARN=off 各自关，缺省 warn、无 enforce 档——定位是「提醒必达」不是墙；两提醒同调用合并一条 additionalContext。
+//   J19/J20 牵连排查+数据边界提醒（v2.72.0；v2.76.0 检索与文案修正）：tool_call(edit/write)——普通源码文件两检查
+//      （.taskflow/ 档案走 J 墙/G 门不归这）：①J19 主名整词检索（去扩展名，.vue 例外）代码文件命中数 ≥
+//      TF_IMPACT_THRESHOLD（缺省 3；文档散文提及不计、泛名不弹）→ 提醒呈报须含影响面清单（可跑 tf.mjs impact）；
+//      ②J20 内容命中数据管道特征（edit 扫增量+盘上内容，注释行剔除）→ 提醒枚举真空与失真形态。纯提醒不拦：
+//      TF_J19_WARN / TF_J20_WARN=off 各自关，缺省 warn、无 enforce 档——定位是「提醒必达」不是墙；两提醒同调用合并一条 additionalContext。
 //   T 技能埋点（v2.69.0）：tool_call(read)——skill:// 加载计数入全局 skill-usage.jsonl（不受 guardOn 闸控，零内容仅计数，
 //      供 tf.mjs skills --usage 报表；handler 整体吞错——omp hook fail-closed，抛错=阻断读取）
 //   E 输出规范注入：before_provider_request 每轮把「双层输出规范 + 项目词表」前置进 system——
@@ -285,6 +286,28 @@ function collectDeclaredFiles(taskDir) {
   for (const d of subs) addFromSection(readSafe(path.join(subRoot, d.name, 'spec.md')), /^涉及文件(\s|$|（)/);
   return [...out];
 }
+// ---- J19/J20 机械件独立副本（v2.72.0 起；v2.76.0 检索修正——与 scripts/tf.mjs impact 命令同款逻辑，
+// 守门是独立渲染产物必须自包含，两处改动须同步+跑 tf.test.mjs 对账）----
+// E1/D1/S10-8：J19 泛名清单（主名命中即不弹——全仓高频且引用语义不可辨，防噪音疲劳）；文档/帮助文本判定（不计 J19 阈值）
+const TF_GENERIC_BASENAMES = new Set(['index', 'main', 'app', 'utils', 'util', 'helpers', 'helper', 'types', 'type', 'constants', 'constant', 'config', 'conf', 'api', 'common', 'shared', 'global', 'misc']);
+const isDocPath = (f) => /\.(?:md|mdx|txt|rst|adoc)$/i.test(f) || /^(?:README|CHANGELOG|LICENSE|CONTRIBUTING)/i.test(path.basename(f)) || /(?:^|\/)docs?\//i.test(f);
+// D3②③/S10-8：J20 词表补英文管道形态（i 志大小写）；算子补 reduce/aggregate + i 志 + SQL GROUP BY 形态；
+// 注释行（//、/*、*、<!--、# 开头）剔除后再计数——注释/UI 文案里的词提及不算管道证据（真仓实测误报主源）
+const J20_WORD_RE = /环比|同比|上期|较上期|对比|排名|统计|previous[\s_-]*(?:period|month|week)|last[\s_-]*(?:period|month|week)|month[\s_-]*over[\s_-]*month|year[\s_-]*over[\s_-]*year/gi;
+const J20_CODE_RE = /\b(?:sum|count|avg|max|min|sort|reduce|aggregate)\s*\(/gi;
+function j20CodeLines(text) { // D3④：首 500+尾 200 行窗口（固定 500 行窗口漏文件尾部管道）；注释行剔除
+  const lines = String(text ?? '').split('\n');
+  const win = lines.length > 700 ? [...lines.slice(0, 500), ...lines.slice(-200)] : lines;
+  return win.filter((l) => { const t = l.trim(); return t && !/^(?:\/\/|\/\*|\*|<!--|#)/.test(t); });
+}
+function j20Scan(text) { // 词特征任一命中；代码特征须 ≥2 个不同算子（单 sort(/count( 全仓皆是无害噪音）；GROUP BY 单独记一算子
+  const body = j20CodeLines(text).join('\n');
+  const words = [...new Set(body.match(J20_WORD_RE) ?? [])];
+  const codes = new Set((body.match(J20_CODE_RE) ?? []).map((s) => s.replace(/\s+/g, '')));
+  if (/\bGROUP\s+BY\b/i.test(body)) codes.add('GROUP BY');
+  return { hit: words.length > 0 || codes.size >= 2, detail: [...words, ...codes].slice(0, 6).join('、') };
+}
+
 export default function taskflowGuard(pi) {
   pi.setLabel('Taskflow Guard');
 
@@ -526,11 +549,13 @@ export default function taskflowGuard(pi) {
     return undefined;
   });
 
-  // J19 牵连排查 + J20 数据边界提醒（v2.72.0）：edit/write 触及普通源码文件时两检查（.taskflow/ 档案走上方 J 墙/G 门，
-  // 本 handler 直接放行）。①J19：目标 basename 在仓内被引用文件数 ≥ TF_IMPACT_THRESHOLD（缺省 3，与 tf.mjs impact 共用）
-  // → 提醒呈报带影响面清单；②J20：内容命中数据管道特征 → 提醒枚举真空形态。纯提醒不拦：TF_J19_WARN / TF_J20_WARN
+  // J19 牵连排查 + J20 数据边界提醒（v2.72.0；v2.76.0 检索修正）：edit/write 触及普通源码文件时两检查（.taskflow/ 档案走
+  // 上方 J 墙/G 门，本 handler 直接放行）。①J19：目标主名（去扩展名，.vue 例外）在仓内被代码文件命中数 ≥
+  // TF_IMPACT_THRESHOLD（缺省 3，与 tf.mjs impact 共用）→ 提醒呈报带影响面清单（文档散文提及不计阈值、泛名不弹）；
+  // ②J20：内容命中数据管道特征（edit 扫 new_string+old_string+盘上内容——管道特征常是这次编辑才进入文件的，旧实现读
+  // 编辑前磁盘内容恰在引入时刻不弹；注释行剔除）→ 提醒枚举真空与失真形态。纯提醒不拦：TF_J19_WARN / TF_J20_WARN
   // 各自 off 关闭，缺省 warn、无 enforce 档——定位是「提醒必达」不是墙。同一调用两提醒合并一条 additionalContext（换行分隔）。
-  // 性能纪律：检索走 git grep（tracked+未忽略；node_modules/.git 天然排除），内容只读前 500 行做特征探测。
+  // 性能纪律：检索走 git grep -w（tracked+未忽略；node_modules/.git 天然排除），内容只读首 500+尾 200 行做特征探测。
   // 挂 tool_call 末位：既有测试按 handlers['tool_call'] 下标定位 handler（0=bash/1=task/2=G 门/3=I 消账/4=T 埋点），追加不挪既有下标。
   pi.on('tool_call', async (event, ctx) => {
     try {
@@ -552,25 +577,41 @@ export default function taskflowGuard(pi) {
       if (rel === '.taskflow' || rel.startsWith(`.taskflow${path.sep}`)) return undefined; // 档案归 J 墙/G 门管
       const warns = [];
       if (process.env.TF_J19_WARN !== 'off') {
-        const th = (() => { const v = parseInt(process.env.TF_IMPACT_THRESHOLD ?? '', 10); return Number.isFinite(v) && v >= 1 ? v : 3; })();
-        let n = 0;
-        try {
-          const out = execFileSync('git', ['-C', top, 'grep', '--untracked', '-I', '-l', '-F', '-e', path.basename(rel), '--', '.', `:!${rel}`],
-            { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 16 * 1024 * 1024 });
-          n = out.split('\n').filter(Boolean).length;
-        } catch (e) { if (e?.status !== 1) n = 0; } // 1=无匹配；检索失败按 0 处理（提醒不拦，宁缺勿噪）
-        if (n >= th) warns.push(`TASKFLOW_GUARD J19 牵连排查提醒：${rel} 被 ${n} 个文件引用——改动呈报须含影响面清单（可跑 node tf.mjs impact --files ${rel}）；分析由 impact-analysis 技能引导（13+ 引用形态清单+检索序列）`);
+        // v2.76.0（A2 审查 E1/D1）：检索串去扩展名取主名（.vue 例外——import 习惯带 .vue）+ -w 整词（api.ts 检索不再误中
+        // myapi.ts 子串）+ 代码/文档分组（README/CHANGELOG/docs/*.md 散文提及不计阈值——散文充数曾把真仓 44% 前端
+        // 文件顶过阈值）+ 泛名降档（index/utils/types/constants/api/config 等泛名引用语义不可辨，不弹防噪音疲劳）。
+        const ext = path.extname(rel);
+        const mainName = path.basename(rel, ext);
+        const key = ext === '.vue' ? path.basename(rel) : mainName;
+        if (!TF_GENERIC_BASENAMES.has(mainName.toLowerCase())) {
+          const th = (() => { const v = parseInt(process.env.TF_IMPACT_THRESHOLD ?? '', 10); return Number.isFinite(v) && v >= 1 ? v : 3; })();
+          let files = [];
+          try {
+            files = execFileSync('git', ['-C', top, 'grep', '--untracked', '-I', '-l', '-F', '-w', '-e', key, '--', '.', `:!${rel}`],
+              { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 16 * 1024 * 1024 }).split('\n').filter(Boolean);
+          } catch (e) { if (e?.status !== 1) files = null; } // 1=无匹配（正常空）；其余=检索失败按无清单处理（提醒不拦，宁缺勿噪）
+          if (files !== null) {
+            const codeN = files.filter((f) => !isDocPath(f)).length;
+            if (codeN >= th) warns.push(`TASKFLOW_GUARD J19 牵连排查提醒：${rel} 字符串命中 ${codeN} 个代码文件（grep 级，含注释/文案，非引用语义）——改动呈报须含影响面清单（可跑 node tf.mjs impact --files ${rel}）；分析由 impact-analysis 技能引导（引用形态清单+检索序列）`);
+          }
+        }
       }
       if (process.env.TF_J20_WARN !== 'off') {
         let text = null;
         if (event.toolName === 'write' && typeof event.input?.content === 'string') text = event.input.content; // 未落盘新文件也有探测面
-        else { try { text = fs.readFileSync(abs, 'utf8'); } catch { text = null; } }
+        else if (event.toolName === 'edit') {
+          // v2.76.0 D3①：扫本次编辑增量（new_string+old_string）拼盘上内容——管道特征常是「这次编辑」才进入文件，
+          // 旧实现读编辑前磁盘内容，恰在引入时刻不弹（最该弹的那次不弹，A2 实测四连漏报之首）
+          const parts = [];
+          if (typeof event.input?.new_string === 'string') parts.push(event.input.new_string);
+          if (typeof event.input?.old_string === 'string') parts.push(event.input.old_string);
+          try { parts.push(fs.readFileSync(abs, 'utf8')); } catch { /* 新文件落盘前 */ }
+          if (parts.length) text = parts.join('\n');
+        } else { try { text = fs.readFileSync(abs, 'utf8'); } catch { text = null; } }
         if (text != null) {
-          const head = text.split('\n').slice(0, 500).join('\n');
-          const words = [...new Set(head.match(/环比|同比|上期|较上期|对比|排名|统计/g) ?? [])];
-          const codes = [...new Set((head.match(/\b(?:sum|count|avg|max|min|sort)\s*\(/g) ?? []).map((s) => s.replace(/\s+/g, '')))];
-          if (words.length || codes.length >= 2) { // 词特征任一命中；代码特征 ≥2 个不同算子（单 sort(/count( 全仓皆是无害噪音）
-            warns.push(`TASKFLOW_GUARD J20 数据边界提醒：${rel} 疑涉数据管道（命中特征：${[...words, ...codes].slice(0, 6).join('、')}）——枚举真空形态（空集/单条/首期无参照/异常值），禁算了不传/传空容器/硬凑对比；分析由 data-boundary 技能引导（五维度检查清单+三禁）`);
+          const j20 = j20Scan(text);
+          if (j20.hit) { // 词特征任一命中；代码特征 ≥2 个不同算子（单 sort(/count( 全仓皆是无害噪音）
+            warns.push(`TASKFLOW_GUARD J20 数据边界提醒：${rel} 疑涉数据管道（命中特征：${j20.detail}）——枚举真空与失真形态（空集/单条/首期无参照/异常值/口径变更/范围串扰），禁算了不传/传空容器/硬凑对比；分析由 data-boundary 技能引导（五维度检查清单+三禁）`);
           }
         }
       }
