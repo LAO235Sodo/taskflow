@@ -23,7 +23,11 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-cd "$ROOT"
+# --repo <path>（v2.77.2）：验证目标检出——worktree 任务传任务 worktree 路径，缺省=脚本所在主仓库。
+# 实证：--spec 模式曾恒 cd 回主仓库，worktree 任务的 git diff 恒空 → B3 草案升格必红（2026-10-24 dept-unread-window）。
+# 分工：CONV 簿记（.taskflow/ 恒主仓库）走 ROOT；CHANGELOG/PRD/git diff 走 REPO。
+REPO="$ROOT"
+cd "$REPO"
 
 ID_RE='[FU]S?-[A-Z]{2,8}-[0-9]+'
 GATE_ANCHOR='基线对照门落地'
@@ -35,7 +39,7 @@ sha1_12() { if command -v sha1sum >/dev/null 2>&1; then sha1sum | cut -c1-12; el
 
 # ---- PRD 根定位：conventions.md「统一源」节单点声明（DOC_SYNC 读侧既有登记），缺省 docs/prd ----
 PRD_DIR="docs/prd"
-CONV=".taskflow/conventions.md"
+CONV="$ROOT/.taskflow/conventions.md"
 if [ -f "$CONV" ]; then
   FOUND="$(sed -n '/统一源/,/^## /p' "$CONV" | grep -oE '[^ `|]*prd[^ `|]*' | head -1 || true)"
   [ -n "$FOUND" ] && PRD_DIR="${FOUND%/}"
@@ -66,6 +70,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --spec) SPEC_ARG="${2:?--spec 需要路径}"; shift 2 ;;
     --base) BASE_FLAG="${2:?--base 需要 ref}"; shift 2 ;;
+    --repo) REPO="$(cd "${2:?--repo 需要路径}" && pwd)"; cd "$REPO"; shift 2 ;;
     *) fail "未知参数 $1" ;;
   esac
 done

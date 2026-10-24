@@ -143,7 +143,13 @@ function spaceSeparatedFiles(cmd) {
   if (at === -1) return false;
   const toks = cmd.slice(at + '--files'.length).trim().split(/\s+/);
   const files = [];
-  for (const t of toks) { if (t.startsWith('-')) break; files.push(t); }
+  for (const t of toks) {
+    if (t.startsWith('-')) break;
+    // v2.77.2：shell 控制符（管道/重定向/列表/分隔符）出现 = --files 值已结束，后续是别的命令——
+    // 实证：「...a,b,c 2>&1 | tail」「... && bash x | tail」的 2>&1、|、tail 被当文件名误拦（dept-unread-window 2026-10-24）
+    if (/[|>&;()]/.test(t)) break;
+    files.push(t);
+  }
   return files.length > 1;
 }
 
