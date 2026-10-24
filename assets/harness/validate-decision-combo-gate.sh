@@ -8,7 +8,10 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-cd "$ROOT"
+# --repo <path>（v2.77.2）：验证目标检出——worktree 任务传任务 worktree 路径，缺省=脚本所在主仓库。
+# 实证：恒 cd 主仓库使 git diff $BASE...HEAD 恒空 → 组合检查恒假绿（worktree 命中漏检，2026-10-24 dept-unread-window 同类排查）。
+REPO="$ROOT"
+cd "$REPO"
 
 COMMON_DIR="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
 TASKFLOW_DIR=".taskflow"
@@ -50,6 +53,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --spec) SPEC_ARG="${2:?--spec 需要路径}"; shift 2 ;;
     --base) BASE_ARG="${2:?--base 需要 ref}"; shift 2 ;;
+    --repo) REPO="$(cd "${2:?--repo 需要路径}" && pwd)"; cd "$REPO"; shift 2 ;;
     *) fail "未知参数 $1" ;;
   esac
 done

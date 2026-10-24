@@ -16,6 +16,8 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
+# --repo（v2.77.2）：worktree 任务传任务检出——任务新写的资产文件主仓库没有,资产查找 REPO 优先
+REPO="$ROOT"
 
 COMMON_DIR="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
 TASKFLOW_DIR=".taskflow"
@@ -47,6 +49,7 @@ SPEC_ARG=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --spec) SPEC_ARG="${2:?--spec 需要路径}"; shift 2 ;;
+    --repo) REPO="$(cd "${2:?--repo 需要路径}" && pwd)"; shift 2 ;;
     *) fail "未知参数 $1（用法见脚本头注释）" ;;
   esac
 done
@@ -55,7 +58,8 @@ done
 valid_spec_json() {
   local p="$1"
   local f=""
-  if [ -f "$ROOT/$p" ]; then f="$ROOT/$p"
+  if [ -f "$REPO/$p" ]; then f="$REPO/$p"
+  elif [ -f "$ROOT/$p" ]; then f="$ROOT/$p"
   elif [ -f "$MAIN_ROOT/$p" ]; then f="$MAIN_ROOT/$p"
   elif [ -f "$p" ]; then f="$p"
   else return 1; fi

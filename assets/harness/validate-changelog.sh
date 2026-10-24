@@ -5,9 +5,18 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-CHANGELOG="$ROOT/docs/CHANGELOG.md"
+# --repo <path>（v2.77.2）：验证目标检出——worktree 任务传任务 worktree 路径，缺省=脚本所在主仓库。
+# 实证：恒读 $ROOT/docs/CHANGELOG.md 使 worktree 任务条目不可见（2026-10-24 dept-unread-window 临时副本法绕过）。
+REPO="$ROOT"
 fail() { echo "⛔ [changelog] $*" >&2; exit 1; }
 warn() { echo "⚠ [changelog] $*" >&2; }
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --repo) REPO="$(cd "${2:?--repo 需要路径}" && pwd)"; shift 2 ;;
+    *) fail "未知参数 $1" ;;
+  esac
+done
+CHANGELOG="$REPO/docs/CHANGELOG.md"
 
 [ -f "$CHANGELOG" ] || fail "缺 docs/CHANGELOG.md"
 
@@ -85,20 +94,20 @@ fi
 BT='`'
 WARN_N=0
 for p in $(grep -oE "${BT}[^${BT}]+${BT}" "$CHANGELOG" | tr -d "$BT" | grep '/' | grep -vE '^\.\.\.$|^[0-9a-f]{7}$' || true); do
-  [ -e "$ROOT/$p" ] || { warn "反引号路径不存在：$p"; WARN_N=$((WARN_N+1)); }
+  [ -e "$REPO/$p" ] || { warn "反引号路径不存在：$p"; WARN_N=$((WARN_N+1)); }
 done
 [ "$WARN_N" -gt 0 ] && warn "共 $WARN_N 个路径待核（历史条目可豁免）"
 
-# 串接决策组合门（失败即整体失败）
+# 串接决策组合门（失败即整体失败；--repo 透传 worktree 感知）
 echo "== 决策组合门 =="
-"$ROOT/scripts/harness/validate-decision-combo-gate.sh"
+"$ROOT/scripts/harness/validate-decision-combo-gate.sh" --repo "$REPO"
 # 串接原型规格表门（失败即整体失败；DESIGN_SPEC_EXTRACT 机制）
 echo "== 原型规格表门 =="
-"$ROOT/scripts/harness/validate-design-spec-gate.sh"
+"$ROOT/scripts/harness/validate-design-spec-gate.sh" --repo "$REPO"
 # 串接现状基线门（失败即整体失败；APP_PAGE_BASELINE 机制）
 echo "== 现状基线门 =="
-"$ROOT/scripts/harness/validate-app-baseline-gate.sh"
+"$ROOT/scripts/harness/validate-app-baseline-gate.sh" --repo "$REPO"
 # 串接需求基线对照门（失败即整体失败；REQ_ANCHOR_GATE 机制，硬规则 27——文档同步行条目 ID 真实性/PRD 粒度/不适用矛盾）
 echo "== 基线对照门 =="
-"$ROOT/scripts/harness/validate-baseline-anchor-gate.sh"
+"$ROOT/scripts/harness/validate-baseline-anchor-gate.sh" --repo "$REPO"
 echo "✓ [changelog] 全部通过"

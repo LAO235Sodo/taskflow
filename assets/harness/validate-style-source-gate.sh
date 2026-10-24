@@ -14,7 +14,10 @@
 # 退出码：0 通过/降级；1 违规。兼容 macOS bash 3.2。
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "$BASH_SOURCE[0]}")/../.." && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+# --repo <path>（v2.77.2）：验证目标检出（放 $1 前）；缺省=脚本所在主仓库。git diff/log 恒主仓库=worktree 假绿（同类排查 2026-10-24）。
+REPO="$ROOT"
+[ "${1:-}" = "--repo" ] && { REPO="$(cd "${2:?--repo 需要路径}" && pwd)"; set -- "${@:3}"; }
 cd "$ROOT"
 
 COMMON_DIR="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
@@ -42,12 +45,12 @@ fi
 if [ "${1:-}" = "--diff" ]; then
   # 完备性：真源文件被改 → 提交说明须含样式拍板字样
   BASE="${2:-HEAD~1}"
-  CHANGED="$(git diff --name-only "$BASE" -- "$SRC_DIR" 2>/dev/null || true)"
+  CHANGED="$(git -C "$REPO" diff --name-only "$BASE" -- "$SRC_DIR" 2>/dev/null || true)"
   if [ -z "$CHANGED" ]; then
     echo "✓ [style-gate] --diff：真源无改动"
     exit 0
   fi
-  MSG="$(git log -1 --format=%B HEAD 2>/dev/null || true)"
+  MSG="$(git -C "$REPO" log -1 --format=%B HEAD 2>/dev/null || true)"
   echo "$MSG" | grep -q '样式拍板' \
     || fail "真源被改（$(echo "$CHANGED" | tr '\n' ' '))但提交说明缺「样式拍板」字样——大白话拍板记录须先进 $SRC_DIR/STYLE_DECISIONS.md（硬规则 20）"
   echo "✓ [style-gate] --diff：真源改动带拍板留痕"
