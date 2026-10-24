@@ -2111,6 +2111,17 @@ function j20Scan(text) {
 }
 // basename 主名（J19 检索串口径，v2.76.0 E1）：.vue 保留扩展名（import 习惯带 .vue），其余去扩展名
 const impactKey = (p) => { const e = path.extname(p); return e === '.vue' ? path.basename(p) : path.basename(p, e); };
+// v2.77.1（R2 有效性攻击 F2b①）：同扩展名族映射——非 .vue 目标的 basename 检索限定同语言扩展名族
+// （share.ts 检索串「share」曾以整词命中 Java 注释/文案：dx-snap-share 实测报 80 个代码文件、真实 import 消费方 2 个，膨胀 40×）。
+// 族外扩展名（映射表未覆盖）不设限，由 F2b② 跨语言歧义标注兜底；.vue=null（检索串已带扩展名，限定 .vue 族会漏 .ts 消费方）。
+const EXT_FAMILY = {
+  '.ts': ['.ts', '.tsx', '.mts', '.cts'], '.tsx': ['.ts', '.tsx', '.mts', '.cts'], '.mts': ['.ts', '.tsx', '.mts', '.cts'], '.cts': ['.ts', '.tsx', '.mts', '.cts'],
+  '.js': ['.js', '.jsx', '.mjs', '.cjs'], '.jsx': ['.js', '.jsx', '.mjs', '.cjs'], '.mjs': ['.js', '.jsx', '.mjs', '.cjs'], '.cjs': ['.js', '.jsx', '.mjs', '.cjs'],
+  '.java': ['.java'], '.kt': ['.kt', '.kts'], '.kts': ['.kt', '.kts'], '.scala': ['.scala'], '.groovy': ['.groovy'],
+  '.py': ['.py'], '.rb': ['.rb'], '.php': ['.php'], '.go': ['.go'], '.rs': ['.rs'], '.swift': ['.swift'], '.cs': ['.cs'],
+  '.c': ['.c', '.h'], '.h': ['.c', '.h'], '.cpp': ['.cpp', '.cc', '.cxx', '.hpp'], '.cc': ['.cpp', '.cc', '.cxx', '.hpp'], '.cxx': ['.cpp', '.cc', '.cxx', '.hpp'], '.hpp': ['.cpp', '.cc', '.cxx', '.hpp'],
+  '.vue': null,
+};
 // 文档与帮助文本判定（J19 阈值不计这组；guard 侧持独立副本同款——两处同步改）
 const isDocPath = (f) => /\.(?:md|mdx|txt|rst|adoc)$/i.test(f) || /^(?:README|CHANGELOG|LICENSE|CONTRIBUTING)/i.test(path.basename(f)) || /(?:^|\/)docs?\//i.test(f);
 function impactCmd(args = []) {
@@ -2149,6 +2160,9 @@ function impactCmd(args = []) {
   files = [...new Set(files)];
   if (!files.length) { console.log('ℹ 无可分析的改动'); return done(); }
   const fanFiles = []; const j20Files = [];
+  // v2.77.1（F2a）：仓内全文件清单（ls-files tracked+未忽略）——孪生独立来源用；循环内懒加载缓存一次（检索失败=空清单，不致命）
+  let repoFilesCache = null;
+  const repoFiles = () => (repoFilesCache ??= (() => { try { return execFileSync('git', ['-C', mainRoot, 'ls-files', '--cached', '--others', '--exclude-standard'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 64 * 1024 * 1024 }).split('\n').filter(Boolean); } catch { return []; } })());
   for (const f of files) {
     const abs = path.resolve(mainRoot, f);
     console.log(`\n── ${f}`);
@@ -2159,9 +2173,12 @@ function impactCmd(args = []) {
     // 阈值）；同名异扩展/同名异路径孪生命中列歧义标注（com.a/com.b 同名类互不污染面不可辨，呈报给人工核对）。
     const ext = path.extname(f);
     const key = impactKey(f);
+    // v2.77.1（F2b①）：族内检索面（.ts→*.ts/*.tsx/*.mts/*.cts 等）；族外/null 不设限（.vue 检索串带扩展名，.ts 消费方靠它）
+    const family = EXT_FAMILY[ext.toLowerCase()];
+    const scopes = Array.isArray(family) ? family.map((e) => `*${e}`) : null;
     let lines = null;
     try {
-      const out = execFileSync('git', ['-C', mainRoot, 'grep', '--untracked', '-I', '-n', '-F', '-w', '-e', key, '--', '.', `:!${rel}`],
+      const out = execFileSync('git', ['-C', mainRoot, 'grep', '--untracked', '-I', '-n', '-F', '-w', '-e', key, '--', ...(scopes ?? ['.']), `:!${rel}`],
         { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 64 * 1024 * 1024 });
       lines = out.split('\n').filter(Boolean);
     } catch (e) {
@@ -2181,7 +2198,7 @@ function impactCmd(args = []) {
         if (!sink.has(fp)) sink.set(fp, []);
         sink.get(fp).push(li >= 0 ? rest.slice(0, li) : '?');
       }
-      console.log(`  ①引用计数：代码引用文件数 ${codeByFile.size}（阈值判定），文档提及 ${docByFile.size}，命中次数 ${lines.length}（主名「${key}」整词检索，排除自身；grep 级，含注释/文案，非引用语义）`);
+      console.log(`  ①引用计数：代码引用文件数 ${codeByFile.size}（阈值判定），文档提及 ${docByFile.size}，命中次数 ${lines.length}（主名「${key}」整词检索，排除自身；grep 级，含注释/文案，非引用语义）${scopes ? `；检索限定同扩展名族 ${scopes.join('、')}` : ''}`);
       console.log('  ②引用清单：');
       const codeFlat = [...codeByFile.entries()].flatMap(([fp, lns]) => lns.map((ln) => `${fp}:${ln}`));
       if (!codeFlat.length) console.log('  代码文件：ℹ 无引用命中');
@@ -2195,8 +2212,18 @@ function impactCmd(args = []) {
         for (const x of docFlat.slice(0, 5)) console.log(`    ${x}`);
         if (docFlat.length > 5) console.log(`    … ${docFlat.length - 5} more`);
       }
-      const twins = [...codeByFile.keys()].filter((h) => impactKey(h) === key && (path.extname(h) !== ext || path.basename(h) === path.basename(f)));
+      // v2.77.1（R2 有效性攻击 F2a）：孪生两路并集——①命中清单路（旧路：孪生文件自身内容命中才算）②独立来源路：
+      // git ls-files 按主名直查仓内同名文件（排除自身）。同名 SFC 从不 import 自己的同名兄弟 → 孪生自身永不入命中
+      // 清单，旧路系统性漏报（dx-snap-share SummaryCard.vue 实测：3 消费方中 2 个实为 dashboard 孪生的，歧义标注未出现）。
+      const hitTwins = [...codeByFile.keys(), ...docByFile.keys()].filter((h) => impactKey(h) === key && (path.extname(h) !== ext || path.basename(h) === path.basename(f)));
+      const indepTwins = repoFiles().filter((h) => h !== rel && path.basename(h, path.extname(h)) === path.basename(f, path.extname(f)));
+      const twins = [...new Set([...hitTwins, ...indepTwins])];
       if (twins.length) console.log(`  ⚠ 同名歧义：主名「${key}」另命中 ${twins.slice(0, 5).join('、')}${twins.length > 5 ? ' 等' : ''}——grep 级命中面可能跨同名文件，逐个核对`);
+      // v2.77.1（F2b②）：族外扩展名兜底——异扩展名代码命中过半 → 强制跨语言歧义标注（映射表未覆盖的组合不静默）
+      if (family === undefined && codeByFile.size) {
+        const foreign = [...codeByFile.keys()].filter((h) => path.extname(h).toLowerCase() !== ext.toLowerCase());
+        if (foreign.length * 2 > codeByFile.size) console.log(`  ⚠ 跨语言歧义：命中跨语言形态，basename 泛用词风险高（异扩展名命中 ${foreign.length}/${codeByFile.size}：${foreign.slice(0, 5).join('、')}${foreign.length > 5 ? ' 等' : ''}）——import/引用路径逐条核对`);
+      }
       if (codeByFile.size >= th) fanFiles.push(f);
     }
     // ③：数据管道特征（首 500+尾 200 行窗口；注释行剔除；词特征任一命中，代码特征须≥2 个不同算子防单 sort(/count( 全仓噪音）

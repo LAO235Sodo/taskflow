@@ -2814,10 +2814,10 @@ try {
     sh('git add -A && git commit -qm e1', e1);
     const re1 = run(['impact', '--files', 'src/api.ts'], e1);
     ok(re1.status === 0, '2.76.0 E1：恒 exit 0');
-    ok(/代码引用文件数 2（阈值判定），文档提及 2，命中次数 5（主名「api」整词检索，排除自身；grep 级，含注释\/文案，非引用语义）/.test(re1.stdout), '2.76.0 E1 ①：主名整词检索分组计数——代码 2（use.tsx/api.tsx）文档 2（README/guide），myapi.ts 子串不再误中');
+    ok(/代码引用文件数 2（阈值判定），文档提及 0，命中次数 3（主名「api」整词检索，排除自身；grep 级，含注释\/文案，非引用语义）；检索限定同扩展名族 \*\.ts、\*\.tsx、\*\.mts、\*\.cts/.test(re1.stdout), '2.76.0 E1 ①（2.77.1 F2b 修订口径）：主名整词检索——代码 2（use.tsx/api.tsx）计准，myapi.ts 子串不再误中；.ts 检索面限同扩展名族（2.76.0 时代 .md 文档入面的散文充数根除）');
     ok(/src\/use\.tsx:1/.test(re1.stdout), '2.76.0 E1 ②：无扩展名导入消费方（.tsx）计入（旧带扩展名检索漏）');
     ok(!/myapi\.ts:/.test(re1.stdout), '2.76.0 E1 ②：myapi.ts 子串污染不命中（-w 整词）');
-    ok(/文档与帮助文本（不计阈值）：/.test(re1.stdout) && /README\.md:1/.test(re1.stdout), '2.76.0 E1 ②：文档提及单列可见');
+    ok(!/文档与帮助文本（不计阈值）：/.test(re1.stdout), '2.76.0 E1 ②（2.77.1 F2b 修订口径）：.ts 目标检索面限同族后 .md 不入搜索面、文档组不再出现（文档分组对映射外扩展名仍生效+不计阈值，见 2.77.1 节 conf/share.cfg 断言）');
     ok(/⚠ 同名歧义：主名「api」/.test(re1.stdout) && /src\/api\.tsx/.test(re1.stdout), '2.76.0 E1 ②：同名异扩展孪生标注歧义');
     ok(!re1.stdout.includes('J19 牵连排查：'), '2.76.0 E1 尾行：文档充数后代码 2<阈值 3 不点名 J19（旧混合计数 3+ 会点名——散文充数根除）');
     // ② D3②③④（impact j20Scan）：英文词 / SQL 大写+GROUP BY / 首尾窗口 / 注释行剔除
@@ -2870,6 +2870,77 @@ try {
     ok(gen === undefined, '2.76.0 S10-8：泛名（index）不弹 J19（防噪音疲劳——真仓实测前端噪音率 44%）');
     const j20w = await gx('edit', { path: 'src/cold.ts', old_string: 'cold = 1', new_string: "const label = '统计口径';" });
     ok(j20w?.additionalContext?.includes('枚举真空与失真形态（空集/单条/首期无参照/异常值/口径变更/范围串扰）'), '2.76.0 A1b：J20 提醒词升级为真空与失真形态（含口径变更/范围串扰，与 data-boundary 清单同步）');
+  }
+
+  // ---- 2.77.1 检索精度残余（R2 有效性攻击）：F2a 孪生独立来源 + F2b 跨语言同名词膨胀 ----
+  // F2a：同名孪生（.vue 最典型）从不 import 自己的同名兄弟 → 孪生自身永不入命中清单 → 旧「命中清单路」系统性漏报歧义标注
+  // F2b：share.ts 检索串「share」整词命中 Java 注释/文案（R2 实测 80 代码文件 vs 真实 import 消费方 2，膨胀 40×）
+  {
+    const p2 = path.join(tmp, 'impact-2771-proj');
+    fs.mkdirSync(path.join(p2, 'upload', 'components'), { recursive: true });
+    fs.mkdirSync(path.join(p2, 'dashboard'), { recursive: true });
+    fs.mkdirSync(path.join(p2, 'client'), { recursive: true });
+    fs.mkdirSync(path.join(p2, 'server'), { recursive: true });
+    fs.mkdirSync(path.join(p2, 'conf'), { recursive: true });
+    fs.mkdirSync(path.join(p2, '.taskflow'), { recursive: true });
+    sh('git init -q -b main && git config user.email t@t && git config user.name t && echo \'.taskflow/\' >> .git/info/exclude', p2);
+    fs.writeFileSync(path.join(p2, '.taskflow', 'project.json'), J({ key: 'impact2771', git: true, mechanisms: {}, deploy: { webCommands: [] } }));
+    fs.writeFileSync(path.join(p2, '.taskflow', 'index.json'), J({ tasks: [] }));
+    // F2a 形态：upload/dashboard 同名 SFC 孪生；upload 孪生 1 个真消费方 + dashboard 孪生 2 个消费方（import 路径各异、检索串相同）
+    fs.writeFileSync(path.join(p2, 'upload', 'components', 'SummaryCard.vue'), '<template><div class="up">上传摘要卡</div></template>\n');
+    fs.writeFileSync(path.join(p2, 'dashboard', 'SummaryCard.vue'), '<template><div class="dash">仪表盘摘要卡</div></template>\n'); // 孪生：内容不含检索串，永不入命中清单
+    fs.writeFileSync(path.join(p2, 'upload', 'Page.vue'), "<template><SummaryCard /></template>\n<script>\nimport SummaryCard from './components/SummaryCard.vue';\n</script>\n");
+    fs.writeFileSync(path.join(p2, 'dashboard', 'Home.vue'), "<template><SummaryCard /></template>\n<script>\nimport SummaryCard from './SummaryCard.vue';\n</script>\n");
+    fs.writeFileSync(path.join(p2, 'dashboard', 'Widget.vue'), "<script>\nimport SummaryCard from './SummaryCard.vue';\n</script>\n<template><SummaryCard /></template>\n");
+    // F2b 形态：share.ts 真实消费方 2 个；Java 侧注释/文案 6 文件整词命中（膨胀样例）；conf/share.cfg 同主名异扩展（内容不含 share）
+    fs.writeFileSync(path.join(p2, 'share.ts'), 'export const share = (x) => x;\n');
+    fs.writeFileSync(path.join(p2, 'client', 'a.ts'), "import { share } from '../share';\nexport const A = share;\n");
+    fs.writeFileSync(path.join(p2, 'client', 'b.ts'), "import { share } from '../share';\nexport const B = share;\n");
+    for (const n of ['J1', 'J2', 'J3', 'J4', 'J5', 'J6']) fs.writeFileSync(path.join(p2, 'server', n + '.java'), `// share 分享文案\npublic class ${n} { String label = "分享 share"; }\n`);
+    fs.writeFileSync(path.join(p2, 'conf', 'share.cfg'), 'threshold=3\nmode=x\n'); // 不含 share 字样 → 不入命中清单，仅独立来源可见
+    fs.writeFileSync(path.join(p2, 'NOTES.md'), 'share 分享功能配置见 conf/share.cfg\n'); // 文档提及：映射外扩展名目标仍走文档分组
+    sh('git add -A && git commit -qm f2771', p2);
+    const r2771 = run(['impact', '--files', 'upload/components/SummaryCard.vue,share.ts,conf/share.cfg'], p2);
+    const sec2 = (f) => r2771.stdout.split('\n── ').find((s) => s.startsWith(`${f}\n`)) ?? '';
+    ok(r2771.status === 0, '2.77.1：恒 exit 0');
+    const scVue = sec2('upload/components/SummaryCard.vue');
+    ok(/代码引用文件数 3（阈值判定）/.test(scVue), '2.77.1 F2a 铺垫：SummaryCard.vue 消费方 3 计入（Page/Home/Widget，import 路径各异）');
+    ok(/⚠ 同名歧义：主名「SummaryCard\.vue」另命中 dashboard\/SummaryCard\.vue/.test(scVue), '2.77.1 F2a：孪生独立来源——dashboard 孪生不在命中清单（同名 SFC 从不 import 兄弟）仍标注歧义（旧路系统性漏报）');
+    ok(!/upload\/Page\.vue.*孪生|另命中.*Page\.vue/.test(scVue), '2.77.1 F2a 反向：消费方（非同主名）不误标孪生');
+    const scShare = sec2('share.ts');
+    ok(/代码引用文件数 2（阈值判定）/.test(scShare) && /client\/a\.ts:1/.test(scShare), '2.77.1 F2b①：share.ts 检索限定同扩展名族——真实消费方 2（a/b.ts）计准（R2 实测 80 vs 2 膨胀 40×）');
+    ok(!/\.java/.test(scShare), '2.77.1 F2b①：Java 注释/文案命中不再入 .ts 检索面（J1-J6.java 不出现在 share.ts 清单）');
+    ok(/⚠ 同名歧义：主名「share」另命中 conf\/share\.cfg/.test(scShare), '2.77.1 F2a 非 .vue 形态：conf/share.cfg 不含 share 字样、只在独立来源可见 → 仍标注歧义');
+    const scCfg = sec2('conf/share.cfg');
+    ok(/代码引用文件数 9（阈值判定），文档提及 1/.test(scCfg), '2.77.1 F2b①边界：映射外扩展名（.cfg）检索不设限——代码 9（share.ts/a/b/J1-J6）文档 1（NOTES.md）');
+    ok(/⚠ 跨语言歧义：命中跨语言形态，basename 泛用词风险高（异扩展名命中 9\/9/.test(scCfg), '2.77.1 F2b②：映射外组合异扩展名命中过半 → 强制跨语言歧义标注');
+    ok(/文档与帮助文本（不计阈值）：/.test(scCfg) && /NOTES\.md:1/.test(scCfg), '2.77.1 F2b 保留：代码/文档分组逻辑保留——文档组不计阈值（映射外目标仍可见）');
+    // guard F2b：编辑 share.ts 不再被 Java 噪音顶过阈值；映射外扩展名异族过半强制注记
+    const g2 = path.join(tmp, 'guard-2771-proj');
+    fs.mkdirSync(path.join(g2, 'client'), { recursive: true });
+    fs.mkdirSync(path.join(g2, 'server'), { recursive: true });
+    fs.mkdirSync(path.join(g2, 'conf'), { recursive: true });
+    fs.mkdirSync(path.join(g2, '.taskflow'), { recursive: true });
+    sh('git init -q -b main && git config user.email t@t && git config user.name t && echo \'.taskflow/\' >> .git/info/exclude && echo \'.omp/\' >> .git/info/exclude', g2);
+    fs.writeFileSync(path.join(g2, '.taskflow', 'project.json'), J({ key: 'guard2771', git: true, mechanisms: {}, assetExts: 'ts|js', deploy: { webCommands: [] } }));
+    fs.writeFileSync(path.join(g2, '.taskflow', 'index.json'), J({ tasks: [] }));
+    fs.writeFileSync(path.join(g2, 'share.ts'), 'export const share = (x) => x;\n');
+    fs.writeFileSync(path.join(g2, 'client', 'a.ts'), "import { share } from '../share';\n");
+    fs.writeFileSync(path.join(g2, 'client', 'b.ts'), "import { share } from '../share';\n");
+    for (const n of ['J1', 'J2', 'J3', 'J4', 'J5', 'J6']) fs.writeFileSync(path.join(g2, 'server', n + '.java'), `// share 分享文案\npublic class ${n} { String label = "分享 share"; }\n`);
+    fs.writeFileSync(path.join(g2, 'conf', 'share.cfg'), 'threshold=3\n');
+    sh('git add -A && git commit -qm g2771', g2);
+    const inst2 = run(['mech', 'install', 'TASKFLOW_GUARD'], g2);
+    ok(inst2.status === 0 && fs.existsSync(path.join(g2, '.omp', 'hooks', 'pre', 'taskflow-guard.js')), '2.77.1 guard 夹具：mech 渲染（guardOn 采纳闸前提）');
+    const gMod2 = await import('file://' + path.join(g2, '.omp', 'hooks', 'pre', 'taskflow-guard.js'));
+    const gH2 = {};
+    gMod2.default({ setLabel() {}, on: (ev, fn) => { (gH2[ev] ??= []).push(fn); } });
+    const gJ2 = gH2['tool_call'][gH2['tool_call'].length - 1];
+    const gx2 = async (toolName, input) => gJ2({ toolName, input }, { cwd: g2, ui: {} });
+    const f2bG = await gx2('edit', { path: 'share.ts', old_string: 'share', new_string: 'share2' });
+    ok(f2bG === undefined, '2.77.1 guard F2b①：编辑 share.ts 只计同扩展名族（2<阈值 3）不弹 J19（旧被 Java 噪音顶到 8 误弹）');
+    const f2bX = await gx2('edit', { path: 'conf/share.cfg', old_string: 'threshold', new_string: 'threshold2' });
+    ok(f2bX?.additionalContext?.includes('J19') && f2bX.additionalContext.includes('命中跨语言形态，basename 泛用词风险高'), '2.77.1 guard F2b②：映射外扩展名异族命中过半 → J19 提醒附跨语言歧义注记');
   }
 
   process.exitCode = failures ? 1 : 0; // 失败≠0：堵住链式调用「grep 匹配到失败文案也算成功」的放行洞

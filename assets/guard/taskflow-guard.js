@@ -291,6 +291,16 @@ function collectDeclaredFiles(taskDir) {
 // E1/D1/S10-8：J19 泛名清单（主名命中即不弹——全仓高频且引用语义不可辨，防噪音疲劳）；文档/帮助文本判定（不计 J19 阈值）
 const TF_GENERIC_BASENAMES = new Set(['index', 'main', 'app', 'utils', 'util', 'helpers', 'helper', 'types', 'type', 'constants', 'constant', 'config', 'conf', 'api', 'common', 'shared', 'global', 'misc']);
 const isDocPath = (f) => /\.(?:md|mdx|txt|rst|adoc)$/i.test(f) || /^(?:README|CHANGELOG|LICENSE|CONTRIBUTING)/i.test(path.basename(f)) || /(?:^|\/)docs?\//i.test(f);
+// v2.77.1（R2 F2b①，与 scripts/tf.mjs impact EXT_FAMILY 同款映射——守门是独立渲染产物必须自包含，两处改动须同步+跑 tf.test.mjs 对账）：
+// 同扩展名族映射；族外扩展名不设限由「异扩展名命中过半」跨语言歧义注记兜底（F2b②）；.vue=null（检索串带扩展名，限定 .vue 族会漏 .ts 消费方）
+const EXT_FAMILY = {
+  '.ts': ['.ts', '.tsx', '.mts', '.cts'], '.tsx': ['.ts', '.tsx', '.mts', '.cts'], '.mts': ['.ts', '.tsx', '.mts', '.cts'], '.cts': ['.ts', '.tsx', '.mts', '.cts'],
+  '.js': ['.js', '.jsx', '.mjs', '.cjs'], '.jsx': ['.js', '.jsx', '.mjs', '.cjs'], '.mjs': ['.js', '.jsx', '.mjs', '.cjs'], '.cjs': ['.js', '.jsx', '.mjs', '.cjs'],
+  '.java': ['.java'], '.kt': ['.kt', '.kts'], '.kts': ['.kt', '.kts'], '.scala': ['.scala'], '.groovy': ['.groovy'],
+  '.py': ['.py'], '.rb': ['.rb'], '.php': ['.php'], '.go': ['.go'], '.rs': ['.rs'], '.swift': ['.swift'], '.cs': ['.cs'],
+  '.c': ['.c', '.h'], '.h': ['.c', '.h'], '.cpp': ['.cpp', '.cc', '.cxx', '.hpp'], '.cc': ['.cpp', '.cc', '.cxx', '.hpp'], '.cxx': ['.cpp', '.cc', '.cxx', '.hpp'], '.hpp': ['.cpp', '.cc', '.cxx', '.hpp'],
+  '.vue': null,
+};
 // D3②③/S10-8：J20 词表补英文管道形态（i 志大小写）；算子补 reduce/aggregate + i 志 + SQL GROUP BY 形态；
 // 注释行（//、/*、*、<!--、# 开头）剔除后再计数——注释/UI 文案里的词提及不算管道证据（真仓实测误报主源）
 const J20_WORD_RE = /环比|同比|上期|较上期|对比|排名|统计|previous[\s_-]*(?:period|month|week)|last[\s_-]*(?:period|month|week)|month[\s_-]*over[\s_-]*month|year[\s_-]*over[\s_-]*year/gi;
@@ -585,14 +595,26 @@ export default function taskflowGuard(pi) {
         const key = ext === '.vue' ? path.basename(rel) : mainName;
         if (!TF_GENERIC_BASENAMES.has(mainName.toLowerCase())) {
           const th = (() => { const v = parseInt(process.env.TF_IMPACT_THRESHOLD ?? '', 10); return Number.isFinite(v) && v >= 1 ? v : 3; })();
+          // v2.77.1（R2 F2b，与 tf.mjs impact 同款）：检索限定同扩展名族——share.ts 检索串「share」曾以整词命中 Java
+          // 注释/文案膨胀 40×；族外扩展名不设限 + 异扩展名命中过半附跨语言歧义注记（F2b②）
+          const family = EXT_FAMILY[ext.toLowerCase()];
+          const scopes = Array.isArray(family) ? family.map((e) => `*${e}`) : null;
           let files = [];
           try {
-            files = execFileSync('git', ['-C', top, 'grep', '--untracked', '-I', '-l', '-F', '-w', '-e', key, '--', '.', `:!${rel}`],
+            files = execFileSync('git', ['-C', top, 'grep', '--untracked', '-I', '-l', '-F', '-w', '-e', key, '--', ...(scopes ?? ['.']), `:!${rel}`],
               { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 16 * 1024 * 1024 }).split('\n').filter(Boolean);
           } catch (e) { if (e?.status !== 1) files = null; } // 1=无匹配（正常空）；其余=检索失败按无清单处理（提醒不拦，宁缺勿噪）
           if (files !== null) {
-            const codeN = files.filter((f) => !isDocPath(f)).length;
-            if (codeN >= th) warns.push(`TASKFLOW_GUARD J19 牵连排查提醒：${rel} 字符串命中 ${codeN} 个代码文件（grep 级，含注释/文案，非引用语义）——改动呈报须含影响面清单（可跑 node tf.mjs impact --files ${rel}）；分析由 impact-analysis 技能引导（引用形态清单+检索序列）`);
+            const codeFiles = files.filter((f) => !isDocPath(f));
+            const codeN = codeFiles.length;
+            if (codeN >= th) {
+              let xl = '';
+              if (family === undefined) {
+                const foreign = codeFiles.filter((h) => path.extname(h).toLowerCase() !== ext.toLowerCase());
+                if (foreign.length * 2 > codeN) xl = `；命中跨语言形态，basename 泛用词风险高（异扩展名 ${foreign.length}/${codeN}）——import/引用路径逐条核对`;
+              }
+              warns.push(`TASKFLOW_GUARD J19 牵连排查提醒：${rel} 字符串命中 ${codeN} 个代码文件（grep 级，含注释/文案，非引用语义）${xl}——改动呈报须含影响面清单（可跑 node tf.mjs impact --files ${rel}）；分析由 impact-analysis 技能引导（引用形态清单+检索序列）`);
+            }
           }
         }
       }
