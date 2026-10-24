@@ -329,6 +329,24 @@
       ],
       "desc": "把答不了的决策做成问卷发给能答的人（只盘发送端，问题瞄准知识差）——req-confirm 面向用户本人之外的异步收集",
       "install": "npx skills add mattpocock/skills --skill to-questionnaire --yes"
+    },
+    {
+      "id": "page-forensics",
+      "domains": [
+        "页面取证",
+        "接口面"
+      ],
+      "desc": "页面级问题排查的接口面全量取证：运行时网络清单/代码面 API 枚举两通道建「页面↔接口」映射表+双轮证据链（网络面+视觉面）+三面合围（基线/接口面/svc），禁凭话语猜单接口开查——J25 页面取证全量抓取的载体技能",
+      "install": "本机自维护：~/.omp/agent/skills/page-forensics（无远程仓，换机整目录拷贝）"
+    },
+    {
+      "id": "scope-assessment",
+      "domains": [
+        "范围评估",
+        "改动面"
+      ],
+      "desc": "需求实现前的改动面枚举与容量评估：页面→逐页接口面→文件清单三层递进（呈报含 N 页面/M 接口/K 文件）+容量三档判定+超限处置决策树（拆分 vs wayfinder，禁硬塞）——J26 实现前范围与容量评估的载体技能",
+      "install": "本机自维护：~/.omp/agent/skills/scope-assessment（无远程仓，换机整目录拷贝）"
     }
   ]
 }
