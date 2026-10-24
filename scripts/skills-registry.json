@@ -241,7 +241,10 @@
     {
       "id": "wayfinder",
       "domains": [
-        "large拆解"
+        "large拆解",
+        "决策",
+        "规划",
+        "拆分"
       ],
       "desc": "超单会话容量的大块工作=共享决策票图，跨会话逐票推进",
       "install": "npx skills add mattpocock/skills --skill wayfinder --yes"
@@ -308,6 +311,24 @@
       ],
       "desc": "合并冲突分级：5 种机械冲突白名单当场解+6 种语义冲突清单逐处呈报（禁当场选边）+灰区默认升语义+三行呈报模板——J07 合并冲突分级的载体技能；与 resolving-merge-conflicts 分工：彼管怎么解，此管怎么分级",
       "install": "本机自维护：~/.omp/agent/skills/conflict-triage（无远程仓，换机整目录拷贝）"
+    },
+    {
+      "id": "improve-codebase-architecture",
+      "domains": [
+        "架构",
+        "重构"
+      ],
+      "desc": "扫描代码库深化机会（浅模块→深模块）出 HTML 报告再 grill 逐项过——codebase-design 词汇层的主动扫描器",
+      "install": "npx skills add mattpocock/skills --skill improve-codebase-architecture --yes"
+    },
+    {
+      "id": "to-questionnaire",
+      "domains": [
+        "问卷",
+        "决策收集"
+      ],
+      "desc": "把答不了的决策做成问卷发给能答的人（只盘发送端，问题瞄准知识差）——req-confirm 面向用户本人之外的异步收集",
+      "install": "npx skills add mattpocock/skills --skill to-questionnaire --yes"
     }
   ]
 }
