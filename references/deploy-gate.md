@@ -13,7 +13,7 @@
 ## 部署分支语义（v2.66.0，merge-first——2026-10-16 误部署实证固化）
 
 - **判定**：project.json deploy.commands 含 main 检出断言（`branch --show-current … 'main'`）= 该项目部署命令**锁死从 main 构建**（镜像化/paas-ready 形态的并集语义）。deploy 入口（tf.mjs）对此机械防呆：`--branch` 传非 main 分支 → **拒绝**（构建会静默空转：checkout/tag/构建全取 main，产出与线上同内容的镜像，实物不变——2026-10-16 首次误部署实证：任务分支直接 deploy 构建了 main 同内容镜像，容器实物 md5 与部署前完全一致，靠 jarProbe 实物对账才抓出）。
-- **正确流程（merge-first）**：任务实现全绿 → merge 前审查 → `merge --no-ff` 入 main → `tf.mjs deploy --branch main --version <V>` → 部署验证清单（实物 md5 对账+指纹翻新+迁移日志哨兵+行为探针+冒烟）→ 真机验收 → `accept --pass` → 归档。verifying = 已部署已合并等真机验收（I16 敞口「已部署未合并」形态在此流程下天然消失）。
+- **正确流程（merge-first）**：任务实现全绿 → merge 前审查 → `merge --no-ff` 入 main → `tf.mjs deploy --branch main --version <V>` → 部署验证清单（实物 md5 对账+指纹翻新+迁移日志哨兵+行为探针+冒烟+**多环境附属核对**：存在测试/预发等附属套时其容器版本必须同步到同版本——旧版本经共享资源写正式数据=污染源，2026-10-26 沉淀）→ 真机验收 → `accept --pass` → 归档。verifying = 已部署已合并等真机验收（I16 敞口「已部署未合并」形态在此流程下天然消失）。
 - **实物对账不可省**：任何部署后第一验证 = jarProbe/实物 md5 与本地构建比对（tag 正确 ≠ 内容正确——tag 来自主仓库 HEAD 时尤其如此）；md5 不变 = 空转部署，查构建检出区。
 - **无 main 断言的项目**（commands 直跑分支构建/rsync 旧形态）不受此防呆影响，`--branch <任务分支>` 照常工作。
 
