@@ -760,8 +760,9 @@ try {
   ok(lntGhost.status === 0 && lntGhost.stdout.includes('lintghost7'), 'v2.71.0 A7 lint：双引号分发命令进孤儿提取（⚠ 提示级不拦，旧单引号正则零输出）');
 
   // ---- v2.22.0 排队锁：merge 端局串行化（活锁防治）----
-  fs.mkdirSync(path.join(tasksDir, '.gate-state'), { recursive: true });
-  fs.writeFileSync(path.join(tasksDir, '.gate-state', 't7-lock-20260101.json'), JSON.stringify({ verdict: 'green', ts: Date.now() })); // v2.80.0 合并硬拦截：lock 前置绿门
+  // v2.81.0 夹具升级：lock merge 授锁前现场重算三门——t7 补 spec 声明（f7.txt）+ 先拍快照，generic 锁用例才进得去
+  fs.writeFileSync(path.join(tasksDir, 't7-lock-20260101', 'spec.md'), '# Spec — 锁样例\n\n## 目标\n\ng\n\n## 验收标准\n\n- [ ] 好（验证：x）\n\n## 边界与影响面\n\n- **改动文件集合声明**：`f7.txt`\n');
+  ok(run(['snapshot', 't7-lock-20260101'], repo).status === 0, 'v2.81.0 夹具：t7 拍快照（快照门绿前置；f7.txt 非样式载体 → 证据门 N/A）');
   const lk1 = run(['lock', 'merge', '--task', 't7-lock-20260101', '--session', 'ses_A'], repo);
   ok(lk1.status === 0 && lk1.stdout.includes('已获取'), 'lock：无锁时获取成功');
   const lk2 = run(['lock', 'merge', '--task', 't7-lock-20260101', '--session', 'ses_B'], repo);
@@ -785,22 +786,44 @@ try {
   const lk7 = run(['lock', 'merge', '--task', 't7-lock-20260101', '--session', 'ses_A'], repo);
   ok(lk7.status === 1 && lk7.stdout.includes('原子竞争失败'), 'lock 原子获取：目录已被抢先占位 → 拒（旧版 existsSync→mkdir 两步，并发双抢均成功）');
   fs.rmSync(path.join(tasksDir, '.locks', 'merge'), { recursive: true, force: true });
-  // ---- v2.80.0 合并硬拦截：lock merge 校验 mergegate 门结果（绿+≤600s 新鲜）才授锁，无豁免旗标 ----
+  // ---- v2.81.0 合并硬拦截 2.0：lock merge 授锁路径现场重算三门（快照 fail-closed/越界/渲染证据）——零消费落盘门状态 ----
   fs.rmSync(path.join(tasksDir, '.locks', 'merge'), { recursive: true, force: true });
   const lkT0 = run(['lock', 'merge', '--session', 'ses_A'], repo);
-  ok(lkT0.status === 1 && lkT0.stdout.includes('必须带 --task'), '合并硬拦截：无 --task → 拒（旧版无任务上下文也能拿端局锁）');
-  fs.rmSync(path.join(tasksDir, '.gate-state', 't7-lock-20260101.json'), { force: true }); // 还原「缺失」场景(块首已种绿门)
+  ok(lkT0.status === 1 && lkT0.stdout.includes('必须带 --task'), '合并硬拦截：无 --task → 拒（无任务上下文不能进合并端局）');
+  // 无快照 → fail-closed 拒（v2.80.0 时代是 info 放行——对抗审查 A2 实证省略 snapshot 即静默绕过；v2.81.0 按新口径改写用例）
+  const t7jGate = JSON.parse(fs.readFileSync(path.join(tasksDir, 't7-lock-20260101', 'task.json'), 'utf8'));
+  delete t7jGate.mergeSnapshot;
+  fs.writeFileSync(path.join(tasksDir, 't7-lock-20260101', 'task.json'), J(t7jGate));
   const lkT1 = run(['lock', 'merge', '--task', 't7-lock-20260101', '--session', 'ses_A'], repo);
-  ok(lkT1.status === 1 && lkT1.stdout.includes('无 mergegate 门结果'), '合并硬拦截：门结果缺失 → 拒');
-  fs.writeFileSync(path.join(tasksDir, '.gate-state', 't7-lock-20260101.json'), JSON.stringify({ verdict: 'red', ts: Date.now() }));
+  ok(lkT1.status === 1 && lkT1.stdout.includes('无快照在档'), '合并硬拦截：无快照在档 → 拒（fail-closed，2026-10-27 对抗审查 A2——原「无快照放行」口径作废）');
+  ok(run(['snapshot', 't7-lock-20260101'], repo).status === 0, 'v2.81.0 前置：重拍 t7 快照');
   const lkT2 = run(['lock', 'merge', '--task', 't7-lock-20260101', '--session', 'ses_A'], repo);
-  ok(lkT2.status === 1 && lkT2.stdout.includes('= red'), '合并硬拦截：门红 → 拒（劝告式门升级授锁硬校验）');
-  fs.writeFileSync(path.join(tasksDir, '.gate-state', 't7-lock-20260101.json'), JSON.stringify({ verdict: 'green', ts: Date.now() - 601000 }));
-  const lkT3 = run(['lock', 'merge', '--task', 't7-lock-20260101', '--session', 'ses_A'], repo);
-  ok(lkT3.status === 1 && lkT3.stdout.includes('过期'), '合并硬拦截：门结果过期（601s > 600s）→ 拒');
+  ok(lkT2.status === 0 && lkT2.stdout.includes('已获取') && lkT2.stdout.includes('三门现场重算全绿'), '合并硬拦截：三门现场重算全绿 → 授锁（f7.txt 非样式载体，证据门 N/A）');
+  // 伪造 .gate-state 绿门文件 → lock 行为与伪造前完全一致（v2.80.0 伪造绿门即可拿锁；v2.81.0 落盘状态零消费实证）
+  run(['lock', 'merge', '--release', '--session', 'ses_A'], repo);
+  fs.mkdirSync(path.join(tasksDir, '.gate-state'), { recursive: true });
   fs.writeFileSync(path.join(tasksDir, '.gate-state', 't7-lock-20260101.json'), JSON.stringify({ verdict: 'green', ts: Date.now() }));
-  const lkT4 = run(['lock', 'merge', '--task', 't7-lock-20260101', '--session', 'ses_A'], repo);
-  ok(lkT4.status === 0 && lkT4.stdout.includes('门结果校验通过'), '合并硬拦截：绿+新鲜 → 授锁');
+  const lkT3 = run(['lock', 'merge', '--task', 't7-lock-20260101', '--session', 'ses_A'], repo);
+  ok(lkT3.status === 0 && lkT3.stdout === lkT2.stdout, '合并硬拦截：伪造 .gate-state 绿门 → lock 输出与伪造前逐字一致（落盘门状态零消费）');
+  run(['lock', 'merge', '--release', '--session', 'ses_A'], repo);
+  fs.rmSync(path.join(tasksDir, '.gate-state'), { recursive: true, force: true });
+
+  // ---- v2.81.0 渲染证据门（RENDER_EVIDENCE_GATE 升授锁硬门：样式载体 diff 无证据 → lock 拒）----
+  const evWt = path.join(tmp, 'ev-wt');
+  sh(`git worktree add -q -b task/t7-rve-20260101 ${evWt} main`, repo);
+  fs.mkdirSync(path.join(tasksDir, 't7-rve-20260101'), { recursive: true });
+  fs.writeFileSync(path.join(tasksDir, 't7-rve-20260101', 'task.json'), J({ id: 't7-rve-20260101', title: '渲染证据', status: 'active', tier: 'small', branch: 'task/t7-rve-20260101', createdAt: now, lastActiveAt: now, checkpoints: [], subtasks: [] }));
+  fs.writeFileSync(path.join(tasksDir, 't7-rve-20260101', 'spec.md'), '# Spec — 渲染证据\n\n## 目标\n\nx\n\n## 验收标准\n\n- [ ] 好（验证：x）\n\n## 边界与影响面\n\n- **改动文件集合声明**：`card.vue`\n');
+  fs.writeFileSync(path.join(evWt, 'card.vue'), '<template><div/></template>\n<style scoped>.c{color:red}</style>\n');
+  ok(run(['commit', '-m', 'ui', '--files', 'card.vue'], evWt).status === 0, 'v2.81.0 前置：t7-rve 提交样式载体 card.vue');
+  ok(run(['snapshot', 't7-rve-20260101'], repo).status === 0, 'v2.81.0 前置：t7-rve 拍快照（隔离证据门单变量）');
+  const lkE1 = run(['lock', 'merge', '--task', 't7-rve-20260101', '--session', 'ses_A'], repo);
+  ok(lkE1.status === 1 && lkE1.stdout.includes('渲染证据'), '渲染证据门：样式载体 diff 无 attachments 证据 → lock 拒');
+  fs.mkdirSync(path.join(tasksDir, 't7-rve-20260101', 'attachments'), { recursive: true });
+  fs.writeFileSync(path.join(tasksDir, 't7-rve-20260101', 'attachments', 'render.png'), 'png');
+  const lkE2 = run(['lock', 'merge', '--task', 't7-rve-20260101', '--session', 'ses_A'], repo);
+  ok(lkE2.status === 0 && lkE2.stdout.includes('已获取'), '渲染证据门：补 attachments png → 授锁');
+  run(['lock', 'merge', '--release', '--session', 'ses_A'], repo);
 
   // ---- v2.80.0 渲染证据哨兵（RENDER_EVIDENCE_GATE 三路径夹具：样式 diff 无证据=红 / 补证据=绿 / 非任务上下文=绿）----
   const RVE = path.resolve(import.meta.dirname, '../assets/harness/validate-render-evidence.sh');
@@ -1921,10 +1944,17 @@ try {
   const mgGate2 = run(['mergegate', 'mg-t1-20260101'], mgRepo);
   ok(mgGate2.status === 1 && /快照门红/.test(mgGate2.stdout) && /命中读写集/.test(mgGate2.stdout) && /src\/a\.ts/.test(mgGate2.stdout) && /回 merge\.md 第 1 步/.test(mgGate2.stdout), 'MERGE_GATE 快照门红（v2.59.0 文件级分类）：main 前移且命中写集 → 拒合并 + 点名文件 + 指引同步重审（对着旧基线审的 diff 不能直接合）');
   ok(run(['snapshot', 'mg-t1-20260101'], mgRepo).status === 0 && run(['mergegate', 'mg-t1-20260101'], mgRepo).status === 0, 'MERGE_GATE 刷新快照后复绿（同步重审完成路径——snapshot 重拍即新事务 ID）');
-  const mgTj = J({ id: 'mg-t1-20260101', title: '门任务', status: 'active', tier: 'small', branch: 'task/mg-t1-20260101' });
-  fs.writeFileSync(path.join(mgRepo, '.taskflow', 'mg-t1-20260101', 'task.json'), mgTj);
-  const mgGate4 = run(['mergegate', 'mg-t1-20260101'], mgRepo);
-  ok(mgGate4.status === 0 && /无快照在档.*放行/.test(mgGate4.stdout), 'MERGE_GATE 兼容：无快照 info 放行（存量任务不硬拦缺档）');
+  // v2.81.0 fail-closed（原「无快照 info 放行」用例按新口径改写——对抗审查 A2：省略 snapshot 不再被容忍）：
+  // 独立夹具任务 mg-ns（有分支+spec 声明、不拍快照）→ mergegate exit 1；mg-t1 主线用例（先 snapshot 后 mergegate）零改动
+  const nsWt = path.join(tmp, 'ns-wt');
+  sh(`git worktree add -q -b task/mg-ns-20260101 ${nsWt} main`, mgRepo);
+  fs.mkdirSync(path.join(mgRepo, '.taskflow', 'mg-ns-20260101'), { recursive: true });
+  fs.writeFileSync(path.join(mgRepo, '.taskflow', 'mg-ns-20260101', 'task.json'), J({ id: 'mg-ns-20260101', title: '无快照', status: 'active', tier: 'small', branch: 'task/mg-ns-20260101' }));
+  fs.writeFileSync(path.join(mgRepo, '.taskflow', 'mg-ns-20260101', 'spec.md'), '# Spec — 无快照\n\n## 目标\n\nx\n\n## 验收标准\n\n- [ ] 好（验证：x）\n\n## 边界与影响面\n\n- **改动文件集合声明**：`src/ns.ts`\n');
+  fs.writeFileSync(path.join(nsWt, 'src', 'ns.ts'), 'n\n');
+  ok(run(['commit', '-m', 'ns', '--files', 'src/ns.ts'], nsWt).status === 0, 'v2.81.0 前置：mg-ns 提交声明内文件');
+  const mgGate4 = run(['mergegate', 'mg-ns-20260101'], mgRepo);
+  ok(mgGate4.status === 1 && /无快照在档/.test(mgGate4.stdout) && /快照门红/.test(mgGate4.stdout), 'MERGE_GATE fail-closed（v2.81.0）：无快照在档 → 红拒合并（原「无快照 info 放行」口径作废，对抗审查 A2）');
   ok(run(['snapshot', 'mg-t1-20260101'], mgRepo).status === 0, 'MERGE_GATE 复拍快照（后续越界路用）');
   sh('git checkout -q task/mg-t1-20260101 && echo b > src/b.ts && git add -A && git commit -qm touch-b && git checkout -q main', mgRepo);
   const mgGate5 = run(['mergegate', 'mg-t1-20260101'], mgRepo);
@@ -1983,6 +2013,7 @@ try {
   fs.mkdirSync(path.join(mv2Wt, 'src', 'auth'), { recursive: true });
   fs.writeFileSync(path.join(mv2Wt, 'src', 'auth', 'login.ts'), 'l\n');
   ok(run(['commit', '-m', 'auth', '--files', 'src/auth/login.ts'], mv2Wt).status === 0, 'v2.59.0 前置：mv-t2 提交目录内文件');
+  ok(run(['snapshot', 'mv-t2-20260101'], mgRepo).status === 0, 'v2.81.0 前置：mv-t2 拍快照（fail-closed 后无快照不再放行——本用例只验越界门，隔离单变量）');
   const mgP1 = run(['mergegate', 'mv-t2-20260101'], mgRepo);
   ok(mgP1.status === 0 && /越界门绿/.test(mgP1.stdout), 'v2.59.0 门二目录前缀：声明 src/auth/ 覆盖子孙 src/auth/login.ts → 绿（旧精确匹配必误红——修复断言）');
   fs.writeFileSync(path.join(mv2Wt, 'src', 'a.ts.bak'), 'bak\n');
@@ -2036,6 +2067,7 @@ try {
   fs.writeFileSync(path.join(atkWt, 'src', '中文模块', '说明.md'), 'c\n');
   fs.writeFileSync(path.join(atkWt, 'src', 'extra.ts'), 'e\n');
   ok(run(['commit', '-m', 'atk', '--files', 'src/中文模块/说明.md,src/extra.ts'], atkWt).status === 0, '对抗前置：atk-t3 提交（中文目录+双声明行第二行文件）');
+  ok(run(['snapshot', 'atk-t3-20260101'], mgRepo).status === 0, 'v2.81.0 前置：atk-t3 拍快照（fail-closed 后无快照不再放行——本用例只验越界门，隔离单变量）');
   const atkG1 = run(['mergegate', 'atk-t3-20260101'], mgRepo);
   ok(atkG1.status === 0 && /越界门绿/.test(atkG1.stdout), '对抗加固 RC2+RC3：中文文件名不转义匹配目录声明 + 第二条声明行文件可见（全部声明行都收）→ 越界门绿');
   sh('git checkout -q main && mkdir -p src/中文模块 docs && echo n > src/中文模块/新文件.md && echo u > docs/up.md && git add -A && git commit -qm cn', mgRepo);
@@ -2536,6 +2568,7 @@ try {
     ok(execFileSync('git', ['-C', evRepo, 'status', '--porcelain'], { encoding: 'utf8' }).trim() === '', 'v2.69.0 revert-plan 只读：git status --porcelain 干净（零 git 级变更）');
 
     // gates：双绿 verdict 可进合并 / 越界红
+    ok(run(['snapshot', 'ev-a-20260101'], evRepo).status === 0, 'v2.81.0 前置：ev-a 拍快照（fail-closed 后快照门绿前置——本块只验门责任链聚合语义）');
     const gGreen = run(['gates', 'ev-a-20260101'], evRepo);
     ok(gGreen.status === 0 && /快照门：过/.test(gGreen.stdout) && /越界门：过/.test(gGreen.stdout) && /已并入预检：过/.test(gGreen.stdout) && /stale：过/.test(gGreen.stdout) && /I16 敞口：过/.test(gGreen.stdout) && /gates verdict：0 红 0 黄——可进合并/.test(gGreen.stdout), `v2.69.0 gates 双绿：五道门全过 + verdict 可进合并${gGreen.status ? ' ← ' + gGreen.stdout + gGreen.stderr : ''}`);
     // 红路：分支追加声明集外提交（分支新提交未并入 main——越界门 diff 非空报红；同根预检红（未并入）+ stale 红（分支脱离主线），合计 3 红）

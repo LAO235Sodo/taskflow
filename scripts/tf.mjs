@@ -1649,20 +1649,31 @@ function lockCmd(args = []) {
     else if (args[i] === '--task') taskId = String(args[++i] ?? '');
   }
   if (!name || /[\/\\]/.test(name) || name.startsWith('.')) {
-    console.error('用法：node tf.mjs lock <name> [--release] [--session <会话ID>|--by <ID>] [--ttl <秒=120>] [--force]（name=merge 时必须 --task <任务id>——v2.80.0 合并硬拦截）\n排队锁：merge.md §5 端局等关键窗口串行化。获取=原子占位（他人新鲜锁→拒绝排队；陈旧→强占并报告）；--release=释放（校验持有者，须 --session 且匹配；不符/未传须 --force）。锁在 .taskflow/.locks/<name>/。merge 锁授锁前硬校验 mergegate 门结果（绿+≤600s 新鲜；无豁免旗标——红黄过期一律拒绝，恢复路径=按门指引修到双绿重跑 mergegate）。');
+    console.error('用法：node tf.mjs lock <name> [--release] [--session <会话ID>|--by <ID>] [--ttl <秒=120>] [--force]（name=merge 时必须 --task <任务id>——合并硬拦截）\n排队锁：merge.md §5 端局等关键窗口串行化。获取=原子占位（他人新鲜锁→拒绝排队；陈旧→强占并报告）；--release=释放（校验持有者，须 --session 且匹配；不符/未传须 --force）。锁在 .taskflow/.locks/<name>/。merge 锁授锁前现场重算三门（快照 fail-closed/越界/渲染证据——v2.81.0 起零消费落盘状态；无豁免旗标——未绿一律拒绝，恢复路径=按门指引修到全绿）。');
     return 1;
   }
-  const { tasksDir } = locate();
-  // v2.80.0 合并硬拦截（RENDER_EVIDENCE_GATE 同批：2026-10-27 看板字体失调打回沉淀：越界门红两次未停手即合并——劝告式「双绿才进 lock」升级为授锁硬校验，无豁免旗标）
+  const { isGit, mainRoot, tasksDir } = locate();
+  // v2.81.0 合并硬拦截 2.0（2026-10-27 对抗审查实证：.gate-state 落盘文件模型可写——伪造绿门即拿锁；
+  // 裁决权收进授锁路径：三门纯函数现场重算，只读 git 事实与任务档案，零消费落盘状态——.gate-state 落盘机制随本版移除）
   if (name === 'merge' && !release) {
-    if (!taskId) { console.log('⛔ merge 锁必须带 --task <任务id>（v2.80.0 合并硬拦截）：先跑 node tf.mjs mergegate <任务id> 至双绿（门结果落 .gate-state/，授锁前校验 绿+≤600s 新鲜；无豁免旗标）。'); return 1; }
-    const gsP = path.join(tasksDir, '.gate-state', `${taskId}.json`);
-    if (!fs.existsSync(gsP)) { console.log(`⛔ merge 锁拒绝：${taskId} 无 mergegate 门结果（.gate-state/ 缺记录）——先跑 node tf.mjs mergegate ${taskId} 至双绿。`); return 1; }
-    let gs = null; try { gs = JSON.parse(fs.readFileSync(gsP, 'utf8')); } catch { console.log(`⛔ merge 锁拒绝：${taskId} 门结果文件损坏——重跑 node tf.mjs mergegate ${taskId}`); return 1; }
-    const ageS = (Date.now() - Number(gs?.ts || 0)) / 1000;
-    if (gs?.verdict !== 'green') { console.log(`⛔ merge 锁拒绝：${taskId} 最近一次 mergegate = ${gs?.verdict ?? '未知'}——按门指引修到双绿后重跑 mergegate（无豁免旗标）。`); return 1; }
-    if (!Number.isFinite(ageS) || ageS > 600) { console.log(`⛔ merge 锁拒绝：${taskId} 门结果过期（${Number.isFinite(ageS) ? Math.round(ageS) : '?'}s > 600s）——端局前必须双绿保鲜，重跑 node tf.mjs mergegate ${taskId}。`); return 1; }
-    console.log(`✓ 门结果校验通过：${taskId} mergegate=green（${Math.round(ageS)}s 前）——merge 端局准入`);
+    if (!taskId) { console.log('⛔ merge 锁必须带 --task <任务id>（合并硬拦截）：授锁前现场重算三门（快照 fail-closed/越界/渲染证据），无豁免旗标。'); return 1; }
+    if (!isGit) { console.log('⛔ merge 锁拒绝：非 git 项目无门可算（合并门读 git 事实）。'); return 1; }
+    const t = loadTasks(tasksDir).find((x) => x.id === taskId);
+    if (!t) { console.log(`⛔ merge 锁拒绝：任务不存在：${taskId}——先建档再进合并端局。`); return 1; }
+    const mainRef = resolveMainRef(mainRoot);
+    if (!mainRef) { console.log('⛔ merge 锁拒绝：主分支不可解析（main/master/origin/main 均无）。'); return 1; }
+    const gates = [
+      ['快照门', mergeGateSnapshot(t, mainRoot, mainRef)],
+      ['越界门', mergeGateBoundary(t, mainRoot, mainRef)],
+      ['渲染证据门', mergeGateEvidence(t, mainRoot, mainRef)],
+    ];
+    for (const [, g] of gates) for (const f of g.findings) console.log(f);
+    const bad = gates.filter(([, g]) => g.red || g.yellow);
+    if (bad.length) {
+      console.log(`⛔ merge 锁拒绝：${taskId} ${bad.length} 门未绿（findings 见上）——按门指引修到全绿再重跑 lock；黄门=任务分支 git merge ${mainRef} 同步 + node tf.mjs snapshot ${taskId} 刷新快照后重跑。`);
+      return 1;
+    }
+    console.log(`✓ 三门现场重算全绿：${gates.map(([nm, g]) => `${nm}=${g.reason}`).join('；')}——merge 端局准入`);
   }
   const lockDir = path.join(tasksDir, '.locks', name);
   const tsP = path.join(lockDir, 'ts'), sesP = path.join(lockDir, 'session'), ttlP = path.join(lockDir, 'ttl');
@@ -1747,12 +1758,14 @@ function matchPath(file, declaredSet) {
   return false;
 }
 
-/* ---------------- snapshot / mergegate：合并双门（MERGE_GATE，v2.58.0；门一文件级分类 v2.59.0）----------------
-   快照门：审查呈报后拍 main 快照（事务 ID 类比），mergegate 比对——main 前移时按文件级分类：
+/* ---------------- snapshot / mergegate：合并三门（MERGE_GATE，v2.58.0；门一文件级分类 v2.59.0；渲染证据门 v2.81.0 升授锁硬门）----------------
+   快照门：审查呈报后拍 main 快照（事务 ID 类比），mergegate 比对——无快照=红（v2.81.0 fail-closed：2026-10-27 对抗
+   审查 A2 实证「无快照放行」被省略 snapshot 利用）；main 前移时按文件级分类：
      前移变更 × 任务读写集（matchPath）无交集 = 黄（免重审放行：同步合并+刷新快照，用户拍板 2026-10-11）、
      有交集 = 红（命中读写集逐文件重审）；读写集均无机读声明 = 无法分类按红（禁静默放行）；
    越界门：分支 diff 文件集对照 spec「改动文件集合声明」（matchPath：目录声明尾 / 覆盖子孙），超集 = 红。
-   黄红都计入红（exit 1）保住「双绿才进 lock」；TOCTOU 收敛接线：mergegate → lock → mergegate（幂等秒过）→ merge。 */
+   渲染证据门：diff 触及样式载体而 attachments 无渲染证据 = 红（v2.81.0 与双门同为纯函数）。
+   黄红都计入红（exit 1）保住「三门全绿才进 lock」；TOCTOU 收敛接线：mergegate → lock（现场重算三门）→ merge。 */
 function snapshotCmd(args = []) {
   const id = args.find((a) => !String(a).startsWith('--'));
   if (!id) { console.error('用法：node tf.mjs snapshot <task-id>\n审查呈报落稿后拍 main 快照：当前主分支 HEAD 哈希写入 task.json.mergeSnapshot（mergegate 合并前比对——main 挪了=红灯回同步重审）。'); return 1; }
@@ -1787,8 +1800,9 @@ function mergeGateSnapshot(t, mainRoot, mainRef) {
   // 门一：快照（MVCC 事务 ID 比对——审查时快照 vs 合并时现值；v2.59.0 文件级分类黄/红两路）
   const snap = t.mergeSnapshot;
   if (!snap?.commit) {
-    g.findings.push(`ℹ 快照门：无快照在档 → 本次放行；审查呈报后先跑 node tf.mjs snapshot ${t.id}，下次合并前必须有`);
-    g.reason = '无快照在档（本次放行，建议 snapshot 登记）';
+    g.findings.push(`⛔ 快照门红：无快照在档——审查呈报后先跑 node tf.mjs snapshot ${t.id} 再过门（fail-closed，2026-10-27 对抗审查 A2 实证 fail-open 被省略利用）`);
+    g.red = true;
+    g.reason = '无快照在档（fail-closed，先 snapshot 再过门）';
   } else if (snap.commit !== head) {
     const changedOut = git(['-C', mainRoot, '-c', 'core.quotePath=false', 'diff', '--no-renames', '--name-only', `${snap.commit}..${mainRef}`], mainRoot, true); // 对抗加固 RC1/RC2：--no-renames 重命名双名都进清单（旧名命中→红）；quotePath=false 非 ASCII 路径不转义（中文文件名可匹配）
     if (changedOut === null) { // 审查自证加固④：diff 失败（快照 commit 不可达/历史改写）禁按空清单分类放行
@@ -1860,9 +1874,57 @@ function mergeGateBoundary(t, mainRoot, mainRef) {
   }
   return g;
 }
+// 渲染证据门（v2.81.0 抽取为纯函数，与双门同形 {red,yellow,findings,reason}）：lock merge 授锁路径现场重算——
+// 2026-10-27 对抗审查实证：哨兵只挂 validate-changelog 收尾链可被「省略步骤」绕过。机械门治偷懒不治语义：
+// 证据质量归哨兵 bash 层与人工过目，本门只保证「无渲染证据不得进合并端局」。
+function mergeGateEvidence(t, mainRoot, mainRef) {
+  const g = { red: false, yellow: false, findings: [], reason: '' };
+  const branch = t.branch ? String(t.branch) : null;
+  const verified = branch ? git(['-C', mainRoot, 'rev-parse', '--verify', `refs/heads/${branch}`], mainRoot, true) : null;
+  const bBase = verified ? git(['-C', mainRoot, 'merge-base', mainRef, branch], mainRoot, true) : null; // merge-base 失败=N/A 放行（与越界门对无分支的容忍口径一致）
+  if (!bBase) {
+    g.findings.push('ℹ 渲染证据门：分支不存在/未登记 → 跳过（无 diff 可查）');
+    g.reason = '分支不存在/未登记，跳过';
+    return g;
+  }
+  // 样式载体=通用规则（.vue 内容命中 <style/@media 行，或任意 .css/.scss/.less 文件级变更）——项目级精细规则（styles 目录等）归哨兵 bash 层，两层并存
+  const styleHits = (git(['-C', mainRoot, '-c', 'core.quotePath=false', 'diff', '--no-renames', `${bBase}..${branch}`, '--', '*.vue'], mainRoot, true) ?? '')
+    .split('\n').filter((l) => /^[+-].*(<style|@media)/.test(l)).length;
+  const cssFiles = (git(['-C', mainRoot, '-c', 'core.quotePath=false', 'diff', '--no-renames', '--name-only', `${bBase}..${branch}`], mainRoot, true) ?? '')
+    .split('\n').filter(Boolean).filter((f) => /\.(css|scss|less)$/i.test(f));
+  if (!styleHits && !cssFiles.length) {
+    g.findings.push('✓ 渲染证据门：diff 无样式载体（.vue 的 <style>/@media 零命中、无 .css/.scss/.less 变更）');
+    g.reason = '无样式载体变更';
+    return g;
+  }
+  // 证据=attachments/ 有图片，或 md/json 记录前 4000 字符含实证关键词（截图/量测/render）
+  const attDir = path.join(taskDirOf(tasksDirUnder(mainRoot), t.id), 'attachments');
+  let ev = '';
+  if (fs.existsSync(attDir)) {
+    const img = fs.readdirSync(attDir).find((f) => /\.(png|jpe?g|webp)$/i.test(f));
+    if (img) {
+      ev = `图片 ${img}`;
+    } else {
+      for (const f of fs.readdirSync(attDir)) {
+        if (!/\.(md|json)$/i.test(f)) continue;
+        const txt = fs.readFileSync(path.join(attDir, f), 'utf8').slice(0, 4000);
+        if (/截图|量测|render/.test(txt)) { ev = `记录 ${f}`; break; }
+      }
+    }
+  }
+  if (!ev) {
+    g.findings.push('⛔ 渲染证据门红：diff 触及样式载体（.vue 的 <style>/@media 或 .css/.scss/.less 文件）但任务 attachments/ 无渲染证据——补数据态真实渲染截图+可见内容采样描述至 attachments/（图片 *.png/*.jpg/*.jpeg/*.webp，或 *.md/*.json 记录含「截图/量测/render」）再过本门');
+    g.red = true;
+    g.reason = '样式载体变更无渲染证据';
+  } else {
+    g.findings.push(`✓ 渲染证据门绿：样式载体变更有渲染证据（${ev}）`);
+    g.reason = `有渲染证据（${ev}）`;
+  }
+  return g;
+}
 function mergegateCmd(args = []) {
   const id = args.find((a) => !String(a).startsWith('--'));
-  if (!id) { console.error('用法：node tf.mjs mergegate <task-id>\n合并双门（MERGE_GATE）：①快照门（文件级分类）——main 现值 ≠ 审查快照时比对「main 变更 × 任务读写集」：命中=红（逐文件重审），未触碰=黄（同步合并+刷新快照免重审）；②越界门——分支 diff 文件超出 spec「改动文件集合声明」= 红（req-confirm 补声明或收窄 diff）。黄红均 exit 1；红灯不改任何状态。'); return 1; }
+  if (!id) { console.error('用法：node tf.mjs mergegate <task-id>\n合并三门（MERGE_GATE）：①快照门（文件级分类）——无快照=红（fail-closed，v2.81.0）；main 现值 ≠ 审查快照时比对「main 变更 × 任务读写集」：命中=红（逐文件重审），未触碰=黄（同步合并+刷新快照免重审）；②越界门——分支 diff 文件超出 spec「改动文件集合声明」= 红（req-confirm 补声明或收窄 diff）；③渲染证据门——diff 触及样式载体而 attachments/ 无渲染证据 = 红（补数据态真实渲染截图+采样描述）。黄红均 exit 1；红灯不改任何状态、不落任何门状态文件（lock 授锁路径现场重算三门）。'); return 1; }
   const { isGit, mainRoot, tasksDir } = locate();
   if (!isGit) { console.error('⚠ 非 git 项目无门可跑'); return 1; }
   const t = loadTasks(tasksDir).find((x) => x.id === id);
@@ -1871,15 +1933,12 @@ function mergegateCmd(args = []) {
   if (!mainRef) { console.error('⚠ 主分支不可解析'); return 1; }
   const snap = mergeGateSnapshot(t, mainRoot, mainRef);
   const bound = mergeGateBoundary(t, mainRoot, mainRef);
+  const evid = mergeGateEvidence(t, mainRoot, mainRef);
   for (const f of snap.findings) console.log(f);
   for (const f of bound.findings) console.log(f);
-  const red = (snap.red ? 1 : 0) + (bound.red ? 1 : 0);
-  // v2.80.0 门结果落盘（合并硬拦截数据源：lock merge 授锁前校验 绿+新鲜——无豁免旗标）
-  const gsDir = path.join(tasksDir, '.gate-state');
-  fs.mkdirSync(gsDir, { recursive: true });
-  const gsHead = git(['-C', mainRoot, 'rev-parse', mainRef], mainRoot, true) || '';
-  fs.writeFileSync(path.join(gsDir, `${id}.json`), JSON.stringify({ verdict: red ? 'red' : 'green', ts: Date.now(), mainRef, head: gsHead }));
-  console.log(red ? `\nmergegate：${red} 门红——按上面指引处理后重跑（双绿才进 lock → mergegate 复跑 → merge --no-ff，merge.md 第 5 步）` : '\nmergegate：双门全绿——可进 lock → mergegate（幂等复跑）→ merge --no-ff（merge.md 第 5 步）');
+  for (const f of evid.findings) console.log(f);
+  const red = (snap.red ? 1 : 0) + (bound.red ? 1 : 0) + (evid.red ? 1 : 0);
+  console.log(red ? `\nmergegate：${red} 门红——按上面指引处理后重跑（三门全绿才进 lock → mergegate 复跑 → merge --no-ff，merge.md 第 5 步）` : '\nmergegate：三门全绿——可进 lock → merge --no-ff（merge.md 第 5 步；lock 会现场重算三门，不消费任何落盘门状态）');
   return red ? 1 : 0;
 }
 
