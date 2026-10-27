@@ -760,29 +760,85 @@ try {
   ok(lntGhost.status === 0 && lntGhost.stdout.includes('lintghost7'), 'v2.71.0 A7 lint：双引号分发命令进孤儿提取（⚠ 提示级不拦，旧单引号正则零输出）');
 
   // ---- v2.22.0 排队锁：merge 端局串行化（活锁防治）----
-  const lk1 = run(['lock', 'merge', '--session', 'ses_A'], repo);
+  fs.mkdirSync(path.join(tasksDir, '.gate-state'), { recursive: true });
+  fs.writeFileSync(path.join(tasksDir, '.gate-state', 't7-lock-20260101.json'), JSON.stringify({ verdict: 'green', ts: Date.now() })); // v2.80.0 合并硬拦截：lock 前置绿门
+  const lk1 = run(['lock', 'merge', '--task', 't7-lock-20260101', '--session', 'ses_A'], repo);
   ok(lk1.status === 0 && lk1.stdout.includes('已获取'), 'lock：无锁时获取成功');
-  const lk2 = run(['lock', 'merge', '--session', 'ses_B'], repo);
+  const lk2 = run(['lock', 'merge', '--task', 't7-lock-20260101', '--session', 'ses_B'], repo);
   ok(lk2.status === 1 && lk2.stdout.includes('排队'), 'lock：他人新鲜锁 → 拒绝排队（活锁变串行）');
   fs.writeFileSync(path.join(tasksDir, '.locks', 'merge', 'ts'), String(Date.now() - 300000));
-  const lk3 = run(['lock', 'merge', '--session', 'ses_C'], repo);
+  const lk3 = run(['lock', 'merge', '--task', 't7-lock-20260101', '--session', 'ses_C'], repo);
   ok(lk3.status === 0 && lk3.stdout.includes('强占'), 'lock：陈旧锁（300s > ttl 120s）→ 强占并报告');
   ok(run(['lock', 'merge', '--release', '--session', 'ses_C'], repo).status === 0, 'lock：释放成功（同 session）');
   ok(run(['lock', 'merge', '--release', '--session', 'ses_C'], repo).stdout.includes('幂等'), 'lock：重复释放幂等');
   // ---- v2.54.0 锁体系三防线（对抗审查：原子性/持有者校验/TTL 落盘）----
-  run(['lock', 'merge', '--session', 'ses_C'], repo); // 重新拿锁供拒释放用例（前面的释放断言已消费）
+  run(['lock', 'merge', '--task', 't7-lock-20260101', '--session', 'ses_C'], repo); // 重新拿锁供拒释放用例（前面的释放断言已消费）
   const lk4 = run(['lock', 'merge', '--release', '--session', 'ses_X'], repo);
   ok(lk4.status === 1 && lk4.stdout.includes('拒绝释放他人锁'), 'lock：他人 session 释放 → 拒（旧版任一会话可 rmSync 他人锁）');
   run(['lock', 'merge', '--release', '--force'], repo);
-  const lk5 = run(['lock', 'merge', '--session', 'ses_A', '--ttl', '1800'], repo);
+  const lk5 = run(['lock', 'merge', '--task', 't7-lock-20260101', '--session', 'ses_A', '--ttl', '1800'], repo);
   ok(lk5.status === 0, 'lock：重新获取（ttl 1800 落盘）');
-  const lk6 = run(['lock', 'merge', '--session', 'ses_B'], repo);
+  const lk6 = run(['lock', 'merge', '--task', 't7-lock-20260101', '--session', 'ses_B'], repo);
   ok(lk6.status === 1 && lk6.stdout.includes('ttl 1800'), 'lock TTL 落盘：竞争者默认 120 不再误判他人 1800 锁陈旧（旧版按竞争者参数判）');
   fs.rmSync(path.join(tasksDir, '.locks', 'merge'), { recursive: true, force: true });
   fs.mkdirSync(path.join(tasksDir, '.locks', 'merge'), { recursive: true }); // 空目录=并发竞争窗口形态
-  const lk7 = run(['lock', 'merge', '--session', 'ses_A'], repo);
+  const lk7 = run(['lock', 'merge', '--task', 't7-lock-20260101', '--session', 'ses_A'], repo);
   ok(lk7.status === 1 && lk7.stdout.includes('原子竞争失败'), 'lock 原子获取：目录已被抢先占位 → 拒（旧版 existsSync→mkdir 两步，并发双抢均成功）');
   fs.rmSync(path.join(tasksDir, '.locks', 'merge'), { recursive: true, force: true });
+  // ---- v2.80.0 合并硬拦截：lock merge 校验 mergegate 门结果（绿+≤600s 新鲜）才授锁，无豁免旗标 ----
+  fs.rmSync(path.join(tasksDir, '.locks', 'merge'), { recursive: true, force: true });
+  const lkT0 = run(['lock', 'merge', '--session', 'ses_A'], repo);
+  ok(lkT0.status === 1 && lkT0.stdout.includes('必须带 --task'), '合并硬拦截：无 --task → 拒（旧版无任务上下文也能拿端局锁）');
+  fs.rmSync(path.join(tasksDir, '.gate-state', 't7-lock-20260101.json'), { force: true }); // 还原「缺失」场景(块首已种绿门)
+  const lkT1 = run(['lock', 'merge', '--task', 't7-lock-20260101', '--session', 'ses_A'], repo);
+  ok(lkT1.status === 1 && lkT1.stdout.includes('无 mergegate 门结果'), '合并硬拦截：门结果缺失 → 拒');
+  fs.writeFileSync(path.join(tasksDir, '.gate-state', 't7-lock-20260101.json'), JSON.stringify({ verdict: 'red', ts: Date.now() }));
+  const lkT2 = run(['lock', 'merge', '--task', 't7-lock-20260101', '--session', 'ses_A'], repo);
+  ok(lkT2.status === 1 && lkT2.stdout.includes('= red'), '合并硬拦截：门红 → 拒（劝告式门升级授锁硬校验）');
+  fs.writeFileSync(path.join(tasksDir, '.gate-state', 't7-lock-20260101.json'), JSON.stringify({ verdict: 'green', ts: Date.now() - 601000 }));
+  const lkT3 = run(['lock', 'merge', '--task', 't7-lock-20260101', '--session', 'ses_A'], repo);
+  ok(lkT3.status === 1 && lkT3.stdout.includes('过期'), '合并硬拦截：门结果过期（601s > 600s）→ 拒');
+  fs.writeFileSync(path.join(tasksDir, '.gate-state', 't7-lock-20260101.json'), JSON.stringify({ verdict: 'green', ts: Date.now() }));
+  const lkT4 = run(['lock', 'merge', '--task', 't7-lock-20260101', '--session', 'ses_A'], repo);
+  ok(lkT4.status === 0 && lkT4.stdout.includes('门结果校验通过'), '合并硬拦截：绿+新鲜 → 授锁');
+
+  // ---- v2.80.0 渲染证据哨兵（RENDER_EVIDENCE_GATE 三路径夹具：样式 diff 无证据=红 / 补证据=绿 / 非任务上下文=绿）----
+  const RVE = path.resolve(import.meta.dirname, '../assets/harness/validate-render-evidence.sh');
+  const rveRepo = path.join(tmp, 'rve-fixture');
+  fs.mkdirSync(rveRepo, { recursive: true });
+  sh(`git init -q -b task/t-rve ${JSON.stringify(rveRepo)}`);
+  fs.writeFileSync(path.join(rveRepo, 'a.vue'), '<template><div/></template>\n<style scoped>.a{color:red}</style>\n');
+  sh('git add -A && git commit -qm base', rveRepo);
+  fs.appendFileSync(path.join(rveRepo, 'a.vue'), '@media (min-width: 600px) { .a { color: blue } }\n');
+  sh('git add -A && git commit -qm "widen: 加宽屏媒体块"', rveRepo);
+  const rveRed = spawnSync('bash', [RVE, '--task', 't-rve', '--repo', rveRepo, '--base', 'HEAD~1'], { cwd: rveRepo, encoding: 'utf8' });
+  ok(rveRed.status === 1 && rveRed.stderr.includes('渲染证据'), '渲染证据哨兵：样式 diff 无 attachments 证据 → 红（看板字体失调打回沉淀）');
+
+  // ---- v2.80.0 V 渲染证据提醒夹具（宿主全 handler 链式调用——host-faithful：真实 omp 逐个唤起注册 handler）----
+  fs.mkdirSync(path.join(rveRepo, '.taskflow'), { recursive: true });
+  fs.writeFileSync(path.join(rveRepo, '.taskflow', 'project.json'), JSON.stringify({ mechanisms: { TASKFLOW_GUARD: { version: '2.80.0' } } }));
+  const vgMod = await import('file://' + path.resolve(import.meta.dirname, '../assets/guard/taskflow-guard.js'));
+  const vgH = {};
+  vgMod.default({ setLabel() {}, on: (ev, fn) => { (vgH[ev] ??= []).push(fn); } });
+  const vgFire = async (toolName, input) => {
+    const outs = [];
+    for (const h of vgH['tool_call'] ?? []) {
+      try { const r = await h({ toolName, input }, { cwd: rveRepo, ui: {} }); if (r?.additionalContext) outs.push(r.additionalContext); } catch { /* 单 handler 失败不连坐 */ }
+    }
+    return outs.join('\n');
+  };
+  const v1 = await vgFire('edit', { path: 'a.vue', old_string: '.a{color:red}', new_string: '.a{color:red}\n@media (min-width: 600px){.a{color:blue}}' });
+  ok(v1.includes('TASKFLOW_GUARD V 渲染证据提醒'), 'V 渲染证据提醒：样式载体改动+任务分支+无证据 → 弹（每任务一次；看板字体失调打回沉淀）');
+  const v2 = await vgFire('edit', { path: 'a.vue', old_string: '.a{color:red}', new_string: '.a{color:darkred}' });
+  ok(!v2.includes('TASKFLOW_GUARD V'), 'V 渲染证据提醒：状态标在 → 同任务静默（防逐编辑噪音）');
+  fs.mkdirSync(path.join(rveRepo, '.taskflow', 't-rve', 'attachments'), { recursive: true });
+  fs.writeFileSync(path.join(rveRepo, '.taskflow', 't-rve', 'attachments', 'shot.png'), 'png');
+  sh('git add -A && git commit -qm "evidence: 附渲染证据"', rveRepo);
+  const rveGreen = spawnSync('bash', [RVE, '--task', 't-rve', '--repo', rveRepo, '--base', 'HEAD~1'], { cwd: rveRepo, encoding: 'utf8' });
+  ok(rveGreen.status === 0, '渲染证据哨兵：attachments 证据在位 → 绿');
+  sh('git checkout -q -b main', rveRepo);
+  const rveNA = spawnSync('bash', [RVE, '--repo', rveRepo], { cwd: rveRepo, encoding: 'utf8' });
+  ok(rveNA.status === 0 && rveNA.stdout.includes('N/A'), '渲染证据哨兵：非任务上下文 → 绿 N/A');
   ok(run(['lock'], repo).status === 1, 'lock：缺 name → 退出码 1（边界值：空输入）');
   ok(run(['lock', 'a/b', '--session', 's'], repo).status === 1, 'lock：name 含路径分隔 → 拒绝（防越目录写）');
 

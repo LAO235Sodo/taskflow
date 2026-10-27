@@ -110,4 +110,10 @@ echo "== 现状基线门 =="
 # 串接需求基线对照门（失败即整体失败；REQ_ANCHOR_GATE 机制，硬规则 27——文档同步行条目 ID 真实性/PRD 粒度/不适用矛盾）
 echo "== 基线对照门 =="
 "$ROOT/scripts/harness/validate-baseline-anchor-gate.sh" --repo "$REPO"
+# 串接渲染证据哨兵（失败即整体失败；RENDER_EVIDENCE_GATE，2026-10-27 看板字体失调两次打回沉淀——样式载体 diff 强制 attachments 渲染证据）
+if [ -x "$ROOT/scripts/harness/validate-render-evidence.sh" ]; then
+  # 串接渲染证据哨兵（RENDER_EVIDENCE_GATE，硬规则 11 视觉变更自判禁令的机械面；未安装=旧渲染副本，跳过）
+  echo "== 渲染证据哨兵 =="
+  "$ROOT/scripts/harness/validate-render-evidence.sh" --repo "$REPO"
+fi
 echo "✓ [changelog] 全部通过"

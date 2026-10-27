@@ -33,6 +33,9 @@
 //      上游/下游/同类，修复前先扩散；提醒不拦，报告内否定语境（如「无 blockers」）仍会提醒=已知边界（频率低，提醒内自我声明兜底）
 //   I 词表反馈沉淀（v2.57.0 用户拍板「逐轮催+压缩兜底」）：context 只数 user 角色强信号反馈（Set 去重计数），
 //      词表未改写则 E 通道逐轮注入沉淀指令（可能猜错不拦操作），压缩时兜底一行——「反馈→沉淀」从模型自觉升级为宿主层闭环
+//   V 渲染证据提醒（v2.80.0，RENDER_EVIDENCE_GATE 宿主面；2026-10-27 看板字体失调两次打回沉淀）：tool_call(edit/write)——
+//      前端样式载体（.vue <style> 段/@media/styles 目录）改动而所属任务 attachments/ 无渲染证据产物 → 注入真渲染自查提醒
+//      （每任务一次状态标防重复；TF_V_WARN=off 关；提醒不拦）——定位=完成定义提醒：把「用户提醒看前端代码」固化为机器必达
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
@@ -563,6 +566,51 @@ export default function taskflowGuard(pi) {
       fs.appendFileSync(file, JSON.stringify({ ts: new Date().toISOString(), skill, project: path.basename(ctx?.cwd ?? process.cwd()) }) + '\n');
     } catch { /* 埋点失败静默 */ }
     return undefined;
+  });
+
+  // V 渲染证据提醒（v2.80.0，RENDER_EVIDENCE_GATE 宿主面）：edit/write 触及前端样式载体（.vue <style> 段/@media/
+  // styles 目录样式文件）而所属任务（当前分支 task/<id>）attachments/ 无渲染证据产物 → 注入真渲染自查提醒。
+  // 每任务一次（.taskflow/.v-wall/<task-id> 状态标防逐编辑噪音——编辑时点证据未产生属正常，墙只保证「样式改动→渲染
+  // 证据义务」进过模型视野）；TF_V_WARN=off 关闭；提醒不拦。独立 handler 挂在 J19/J20 之前：既有测试按
+  // handlers['tool_call'][length-1] 定位 J19/J20，追加不挪其下标。
+  pi.on('tool_call', async (event, ctx) => {
+    try {
+      if (!guardOn(ctx?.cwd)) return undefined;
+      if (process.env.TF_V_WARN === 'off') return undefined;
+      if (event.toolName !== 'edit' && event.toolName !== 'write') return undefined;
+      const raw = event.input?.path;
+      if (!raw || typeof raw !== 'string') return undefined;
+      if (/^[a-zA-Z][a-zA-Z0-9+.-]+:/.test(raw)) return undefined; // 协议地址过滤（同 J19/J20）
+      const dir = locateTasksDir(ctx?.cwd);
+      if (!dir) return undefined; // 零干扰边界
+      const abs = realPath(path.resolve(ctx?.cwd ?? process.cwd(), (raw === '~' || raw.startsWith('~/') || raw.startsWith('~\\')) ? path.join(os.homedir(), raw.slice(1)) : raw));
+      const isVue = abs.endsWith('.vue');
+      const isStyleDir = /(?:^|[/\\])styles[/\\][^/\\]+\.(?:css|scss|less)$/i.test(abs);
+      if (!isVue && !isStyleDir) return undefined;
+      let text = '';
+      if (event.toolName === 'write' && typeof event.input?.content === 'string') text = event.input.content;
+      else if (event.toolName === 'edit') {
+        const parts = [];
+        if (typeof event.input?.new_string === 'string') parts.push(event.input.new_string);
+        if (typeof event.input?.old_string === 'string') parts.push(event.input.old_string);
+        try { parts.push(fs.readFileSync(abs, 'utf8')); } catch { /* 新文件落盘前 */ }
+        text = parts.join('\n');
+      } else { try { text = fs.readFileSync(abs, 'utf8'); } catch { return undefined; } }
+      if (!/<style|@media\s*[(:]/.test(text)) return undefined;
+      const branch = (() => { try { return execFileSync('git', ['-C', path.dirname(abs), 'branch', '--show-current'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim(); } catch { return ''; } })();
+      if (!branch.startsWith('task/')) return undefined; // 非任务分支（main 等）不弹
+      const taskId = branch.slice(5);
+      const att = path.join(dir, taskId, 'attachments');
+      const hasEvidence = (() => { try { return fs.readdirSync(att).some((f) => /\.(png|jpe?g|webp)$/i.test(f)); } catch { return false; } })()
+        || (() => { try { return fs.readdirSync(att).some((f) => /\.(md|json)$/i.test(f) && /截图|量测|render/i.test(fs.readFileSync(path.join(att, f), 'utf8').slice(0, 4000))); } catch { return false; } })();
+      if (hasEvidence) return undefined; // 证据在位=义务已履，静默
+      const vDir = path.join(dir, '.v-wall');
+      const marker = path.join(vDir, taskId);
+      if (fs.existsSync(marker)) return undefined; // 每任务一次
+      fs.mkdirSync(vDir, { recursive: true });
+      fs.writeFileSync(marker, new Date().toISOString());
+      return { additionalContext: `⚠ TASKFLOW_GUARD V 渲染证据提醒（每任务一次）：前端样式载体已改动（${path.basename(abs)}）而任务 ${taskId} 的 attachments/ 无渲染证据产物——部署与验收呈报前必须补「带数据态的真实渲染截图+采样描述」（硬规则 11：视觉变更判定不由模型自判；历史教训=几何指标全绿但字体失调 3.4:1，用户两次看图才发现）。证据落 .taskflow/${taskId}/attachments/；TF_V_WARN=off 关闭本提醒。` };
+    } catch { return undefined; } // 提醒失败静默——hook fail-closed，绝不拦主流程
   });
 
   // J19 牵连排查 + J20 数据边界提醒（v2.72.0；v2.76.0 检索修正）：edit/write 触及普通源码文件时两检查（.taskflow/ 档案走

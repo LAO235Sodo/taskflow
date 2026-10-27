@@ -1640,18 +1640,30 @@ function execFileSyncNode(argv, cwd, viaBash) {
    典型窗口=秒级端局（重同步检查+merge 落定），ttl 120s 覆盖；超时未释放会被后来者强占——锁不是真相源。 */
 function lockCmd(args = []) {
   const name = args.find((a) => !String(a).startsWith('--'));
-  let release = false, session = '', ttl = 120, force = false;
+  let release = false, session = '', ttl = 120, force = false, taskId = '';
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--release') release = true;
     else if (args[i] === '--session' || args[i] === '--by') session = String(args[++i] ?? ''); // --by=别名（deploy 入口自管锁用；旧版静默吞该参数——对抗审查实证持有者恒 unknown）
     else if (args[i] === '--ttl') ttl = Number(args[++i] ?? 120);
     else if (args[i] === '--force') force = true;
+    else if (args[i] === '--task') taskId = String(args[++i] ?? '');
   }
   if (!name || /[\/\\]/.test(name) || name.startsWith('.')) {
-    console.error('用法：node tf.mjs lock <name> [--release] [--session <会话ID>|--by <ID>] [--ttl <秒=120>] [--force]\n排队锁：merge.md §5 端局等关键窗口串行化。获取=原子占位（他人新鲜锁→拒绝排队；陈旧→强占并报告）；--release=释放（校验持有者，须 --session 且匹配；不符/未传须 --force）。锁在 .taskflow/.locks/<name>/。');
+    console.error('用法：node tf.mjs lock <name> [--release] [--session <会话ID>|--by <ID>] [--ttl <秒=120>] [--force]（name=merge 时必须 --task <任务id>——v2.80.0 合并硬拦截）\n排队锁：merge.md §5 端局等关键窗口串行化。获取=原子占位（他人新鲜锁→拒绝排队；陈旧→强占并报告）；--release=释放（校验持有者，须 --session 且匹配；不符/未传须 --force）。锁在 .taskflow/.locks/<name>/。merge 锁授锁前硬校验 mergegate 门结果（绿+≤600s 新鲜；无豁免旗标——红黄过期一律拒绝，恢复路径=按门指引修到双绿重跑 mergegate）。');
     return 1;
   }
   const { tasksDir } = locate();
+  // v2.80.0 合并硬拦截（RENDER_EVIDENCE_GATE 同批：2026-10-27 看板字体失调打回沉淀：越界门红两次未停手即合并——劝告式「双绿才进 lock」升级为授锁硬校验，无豁免旗标）
+  if (name === 'merge' && !release) {
+    if (!taskId) { console.log('⛔ merge 锁必须带 --task <任务id>（v2.80.0 合并硬拦截）：先跑 node tf.mjs mergegate <任务id> 至双绿（门结果落 .gate-state/，授锁前校验 绿+≤600s 新鲜；无豁免旗标）。'); return 1; }
+    const gsP = path.join(tasksDir, '.gate-state', `${taskId}.json`);
+    if (!fs.existsSync(gsP)) { console.log(`⛔ merge 锁拒绝：${taskId} 无 mergegate 门结果（.gate-state/ 缺记录）——先跑 node tf.mjs mergegate ${taskId} 至双绿。`); return 1; }
+    let gs = null; try { gs = JSON.parse(fs.readFileSync(gsP, 'utf8')); } catch { console.log(`⛔ merge 锁拒绝：${taskId} 门结果文件损坏——重跑 node tf.mjs mergegate ${taskId}`); return 1; }
+    const ageS = (Date.now() - Number(gs?.ts || 0)) / 1000;
+    if (gs?.verdict !== 'green') { console.log(`⛔ merge 锁拒绝：${taskId} 最近一次 mergegate = ${gs?.verdict ?? '未知'}——按门指引修到双绿后重跑 mergegate（无豁免旗标）。`); return 1; }
+    if (!Number.isFinite(ageS) || ageS > 600) { console.log(`⛔ merge 锁拒绝：${taskId} 门结果过期（${Number.isFinite(ageS) ? Math.round(ageS) : '?'}s > 600s）——端局前必须双绿保鲜，重跑 node tf.mjs mergegate ${taskId}。`); return 1; }
+    console.log(`✓ 门结果校验通过：${taskId} mergegate=green（${Math.round(ageS)}s 前）——merge 端局准入`);
+  }
   const lockDir = path.join(tasksDir, '.locks', name);
   const tsP = path.join(lockDir, 'ts'), sesP = path.join(lockDir, 'session'), ttlP = path.join(lockDir, 'ttl');
   if (release) {
@@ -1862,6 +1874,11 @@ function mergegateCmd(args = []) {
   for (const f of snap.findings) console.log(f);
   for (const f of bound.findings) console.log(f);
   const red = (snap.red ? 1 : 0) + (bound.red ? 1 : 0);
+  // v2.80.0 门结果落盘（合并硬拦截数据源：lock merge 授锁前校验 绿+新鲜——无豁免旗标）
+  const gsDir = path.join(tasksDir, '.gate-state');
+  fs.mkdirSync(gsDir, { recursive: true });
+  const gsHead = git(['-C', mainRoot, 'rev-parse', mainRef], mainRoot, true) || '';
+  fs.writeFileSync(path.join(gsDir, `${id}.json`), JSON.stringify({ verdict: red ? 'red' : 'green', ts: Date.now(), mainRef, head: gsHead }));
   console.log(red ? `\nmergegate：${red} 门红——按上面指引处理后重跑（双绿才进 lock → mergegate 复跑 → merge --no-ff，merge.md 第 5 步）` : '\nmergegate：双门全绿——可进 lock → mergegate（幂等复跑）→ merge --no-ff（merge.md 第 5 步）');
   return red ? 1 : 0;
 }
