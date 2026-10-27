@@ -350,6 +350,8 @@ export default function taskflowGuard(pi) {
       '恢复入口：会话开头 @taskflow 或直接 node tf.mjs ls；下一步与未决风险以各任务 handoff.md 为准（摘要不准替代档案）',
     ] : [];
     if (sed.pending > 0) lines.push(`- 词表反馈沉淀（TASKFLOW_GUARD I）：还有 ${sed.pending} 处「看不懂」类反馈未处理——压缩前先把涉事术语的大白话改写/补录进 .taskflow/glossary.md（词表活读下一轮生效）`);
+    const v = vObligation(dir);
+    if (v) lines.push(`- 渲染证据义务未清（TASKFLOW_GUARD V）：任务 ${v.taskId} 前端样式改动未附渲染证据——压缩后仍需在验收呈报前补数据态截图至 .taskflow/${v.taskId}/attachments/（硬规则 11）`);
     if (!lines.length) return undefined;
     return { context: lines };
   });
@@ -568,6 +570,24 @@ export default function taskflowGuard(pi) {
     return undefined;
   });
 
+// ---- V 渲染证据义务状态（v2.80.1 三件套共用：tool_call 一次性 / before_provider_request 逐轮催 / compacting 兜底）----
+// 义务开的条件=.v-wall/<task-id> 状态标在（样式载体触发过 V 墙）且该任务 attachments/ 无渲染证据；证据落位义务即清。
+// 多任务同开取首个（逐轮催文案带任务号）；整个探测吞错——提醒层绝不拦主流程。
+function vObligation(dir) {
+  try {
+    const vDir = path.join(dir, '.v-wall');
+    if (!fs.existsSync(vDir)) return null;
+    for (const taskId of fs.readdirSync(vDir)) {
+      if (taskId.endsWith('.json')) continue;
+      const att = path.join(dir, taskId, 'attachments');
+      const hasEvidence = (() => { try { return fs.readdirSync(att).some((f) => /\.(png|jpe?g|webp)$/i.test(f)); } catch { return false; } })()
+        || (() => { try { return fs.readdirSync(att).some((f) => /\.(md|json)$/i.test(f) && /截图|量测|render/i.test(fs.readFileSync(path.join(att, f), 'utf8').slice(0, 4000))); } catch { return false; } })();
+      if (!hasEvidence) return { taskId };
+    }
+    return null;
+  } catch { return null; }
+}
+
   // V 渲染证据提醒（v2.80.0，RENDER_EVIDENCE_GATE 宿主面）：edit/write 触及前端样式载体（.vue <style> 段/@media/
   // styles 目录样式文件）而所属任务（当前分支 task/<id>）attachments/ 无渲染证据产物 → 注入真渲染自查提醒。
   // 每任务一次（.taskflow/.v-wall/<task-id> 状态标防逐编辑噪音——编辑时点证据未产生属正常，墙只保证「样式改动→渲染
@@ -744,5 +764,23 @@ export default function taskflowGuard(pi) {
     else if (Array.isArray(p?.system)) p.system = [{ type: 'text', text: inject }, ...p.system];
     else if (p && typeof p === 'object') p.system = inject;
     return p; // 完整替换 payload 返回（handlers chain；注入内容确定性=cache warming 的 byte-identical 保持）
+  });
+
+  // V 渲染证据逐轮催（v2.80.1 三件套之二）：.v-wall 状态标在且 attachments 无渲染证据 → 每轮 system 前置一行
+  // （义务清零自动停止——证据落位后 vObligation 返回 null，注入内容消失=cache warming 一次性变化属预期）。
+  // TF_V_WARN=off 关闭。纯提醒不拦。
+  pi.on('before_provider_request', async (event, ctx) => {
+    if (!guardOn(ctx?.cwd)) return undefined;
+    if (process.env.TF_V_WARN === 'off') return undefined;
+    const dir = locateTasksDir(ctx?.cwd);
+    if (!dir) return undefined;
+    const v = vObligation(dir);
+    if (!v) return undefined;
+    const inject = `[渲染证据待补（TASKFLOW_GUARD V——硬规则 11 视觉变更自判禁令）] 任务 ${v.taskId} 已有前端样式载体改动、attachments/ 尚无渲染证据：验收呈报前必须补「带数据态的真实渲染截图+采样描述」至 .taskflow/${v.taskId}/attachments/。`;
+    const p = event.payload;
+    if (typeof p?.system === 'string') p.system = `${inject}\n\n${p.system}`;
+    else if (Array.isArray(p?.system)) p.system = [{ type: 'text', text: inject }, ...p.system];
+    else if (p && typeof p === 'object') p.system = inject;
+    return p;
   });
 }

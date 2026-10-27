@@ -831,8 +831,34 @@ try {
   ok(v1.includes('TASKFLOW_GUARD V 渲染证据提醒'), 'V 渲染证据提醒：样式载体改动+任务分支+无证据 → 弹（每任务一次；看板字体失调打回沉淀）');
   const v2 = await vgFire('edit', { path: 'a.vue', old_string: '.a{color:red}', new_string: '.a{color:darkred}' });
   ok(!v2.includes('TASKFLOW_GUARD V'), 'V 渲染证据提醒：状态标在 → 同任务静默（防逐编辑噪音）');
+  // 三件套之二：逐轮催(before_provider_request)——义务开时每轮 system 前置待补行(E 墙同 handler 面,共存断言)
+  const vgBp = async () => {
+    const outs = [];
+    for (const h of vgH['before_provider_request'] ?? []) {
+      try { const r = await h({ payload: { system: 'BASE' } }, { cwd: rveRepo, ui: {} }); if (typeof r?.system === 'string') outs.push(r.system); }
+      catch { /* 单 handler 失败不连坐 */ }
+    }
+    return outs.join('\n====\n');
+  };
+  const bp1 = await vgBp();
+  ok(bp1.includes('渲染证据待补') && bp1.includes('BASE'), 'V 逐轮催：义务开 → 每轮 system 前置待补行（E 墙共存）');
+  // 三件套之三：压缩兜底(session.compacting)——义务开时压缩摘要必含义务未清行
+  const vgCompact = async () => {
+    const outs = [];
+    for (const h of vgH['session.compacting'] ?? []) {
+      try { const r = await h({}, { cwd: rveRepo, ui: {} }); if (r?.context) outs.push(r.context.join('\n')); }
+      catch { /* 单 handler 失败不连坐 */ }
+    }
+    return outs.join('\n====\n');
+  };
+  const cp1 = await vgCompact();
+  ok(cp1.includes('渲染证据义务未清'), 'V 压缩兜底：义务开 → 压缩摘要保留义务线索');
   fs.mkdirSync(path.join(rveRepo, '.taskflow', 't-rve', 'attachments'), { recursive: true });
   fs.writeFileSync(path.join(rveRepo, '.taskflow', 't-rve', 'attachments', 'shot.png'), 'png');
+  const bp2 = await vgBp();
+  ok(!bp2.includes('渲染证据待补'), 'V 逐轮催：证据落位 → 义务清零自动停止');
+  const cp2 = await vgCompact();
+  ok(!cp2.includes('渲染证据义务未清'), 'V 压缩兜底：证据落位 → 线索消失');
   sh('git add -A && git commit -qm "evidence: 附渲染证据"', rveRepo);
   const rveGreen = spawnSync('bash', [RVE, '--task', 't-rve', '--repo', rveRepo, '--base', 'HEAD~1'], { cwd: rveRepo, encoding: 'utf8' });
   ok(rveGreen.status === 0, '渲染证据哨兵：attachments 证据在位 → 绿');
