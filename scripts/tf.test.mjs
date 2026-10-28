@@ -20,6 +20,12 @@ let failures = 0;
 const ok = (cond, msg) => { console.log(`${cond ? '✓' : '✗'} ${msg}`); if (!cond) failures++; };
 const sh = (cmd, cwd) => execFileSync('bash', ['-c', cmd], { cwd, stdio: 'ignore' });
 const run = (args, cwd) => spawnSync('node', [script, ...args], { cwd, encoding: 'utf8' });
+// 2.84.1 before_provider_request 真实 payload 形状（活体探针实测：{model, messages, stream, …}——无 system 键，
+// system 住 messages 首条 role:'system'；旧夹具传 {payload:{system}} 走 Anthropic 形分支=真实形状零覆盖，遮蔽注入通道死）
+const BP = (systemContent = 'BASE') => ({ model: 'test-model', messages: [{ role: 'system', content: systemContent }], stream: false });
+const sysJoin = (r) => Array.isArray(r?.messages)
+  ? r.messages.filter((m) => m?.role === 'system').map((m) => (typeof m?.content === 'string' ? m.content : Array.isArray(m?.content) ? m.content.map((c) => c?.text ?? '').join('') : '')).join('\n')
+  : typeof r?.system === 'string' ? r.system : Array.isArray(r?.system) ? r.system.map((b) => b?.text ?? '').join('\n') : '';
 
 try {
   // ---- fixture 搭建 ----
@@ -854,17 +860,17 @@ try {
   ok(v1.includes('TASKFLOW_GUARD 渲染证据墙'), 'V 渲染证据提醒：样式载体改动+任务分支+无证据 → 弹（每任务一次；看板字体失调打回沉淀）');
   const v2 = await vgFire('edit', { path: 'a.vue', old_string: '.a{color:red}', new_string: '.a{color:darkred}' });
   ok(!v2.includes('TASKFLOW_GUARD 渲染证据墙'), 'V 渲染证据提醒：状态标在 → 同任务静默（防逐编辑噪音）');
-  // 三件套之二：逐轮催(before_provider_request)——义务开时每轮 system 前置待补行(E 墙同 handler 面,共存断言)
+  // 三件套之二：逐轮催(before_provider_request)——义务开时每轮请求前置待补行(E 墙同 handler 面,共存断言；2.84.1 起真实 payload 形状)
   const vgBp = async () => {
     const outs = [];
     for (const h of vgH['before_provider_request'] ?? []) {
-      try { const r = await h({ payload: { system: 'BASE' } }, { cwd: rveRepo, ui: {} }); if (typeof r?.system === 'string') outs.push(r.system); }
+      try { const r = await h({ payload: BP('BASE') }, { cwd: rveRepo, ui: {} }); outs.push(sysJoin(r)); }
       catch { /* 单 handler 失败不连坐 */ }
     }
     return outs.join('\n====\n');
   };
   const bp1 = await vgBp();
-  ok(bp1.includes('渲染证据待补') && bp1.includes('BASE'), 'V 逐轮催：义务开 → 每轮 system 前置待补行（E 墙共存）');
+  ok(bp1.includes('渲染证据待补') && bp1.includes('BASE'), 'V 逐轮催：义务开 → 每轮请求前置待补行（E 墙共存）');
   // 三件套之三：压缩兜底(session.compacting)——义务开时压缩摘要必含义务未清行
   const vgCompact = async () => {
     const outs = [];
@@ -920,15 +926,21 @@ try {
       { id: 'si-park-20260101', status: 'parked' },
     ] }));
     fs.writeFileSync(path.join(sRepo, '.taskflow', 'project.json'), JSON.stringify({ mechanisms: { TASKFLOW_GUARD: { version: '2.84.0' } } }));
-    const bpC = async (cwd, sessFile) => { // E+V 双 handler 全链收集（E 是首位；V 在本夹具无 .v-wall 不出声）
+    const bpC = async (cwd, sessFile) => { // E+V 双 handler 全链收集（E 是首位；V 在本夹具无 .v-wall 不出声）；2.84.1 起真实 payload 形状
       const outs = [];
       for (const h of vgH['before_provider_request'] ?? []) {
         try {
-          const r = await h({ payload: { system: 'BASE' } }, { cwd, ui: {}, sessionManager: sessFile ? { getSessionFile: () => sessFile } : {} });
-          if (typeof r?.system === 'string') outs.push(r.system);
+          const r = await h({ payload: BP('BASE') }, { cwd, ui: {}, sessionManager: sessFile ? { getSessionFile: () => sessFile } : {} });
+          outs.push(sysJoin(r));
         } catch { /* 单 handler 失败不连坐 */ }
       }
       return outs.join('\n====\n');
+    };
+    const bpRaw = async (cwd, sessFile) => { // 2.84.1 通道断言用：取 E handler 原始返回（看 messages 头插形态）
+      for (const h of vgH['before_provider_request'] ?? []) {
+        try { return await h({ payload: BP('BASE') }, { cwd, ui: {}, sessionManager: sessFile ? { getSessionFile: () => sessFile } : {} }); } catch { return undefined; }
+      }
+      return undefined;
     };
     const sessFile = path.join(sRepo, 'ses_SI.jsonl');
     const g1 = await bpC(sRepo, sessFile);
@@ -942,21 +954,45 @@ try {
     ok(g1.includes('taskflow 实况：活 si-active-20260101') && g1.includes('等验收 si-verify-20260101（部署 01-01 10:00）'), '2.84.0 U 状态引导：既有实况行保留（verifying 部署时刻在实况行）');
     const g1b = await bpC(sRepo, sessFile);
     ok(g1b === g1, '2.84.0 U 状态引导：连续两次调用逐字节相同（cache warming byte-identical）');
+    // ---- 2.84.1 通道断言：注入落点=messages 头插 system 角色消息（真实 payload 无 system 键——活体探针实测，
+    // 旧 p.system 写入被传输层丢弃，E/U/V 三墙 2.54.0/2.80.0/2.84.0 起静默 no-op；本块在 v2.84.1 修复前必红）----
+    const g1r = await bpRaw(sRepo, sessFile);
+    ok(Array.isArray(g1r?.messages) && g1r.messages[0]?.role === 'system' && typeof g1r.messages[0].content === 'string' && g1r.messages[0].content.startsWith('[面向用户输出规范'), '2.84.1 通道修复：messages 头插——payload.messages[0]={role:system} 且 content 以输出规范块开头（主形态）');
+    ok(String(g1r.messages[0].content).includes('[taskflow 状态引导') && String(g1r.messages[0].content).includes('taskflow 实况：'), '2.84.1 通道修复：注入 content 含引导块+实况行');
+    ok(g1r.messages.some((m) => m?.role === 'system' && m.content === 'BASE') && g1r.messages.length === 2, '2.84.1 通道修复：原 system 消息保留（头插非替换；新数组不原地 mutate）');
+    ok(g1r.system === undefined, '2.84.1 通道修复：真实形态下不写 payload.system 键（死形态兜底已删）');
+    // ---- 2.84.1 「，本会话」标注匹配修复：omp 会话文件名=时间戳_uuid，task.json.sessionID 存真实会话 id（uuid）或
+    // 人读标签——旧 stripped===sessionID 精确相等恒不命中（2.84.0 起标注永不亮，2026-10-29 对抗审查实锤）----
+    const uuidSess = '01a18332-1540-700b-8e5b-a09e7d047126';
+    const tsSessFile = `/x/2026-10-28T15-47-39-968Z_${uuidSess}.jsonl`;
+    const siTjLabelP = path.join(sRepo, '.taskflow', 'si-active-20260101', 'task.json');
+    const siTjLabelOrig = fs.readFileSync(siTjLabelP, 'utf8');
+    const markWith = async (sid, sf) => { // 临时改 sessionID 跑一轮后还原（不污染后续翻转埋点夹具状态）
+      const o = JSON.parse(siTjLabelOrig); o.sessionID = sid; fs.writeFileSync(siTjLabelP, J(o));
+      const t = await bpC(sRepo, sf);
+      fs.writeFileSync(siTjLabelP, siTjLabelOrig);
+      return t;
+    };
+    const gUuid = await markWith(uuidSess, tsSessFile);
+    ok(gUuid.includes('- si-active-20260101（active，实现中）：改动先 checkpoint；收尾走 merge 流程，本会话'), '2.84.1 本会话标注：时间戳_uuid 会话文件名 + task.json.sessionID=uuid 全串 → 「，本会话」亮（下划线后缀匹配）');
+    const gLabel = await markWith('stuck-state-guard', tsSessFile);
+    ok(!gLabel.includes('，本会话'), '2.84.1 本会话标注：人读标签与时间戳_uuid 文件名不匹配 → 不亮（诚实降级无标注，禁误标）');
     process.env.TF_STATE_INJECT = 'off';
     const g2 = await bpC(sRepo, sessFile);
     delete process.env.TF_STATE_INJECT;
     ok(!g2.includes('[taskflow 状态引导') && g2.includes('taskflow 实况：活 si-active-20260101'), '2.84.0 U 状态引导：TF_STATE_INJECT=off 关引导块留实况行（回退 2.83.0 行为）');
     const logP = path.join(sRepo, '.taskflow', '.guard-log.jsonl');
-    const before = fs.existsSync(logP) ? fs.readFileSync(logP, 'utf8').split('\n').filter(Boolean).length : 0;
+    const readLog = (p) => (fs.existsSync(p) ? fs.readFileSync(p, 'utf8').split('\n').filter(Boolean) : []); // 2.84.1：文件不存在按 0 行计（治变异跑 ENOENT 崩溃掩盖断言）
+    const before = readLog(logP).length;
     const siTjP = path.join(sRepo, '.taskflow', 'si-active-20260101', 'task.json');
     const siTj = JSON.parse(fs.readFileSync(siTjP, 'utf8'));
     siTj.status = 'verifying';
     fs.writeFileSync(siTjP, JSON.stringify(siTj, null, 2) + '\n');
     await bpC(sRepo, sessFile);
-    const logLines = fs.readFileSync(logP, 'utf8').split('\n').filter(Boolean);
+    const logLines = readLog(logP);
     ok(logLines.length === before + 1 && logLines.some((l) => l.includes('"gate":"state-inject"') && l.includes('"action":"transition"') && l.includes('si-active-20260101: active→verifying')), '2.84.0 U 翻转埋点：状态翻转 → guardLog gate=state-inject 一行（每任务一行）');
     await bpC(sRepo, sessFile);
-    ok(fs.readFileSync(logP, 'utf8').split('\n').filter(Boolean).length === before + 1, '2.84.0 U 翻转埋点：指纹未变不增行');
+    ok(readLog(logP).length === before + 1, '2.84.0 U 翻转埋点：指纹未变不增行');
   }
 
   // ---- v2.84.0 回退传播加固夹具（V1 受影响任务/V2 对账 ref 本地优先/V4 嵌套标注/V3 快照门黄路加严）----
@@ -1847,10 +1883,16 @@ try {
   const b2ro = await call('tool_call', { toolName: 'bash', input: { command: "grep -n 'deploy' scripts/tf.mjs | head -5" } });
   ok(b2ro === undefined, 'TASKFLOW_GUARD B2 收紧：只读 grep 提及 deploy → 不再误触（旧版全串子串级判定）');
   fs.writeFileSync(path.join(gproj, '.taskflow', 'glossary.md'), '# 项目词表\n\n| 行话 | 大白话 | 锚词 |\n| --- | --- | --- |\n| 签名册 | 部署记录表，每次上线记一行 | 部署记录表 |\n');
-  const inj = await call('before_provider_request', { payload: { system: 'BASE-PROMPT', messages: [] } });
-  ok(typeof inj?.system === 'string' && inj.system.startsWith('[面向用户输出规范') && inj.system.includes('BASE-PROMPT') && inj.system.includes('签名册=部署记录表') && inj.system.includes('括号大白话'), 'TASKFLOW_GUARD E：输出规范+项目词表注入 system（原文保留、词表活读、v2.56.1 规范含括号大白话口径）');
-  const injArr = await call('before_provider_request', { payload: { system: [{ type: 'text', text: 'BASE2' }], messages: [] } });
-  ok(Array.isArray(injArr?.system) && injArr.system[0].text.startsWith('[面向用户输出规范') && injArr.system.some((b) => b.text === 'BASE2'), 'TASKFLOW_GUARD E：system 数组形态——注入块前插、原块保留');
+  // ---- 2.84.1 注入通道三形态（主=messages 头插；兼容=Anthropic 形字符串/blocks；未知形态 undefined）----
+  const injMsg = await call('before_provider_request', { payload: BP('BASE-PROMPT') });
+  ok(Array.isArray(injMsg?.messages) && injMsg.messages[0]?.role === 'system' && typeof injMsg.messages[0].content === 'string' && injMsg.messages[0].content.startsWith('[面向用户输出规范') && injMsg.messages[0].content.includes('签名册=部署记录表') && injMsg.messages[0].content.includes('括号大白话'), 'TASKFLOW_GUARD E 主形态：输出规范+项目词表头插 system 角色消息（原文保留、词表活读、括号大白话口径锚；2.84.1 通道修复——真实 payload 无 system 键，旧 p.system 写入被传输层丢弃=静默 no-op）');
+  ok(injMsg.messages.some((m) => m?.role === 'system' && m.content === 'BASE-PROMPT') && injMsg.messages.length === 2, 'TASKFLOW_GUARD E 主形态：原 system 消息保留（头插非替换）');
+  const inj = await call('before_provider_request', { payload: { model: 'test-model', system: 'BASE-PROMPT-STR', stream: false } }); // Anthropic 形传输回落（无 messages 键）
+  ok(typeof inj?.system === 'string' && inj.system.startsWith('[面向用户输出规范') && inj.system.includes('BASE-PROMPT-STR') && inj.system.includes('签名册=部署记录表') && inj.system.includes('括号大白话'), 'TASKFLOW_GUARD E 兼容①：字符串 system 前置（原文保留、词表活读；Anthropic 形传输回落）');
+  const injArr = await call('before_provider_request', { payload: { system: [{ type: 'text', text: 'BASE2' }] } }); // Anthropic 形 blocks 回落
+  ok(Array.isArray(injArr?.system) && injArr.system[0].text.startsWith('[面向用户输出规范') && injArr.system.some((b) => b.text === 'BASE2'), 'TASKFLOW_GUARD E 兼容②：system 数组形态——注入块前插、原块保留');
+  const injUnknown = await handlers['before_provider_request']?.[0]?.({ payload: { model: 'test-model' } }, mkCtx()); // 未知传输形态：无 messages 无 system
+  ok(injUnknown === undefined, 'TASKFLOW_GUARD E 未知形态：payload 无 messages 无 system → undefined 不注入不炸（2.84.1 删 p.system 兜底死形态——写入被传输层丢弃）');
   const injNone = await handlers['before_provider_request']?.[0]?.({ payload: { system: 'X' } }, { cwd: tmp, ui: {} });
   ok(injNone === undefined, 'TASKFLOW_GUARD E 零干扰：非 taskflow 项目不注入');
   // ---- v2.54.0 采纳面自检（对抗审查：任意 token install 渲染 guard，未采纳项目被误伤）----
@@ -1955,22 +1997,22 @@ try {
   const icall = async (msgs, cwd) => handlers['context']?.[1]?.({ messages: msgs }, cwd ? { cwd, ui: {} } : mkCtx());
   const sedcall = async (tn, p) => handlers['tool_call']?.[3]?.({ toolName: tn, input: { path: p } }, mkCtx());
   await icall([mkMsg('user', '这段术语太多，我看不懂')]);
-  const i1 = await call('before_provider_request', { payload: { system: 'BASE', messages: [] } });
-  ok(typeof i1?.system === 'string' && i1.system.includes('词表反馈沉淀') && i1.system.includes('1 条') && i1.system.includes('BASE'), 'TASKFLOW_GUARD I1 正路：user「看不懂」反馈 → 输出规范通道追加沉淀指令（含计数，原 system 与规范块保留）');
+  const i1 = await call('before_provider_request', { payload: BP('BASE') });
+  ok(typeof sysJoin(i1) === 'string' && sysJoin(i1).includes('词表反馈沉淀') && sysJoin(i1).includes('1 条') && sysJoin(i1).includes('BASE'), 'TASKFLOW_GUARD I1 正路：user「看不懂」反馈 → 输出规范通道追加沉淀指令（含计数，原 system 与规范块保留）');
   await icall([mkMsg('user', '这段术语太多，我看不懂')]);
-  const i1b = await call('before_provider_request', { payload: { system: 'BASE', messages: [] } });
-  ok(i1b.system.includes('1 条'), 'TASKFLOW_GUARD I1 去重：context 重放同消息不重复计数');
+  const i1b = await call('before_provider_request', { payload: BP('BASE') });
+  ok(sysJoin(i1b).includes('1 条'), 'TASKFLOW_GUARD I1 去重：context 重放同消息不重复计数');
   await icall([mkMsg('user', '还是没看懂第二步'), mkMsg('user', '什么意思啊这个')]);
-  const i1c = await call('before_provider_request', { payload: { system: 'BASE', messages: [] } });
-  ok(i1c.system.includes('3 条'), 'TASKFLOW_GUARD I1 累计：不同反馈各计一次（3 条）');
+  const i1c = await call('before_provider_request', { payload: BP('BASE') });
+  ok(sysJoin(i1c).includes('3 条'), 'TASKFLOW_GUARD I1 累计：不同反馈各计一次（3 条）');
   await sedcall('edit', path.join(gproj, '.taskflow', 'glossary.md'));
-  const i2 = await call('before_provider_request', { payload: { system: 'BASE', messages: [] } });
-  ok(!i2.system.includes('词表反馈沉淀'), 'TASKFLOW_GUARD I2 消账：write/edit 命中 .taskflow/glossary.md → 注入消失');
+  const i2 = await call('before_provider_request', { payload: BP('BASE') });
+  ok(!sysJoin(i2).includes('词表反馈沉淀'), 'TASKFLOW_GUARD I2 消账：write/edit 命中 .taskflow/glossary.md → 注入消失');
   await icall([mkMsg('assistant', '用户说看不懂时我会改写词表')]);
-  const i3a = await call('before_provider_request', { payload: { system: 'BASE', messages: [] } });
+  const i3a = await call('before_provider_request', { payload: BP('BASE') });
   await icall([mkMsg('user', '帮我看一下进度')]);
-  const i3b = await call('before_provider_request', { payload: { system: 'BASE', messages: [] } });
-  ok(!i3a.system.includes('词表反馈沉淀') && !i3b.system.includes('词表反馈沉淀'), 'TASKFLOW_GUARD I3 负路：assistant 信号词不计数 / user 无信号词不注入');
+  const i3b = await call('before_provider_request', { payload: BP('BASE') });
+  ok(!sysJoin(i3a).includes('词表反馈沉淀') && !sysJoin(i3b).includes('词表反馈沉淀'), 'TASKFLOW_GUARD I3 负路：assistant 信号词不计数 / user 无信号词不注入');
   const i5 = await icall([mkMsg('user', '看不懂')], tmp);
   ok(i5 === undefined, 'TASKFLOW_GUARD I5 零干扰：非 taskflow 项目不检测');
   await icall([mkMsg('user', '没看懂这步')]);
@@ -2703,6 +2745,24 @@ try {
     ok(rpText.includes('unmergedAt') && rpText.includes('resume.md 第 10 步'), 'v2.69.0 revert-plan 方案含档案注记（unmergedAt）与续迭代指引');
     ok(execFileSync('git', ['-C', evRepo, 'status', '--porcelain'], { encoding: 'utf8' }).trim() === '', 'v2.69.0 revert-plan 只读：git status --porcelain 干净（零 git 级变更）');
 
+    // 2.84.1 revert-plan 死守卫修复：仅 trunk 分支（无 main/master/origin-main）→ exit 1「主分支不可解析」+ 方案文件不落盘
+    // （旧 `resolveMainRef(mainRoot) ?? 'origin/main'` 兜底恒真值使 if (!targetRef) 守卫永不可达——静默产出引用不存在 ref 的方案）
+    {
+      const tkRepo = path.join(tmp, 'trunk-only-repo');
+      fs.mkdirSync(path.join(tkRepo, '.taskflow'), { recursive: true });
+      sh('git init -q -b trunk && git config user.email t@t && git config user.name t', tkRepo);
+      fs.writeFileSync(path.join(tkRepo, 't.txt'), 'x\n');
+      sh("echo '.taskflow/' >> .git/info/exclude && git add -A && git commit -qm init", tkRepo);
+      const tkNow = new Date().toISOString();
+      const tkDir = path.join(tkRepo, '.taskflow', 'tk-merged-20260101');
+      fs.mkdirSync(tkDir, { recursive: true });
+      fs.writeFileSync(path.join(tkDir, 'task.json'), J({ id: 'tk-merged-20260101', title: 'trunk 仓已合并任务', goal: 'g', tier: 'small', anchor: 'attached', status: 'merged', branch: 'task/tk-merged-20260101', baseCommit: null, createdAt: tkNow, lastActiveAt: tkNow, sessionID: 'ses_tk', subtasks: [], checkpoints: [] }));
+      fs.writeFileSync(path.join(tkRepo, '.taskflow', 'index.json'), J({ tasks: [{ id: 'tk-merged-20260101', title: 'trunk 仓已合并任务', status: 'merged', tier: 'small', branch: 'task/tk-merged-20260101', worktree: null, sessionID: 'ses_tk', createdAt: tkNow, lastActiveAt: tkNow }] }));
+      const rpTrunk = run(['revert-plan', 'tk-merged-20260101'], tkRepo);
+      const tkPlan = path.join(tkDir, 'revert-plan.md');
+      ok(rpTrunk.status === 1 && /主分支不可解析/.test(rpTrunk.stdout) && !fs.existsSync(tkPlan), `2.84.1 revert-plan 死守卫修复：仅 trunk 分支仓 → exit 1 含「主分支不可解析」+ 方案文件不落盘${rpTrunk.status !== 1 ? ' ← ' + rpTrunk.stdout + rpTrunk.stderr : ''}`);
+    }
+
     // gates：双绿 verdict 可进合并 / 越界红
     ok(run(['snapshot', 'ev-a-20260101'], evRepo).status === 0, 'v2.81.0 前置：ev-a 拍快照（fail-closed 后快照门绿前置——本块只验门责任链聚合语义）');
     const gGreen = run(['gates', 'ev-a-20260101'], evRepo);
@@ -2750,8 +2810,8 @@ try {
     ok(k1?.additionalContext && /TASKFLOW_GUARD 验收期提醒/.test(k1.additionalContext) && /g-ver-20260101/.test(k1.additionalContext) && !k1.block, 'v2.69.0 K：verifying 在档时 git push → 提醒不拦（点名任务）');
     const k2 = await jcall('bash', { command: 'git push origin main' }, { TF_VERIFY_WARN: 'off' });
     ok(k2 === undefined, 'v2.69.0 K：TF_VERIFY_WARN=off 关闭提醒');
-    const eLive = await call('before_provider_request', { payload: { system: 'BASE', messages: [] } });
-    ok(typeof eLive?.system === 'string' && eLive.system.includes('taskflow 实况：') && /等验收 g-ver-20260101（部署 \d{2}-\d{2} \d{2}:\d{2}）/.test(eLive.system) && eLive.system.includes('活 g-live-20260101'), 'v2.69.0 E 实况行：活/等验收（部署短格式）注入 system');
+    const eLive = await call('before_provider_request', { payload: BP('BASE') });
+    ok(sysJoin(eLive).includes('taskflow 实况：') && /等验收 g-ver-20260101（部署 \d{2}-\d{2} \d{2}:\d{2}）/.test(sysJoin(eLive)) && sysJoin(eLive).includes('活 g-live-20260101'), 'v2.69.0 E 实况行：活/等验收（部署短格式）注入 system 角色消息');
     const tFile = path.join(tmp, 'skill-usage.jsonl');
     fs.rmSync(tFile, { force: true });
     await jcall('read', { path: 'skill://taskflow/SKILL.md' }, { TF_SKILL_USAGE: tFile });

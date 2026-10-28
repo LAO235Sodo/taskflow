@@ -18,11 +18,12 @@
 //      TF_J19_WARN / TF_J20_WARN=off 各自关，缺省 warn、无 enforce 档——定位是「提醒必达」不是墙；两提醒同调用合并一条 additionalContext——触发写 .taskflow/.guard-log.jsonl（TF_GUARD_LOG=off 关）
 //   技能加载埋点（v2.69.0）：tool_call(read)——skill:// 加载计数入全局 skill-usage.jsonl（不受 guardOn 闸控，零内容仅计数，
 //      供 tf.mjs skills --usage 报表；handler 整体吞错——omp hook fail-closed，抛错=阻断读取）
-//   输出规范注入：before_provider_request 每轮把「双层输出规范 + 项目词表」前置进 system——
+//   输出规范注入：before_provider_request 每轮把「双层输出规范 + 项目词表」前置进请求（system 角色消息；Anthropic 形传输回落 payload.system）——
 //      非 taskflow 会话也有叙事体+结构化底线；词表活读（.taskflow/glossary.md），词条改写下一轮即生效
 //      （用户反馈「看不懂」→ 当场改写该词条白话到用户能理解的风格，无需重装 extension）
 //   状态引导注入（v2.84.0）：before_provider_request（输出规范同通道追加）每轮把任务状态机「下一步动作+禁令」与
-//      active 任务未完成子任务清单前置进 system——治长会话指令稀释（字段住懒加载 references 从未被读，2026-10-28
+//      active 任务未完成子任务清单前置进请求（system 角色消息；Anthropic 形传输回落 payload.system；2.84.1 修复——旧
+//      p.system 写入在真实 payload 无 system 键下被传输层丢弃=静默 no-op）——治长会话指令稀释（字段住懒加载 references 从未被读，2026-10-28
 //      审计实证；注入只放浓缩指令，禁指路型提醒）；TF_STATE_INJECT=off 关（保留实况行=回退 2.83.0 行为）；状态指纹
 //      变化写 .taskflow/.guard-log.jsonl（gate=state-inject，TF_GUARD_LOG=off 关）——规则遵循从「模型记得」降为「宿主每轮重放」
 //   派发门：tool_call(task)——派发 prompt 引用 subtask spec 路径 → 校验必填节（背景/目标/验收/涉及文件/约束与禁止）
@@ -197,7 +198,7 @@ function stateGuideBlock(dir, cwd, live, sessionId) {
     stateSeen.set(dir, cur);
   } catch { /* 埋点失败静默 */ }
   const out = ['[taskflow 状态引导（TASKFLOW_GUARD；状态翻转只经脚本命令，禁手改 status）]'];
-  const inSession = (tj) => (sessionId && tj.sessionID && tj.sessionID === sessionId ? '，本会话' : ''); // 会话 id 匹配才标；API 异常降级无标注
+  const inSession = (tj) => (sessionId && tj.sessionID && (tj.sessionID === sessionId || sessionId.endsWith('_' + tj.sessionID)) ? '，本会话' : ''); // 会话 id 匹配才标——stripped=会话文件 basename 去 .jsonl（形如 时间戳_uuid），task.json.sessionID 存真实会话 id（uuid）或人读标签：整名相等或下划线后缀（uuid 段）相等皆亮（旧精确相等恒不命中=2.84.0 起标注永不亮，2026-10-29 对抗审查实锤）；API 异常降级无标注
   for (const r of rows) {
     if (r.status === 'active') {
       out.push(`- ${r.id}（active，实现中）：改动先 checkpoint；收尾走 merge 流程${inSession(r.tj)}`);
@@ -385,6 +386,19 @@ function j20Scan(text) { // 词特征任一命中；代码特征须 ≥2 个不�
   const codes = new Set((body.match(J20_CODE_RE) ?? []).map((s) => s.replace(/\s+/g, '')));
   if (/\bGROUP\s+BY\b/i.test(body)) codes.add('GROUP BY');
   return { hit: words.length > 0 || codes.size >= 2, detail: [...words, ...codes].slice(0, 6).join('、') };
+}
+
+// ---- 注入落点（2.84.1 通道修复：对抗审查批 1）----
+// 实锤：真实运行时 payload 无 system 键（活体探针 {model,messages:[{role:'system',...}],stream,stream_options,tools,...}
+// ——system 住 messages 首条 role:'system'），旧「p.system = inject」兜底写入被传输层丢弃，E/U/V 三墙自 2.54.0/2.84.0
+// 起静默 no-op；同通道 A/B 实测 p.system 0/3 vs messages 头插 3/3 送达且被服从。omp 文档只合同「返回替换后的请求体」，
+// 形状随 transport——主形态=messages 头插（新数组，禁原地 mutate 共享数组）；Anthropic 形字符串/blocks system 保留兼容；
+// 无一命中（未知传输形态）返回 undefined 不注入不炸。
+function injectPrepend(p, inject) {
+  if (Array.isArray(p?.messages)) { p.messages = [{ role: 'system', content: inject }, ...p.messages]; return p; }
+  if (typeof p?.system === 'string') { p.system = `${inject}\n\n${p.system}`; return p; }
+  if (Array.isArray(p?.system)) { p.system = [{ type: 'text', text: inject }, ...p.system]; return p; }
+  return undefined;
 }
 
 export default function taskflowGuard(pi) {
@@ -859,13 +873,11 @@ function vObligation(dir) {
     if (!inject) return undefined;
     if (sed.pending > 0) inject += `\n[词表反馈沉淀（TASKFLOW_GUARD 词表反馈沉淀——检测到你看不懂的反馈、词表还没更新）] 本会话已检测到 ${sed.pending} 条「看不懂」类反馈、项目词表尚未改写——把涉事术语的大白话改写/补录进 .taskflow/glossary.md（改完下一轮生效；这可能猜错，不拦任何操作）。`;
     const p = event.payload;
-    if (typeof p?.system === 'string') p.system = `${inject}\n\n${p.system}`;
-    else if (Array.isArray(p?.system)) p.system = [{ type: 'text', text: inject }, ...p.system];
-    else if (p && typeof p === 'object') p.system = inject;
-    return p; // 完整替换 payload 返回（handlers chain；注入内容确定性=cache warming 的 byte-identical 保持）
+    return injectPrepend(p, inject); // 完整替换 payload 返回（handlers chain；注入内容确定性=cache warming 的 byte-identical 保持）
   });
 
-  // V 渲染证据逐轮催（v2.80.1 三件套之二）：.v-wall 状态标在且 attachments 无渲染证据 → 每轮 system 前置一行
+  // V 渲染证据逐轮催（v2.80.1 三件套之二）：.v-wall 状态标在且 attachments 无渲染证据 → 每轮请求前置一行（system 角色消息；
+  // Anthropic 形传输回落 payload.system；2.84.1 通道修复同 E 墙）
   // （义务清零自动停止——证据落位后 vObligation 返回 null，注入内容消失=cache warming 一次性变化属预期）。
   // TF_V_WARN=off 关闭。纯提醒不拦。
   pi.on('before_provider_request', async (event, ctx) => {
@@ -877,9 +889,6 @@ function vObligation(dir) {
     if (!v) return undefined;
     const inject = `[渲染证据待补（TASKFLOW_GUARD 渲染证据墙——硬规则 11 视觉变更自判禁令）] 任务 ${v.taskId} 已有前端样式载体改动、attachments/ 尚无渲染证据：验收呈报前必须补「带数据态的真实渲染截图+采样描述」至 .taskflow/${v.taskId}/attachments/。`;
     const p = event.payload;
-    if (typeof p?.system === 'string') p.system = `${inject}\n\n${p.system}`;
-    else if (Array.isArray(p?.system)) p.system = [{ type: 'text', text: inject }, ...p.system];
-    else if (p && typeof p === 'object') p.system = inject;
-    return p;
+    return injectPrepend(p, inject);
   });
 }
