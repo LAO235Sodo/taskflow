@@ -574,7 +574,7 @@ function doctor(args = []) {
   const crpt = corruptedReport('doctor');
   if (crpt) console.log(crpt);
   console.log(`# taskflow 体检`);
-  console.log(`项目：${mainRoot}${isGit ? '' : '（非 git：仅 I1 可查）'}`);
+  console.log(`项目：${mainRoot}${isGit ? '' : '（非 git：仅档案对账（I1）可查）'}`);
 
   // v2.29.0 分层纪律：项目级检查（I4/I1 幽灵/I14/I15/采纳对账）无条件先跑，「无任何任务档案」只跳过任务级节——
   // 空项目恰是遗留租约/幽灵目录的高发态（项目收尾后账本比任务活得久），提前退出=盲区（2026-09-27 六缺陷之三）
@@ -585,33 +585,33 @@ function doctor(args = []) {
   if (isGit) {
     const relTasks = path.relative(mainRoot, tasksDir).split(path.sep).join('/');
     const tracked = git(['-C', mainRoot, 'ls-files', relTasks], mainRoot, true);
-    if (tracked) { console.log(`⚠ I4 ${relTasks}/ 被 git 追踪（${tracked.split('\n').filter(Boolean).length} 个文件）→ 补 .git/info/exclude + git rm -r --cached ${relTasks}`); projDirty++; }
-    else console.log(`✓ I4 ${relTasks}/ 未被 git 追踪`);
+    if (tracked) { console.log(`⚠ 档案不入库（I4） ${relTasks}/ 被 git 追踪（${tracked.split('\n').filter(Boolean).length} 个文件）→ 补 .git/info/exclude + git rm -r --cached ${relTasks}`); projDirty++; }
+    else console.log(`✓ 档案不入库（I4） ${relTasks}/ 未被 git 追踪`);
   }
 
   const haveIds = new Set(allTasks.map((t) => t.id));
   const ghosts = index.filter((e) => e?.id && !haveIds.has(e.id));
-  for (const e of ghosts) console.log(`⚠ I1 对账：index 登记的 ${e.id} 无 task.json → 清理 index 或补建档`);
+  for (const e of ghosts) console.log(`⚠ 档案对账（I1）：index 登记的 ${e.id} 无 task.json → 清理 index 或补建档`);
   if (ghosts.length) projDirty++;
 
   // I14（项目级）：服务端口租约对账（services.json——schema/端口唯一/pid 活性/task 存在性）
   const svcDbPath = servicesPathOf(tasksDir);
   if (fs.existsSync(svcDbPath)) {
     const svcDb = readJson(svcDbPath);
-    if (!svcDb || !Array.isArray(svcDb.services)) { console.log('⚠ I14 services.json schema 非法（缺 services 数组）→ 修 JSON（schema 唯一定义见 references/data.md「services.json」节）'); projDirty++; }
+    if (!svcDb || !Array.isArray(svcDb.services)) { console.log('⚠ 端口租约（I14） services.json schema 非法（缺 services 数组）→ 修 JSON（schema 唯一定义见 references/data.md「services.json」节）'); projDirty++; }
     else {
       const seenPort = new Set(); let svcBad = 0, svcHint = 0;
       const idSet = new Set(allTasks.map((t) => t.id));
       for (const s of svcDb.services) {
-        if (!s || !Number.isInteger(s.port) || s.port <= 0 || !s.service) { console.log('⚠ I14 services.json 条目缺 port/service → 修 JSON'); svcBad++; continue; }
-        if (seenPort.has(s.port)) { console.log(`⚠ I14 端口 :${s.port} 重复登记 → 清理重复行`); svcBad++; }
+        if (!s || !Number.isInteger(s.port) || s.port <= 0 || !s.service) { console.log('⚠ 端口租约（I14） services.json 条目缺 port/service → 修 JSON'); svcBad++; continue; }
+        if (seenPort.has(s.port)) { console.log(`⚠ 端口租约（I14） 端口 :${s.port} 重复登记 → 清理重复行`); svcBad++; }
         seenPort.add(s.port);
-        if (s.pid != null && !pidAlive(s.pid)) { console.log(`ℹ I14 :${s.port} ${s.service} pid=${s.pid} 已死 → stale 可回收（svc release，或重启服务后同端口重 claim）`); svcHint++; }
-        if (s.task && !idSet.has(s.task)) { console.log(`ℹ I14 :${s.port} ${s.service} task=${s.task} 不在 index → orphan（任务已完结？认领或 svc release）`); svcHint++; }
+        if (s.pid != null && !pidAlive(s.pid)) { console.log(`ℹ 端口租约（I14） :${s.port} ${s.service} pid=${s.pid} 已死 → stale 可回收（svc release，或重启服务后同端口重 claim）`); svcHint++; }
+        if (s.task && !idSet.has(s.task)) { console.log(`ℹ 端口租约（I14） :${s.port} ${s.service} task=${s.task} 不在 index → orphan（任务已完结？认领或 svc release）`); svcHint++; }
       }
       if (svcBad) projDirty++;
       else if (svcHint) { /* 提示级不进退出码（同 I9/I10 哲学：可回收/认领，非账目差异） */ }
-      else console.log(`✓ I14 服务租约在册且全活（${svcDb.services.length} 条）`);
+      else console.log(`✓ 端口租约（I14） 服务租约在册且全活（${svcDb.services.length} 条）`);
     }
   }
 
@@ -626,7 +626,7 @@ function doctor(args = []) {
       let hasTask = false; try { hasTask = fs.existsSync(path.join(tasksDir, d.name, 'task.json')); } catch {}
       if (idxIds.has(d.name) || hasTask) continue;
       let inner = []; try { inner = fs.readdirSync(path.join(tasksDir, d.name)).filter((f) => !f.startsWith('.')); } catch {}
-      if (inner.length) console.log(`ℹ I15 幽灵目录 ${d.name}/（有内容但无 task.json 且不在 index）→ 认领建档 / 移 archive/ / 确认无用后删除（禁静默无视）`);
+      if (inner.length) console.log(`ℹ 幽灵目录（I15） 幽灵目录 ${d.name}/（有内容但无 task.json 且不在 index）→ 认领建档 / 移 archive/ / 确认无用后删除（禁静默无视）`);
     }
   }
 
@@ -646,20 +646,20 @@ function doctor(args = []) {
         try { remote = execFileSync('sh', ['-lc', dep17.jarProbe], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 15000 }); via = '，jarProbe 实物探针'; } catch { /* 探针失败回退 jarPath */ }
       }
       if (!remote && dep17.jarPath) { try { remote = execFileSync('ssh', [dep17.server, `md5sum ${dep17.jarPath}`], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 15000 }); } catch { /* ssh 不通 */ } }
-      if (!remote) console.log('ℹ I17 实物/ssh 均不可达，跳过实况对账（本地触点版尽力而为；服务器侧定时对账属 CI/CD 终局）');
+      if (!remote) console.log('ℹ 实况对账（I17） 实物/ssh 均不可达，跳过实况对账（本地触点版尽力而为；服务器侧定时对账属 CI/CD 终局）');
       else {
         const raw = remote.trim().split(/\s+/)[0] ?? '';
         const actual = /^[0-9a-f]{32}$/.test(raw) ? raw : '';
-        if (!actual) console.log(`ℹ I17 取到的值非 md5（探针命令错/输出异常），跳过对账——先修 project.json deploy.jarProbe`);
+        if (!actual) console.log(`ℹ 实况对账（I17） 取到的值非 md5（探针命令错/输出异常），跳过对账——先修 project.json deploy.jarProbe`);
         else {
         let base = '';
         try { base = String(execFileSync('ssh', [dep17.server, `cat ${dep17.statePath ?? '/opt/<app>/live-state.json'}`], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 15000 }).match(/"md5"\s*:\s*"([0-9a-f]+)"/)?.[1] ?? ''); } catch { /* state 文件读不到 */ }
-        if (base && base === actual) console.log(`✓ I17 实况对账一致（${actual.slice(0, 8)}${via}）`);
-        else if (base) { console.log(`⚠ I17 线上漂移：实际 md5 ${actual.slice(0, 8)} ≠ 登记 ${base.slice(0, 8)}——未登记的部署/手工换包/登记取错文件；跑 deploy-preflight --record 补账（不登记的部署=下次对账必红）`); projDirty++; }
-        else console.log('ℹ I17 live-state 无 jar.md5 登记（--record --jar-path 启用实况核验）');
+        if (base && base === actual) console.log(`✓ 实况对账（I17）一致（${actual.slice(0, 8)}${via}）`);
+        else if (base) { console.log(`⚠ 实况对账（I17） 线上漂移：实际 md5 ${actual.slice(0, 8)} ≠ 登记 ${base.slice(0, 8)}——未登记的部署/手工换包/登记取错文件；跑 deploy-preflight --record 补账（不登记的部署=下次对账必红）`); projDirty++; }
+        else console.log('ℹ 实况对账（I17） live-state 无 jar.md5 登记（--record --jar-path 启用实况核验）');
         }
       }
-    } else console.log('ℹ I17 无 project.json deploy 配置（server/jarPath 或 jarProbe），跳过实况对账——配置后启用');
+    } else console.log('ℹ 实况对账（I17） 无 project.json deploy 配置（server/jarPath 或 jarProbe），跳过实况对账——配置后启用');
   }
 
   // 采纳对账（项目级，红级，v2.29.0）：project.json.mechanisms 声明采纳的机制 ↔ 产物存在性——mech install 的账 doctor 来对。
@@ -694,7 +694,7 @@ function doctor(args = []) {
   const i8scope = idArg ? targets : allTasks;
   for (const t of i8scope) {
     if ((t.status === 'merged' || t.status === 'archived') && fs.existsSync(path.join(tasksDir, t.id))) {
-      console.log(`ℹ I8 ${t.id} 已完结（${t.status}）未住 archive/ → node tf.mjs archive 批量归位（journal 三件套顺手归位）`);
+      console.log(`ℹ 活死分层（I8） ${t.id} 已完结（${t.status}）未住 archive/ → node tf.mjs archive 批量归位（journal 三件套顺手归位）`);
     }
   }
 
@@ -706,14 +706,14 @@ function doctor(args = []) {
     const idx = index.find((e) => e.id === t.id);
 
     // I1 对账
-    if (!idx) { console.log('⚠ I1 对账：index 缺登记 → 以 task.json 回写 index'); bad++; }
+    if (!idx) { console.log('⚠ 档案对账（I1）：index 缺登记 → 以 task.json 回写 index'); bad++; }
     else for (const f of ['status', 'tier', 'sessionID', 'branch', 'worktree']) {
       const a = idx[f] ?? null, b = t[f] ?? null;
       let same = a === b;
       if (!same && a && b && f === 'worktree') { try { same = path.resolve(String(a)) === path.resolve(String(b)); } catch {} }
-      if (!same) { console.log(`⚠ I1 对账：index.${f}=${a ?? '∅'} ≠ task.json.${f}=${b ?? '∅'} → 以 task.json 回写 index`); bad++; }
+      if (!same) { console.log(`⚠ 档案对账（I1）：index.${f}=${a ?? '∅'} ≠ task.json.${f}=${b ?? '∅'} → 以 task.json 回写 index`); bad++; }
     }
-    if (idx && bad === 0) console.log('✓ I1 对账一致');
+    if (idx && bad === 0) console.log('✓ 档案对账（I1）一致');
 
     // I2 漏网 / 记录与代码一致（show-ref 区分「分支不存在(1)」与「git 异常(锁/权限)」，防误诊）
     const branch = t.branch ? String(t.branch) : null;
@@ -724,25 +724,25 @@ function doctor(args = []) {
     const lastCp = [...cps].reverse().find((c) => c.commit && typeOf(c) !== 'merge');
     const mergeMarks = cps.filter((c) => c.commit && typeOf(c) === 'merge');
     if (isGit && branch && t.status !== 'merged') {
-      if (refSt === 1) { console.log(`⚠ I2 分支不存在：${branch} → 列差异交用户取舍（被删？git reflog 可寻回 tip）`); bad++; }
-      else if (refSt !== 0) { console.log(`⚠ I2 查询 ${branch} 时 git 异常（exit ${refSt}，疑锁/权限）→ 勿误诊为分支不存在，先查仓库状态`); bad++; }
-      else if (!lastCp) console.log(`ℹ I2 无 checkpoint 记录，分支 tip ${tip.slice(0, 7)}`);
+      if (refSt === 1) { console.log(`⚠ 存档对账（I2） 分支不存在：${branch} → 列差异交用户取舍（被删？git reflog 可寻回 tip）`); bad++; }
+      else if (refSt !== 0) { console.log(`⚠ 存档对账（I2） 查询 ${branch} 时 git 异常（exit ${refSt}，疑锁/权限）→ 勿误诊为分支不存在，先查仓库状态`); bad++; }
+      else if (!lastCp) console.log(`ℹ 存档对账（I2） 无 checkpoint 记录，分支 tip ${tip.slice(0, 7)}`);
       else {
         const fwd = isAnc(mainRoot, lastCp.commit, tip);
         if (!fwd) {
           const back = isAnc(mainRoot, tip, lastCp.commit);
           console.log(back
-            ? `⚠ I2 分支落后于最后存档（HEAD 被回退？）cp=${lastCp.commit} tip=${tip.slice(0, 7)} → 列差异交用户取舍`
-            : `⚠ I2 checkpoint 不在分支历史（rebase 过？）cp=${lastCp.commit} → 列差异交用户取舍`);
+            ? `⚠ 存档对账（I2） 分支落后于最后存档（HEAD 被回退？）cp=${lastCp.commit} tip=${tip.slice(0, 7)} → 列差异交用户取舍`
+            : `⚠ 存档对账（I2） checkpoint 不在分支历史（rebase 过？）cp=${lastCp.commit} → 列差异交用户取舍`);
           bad++;
         } else {
           const ahead = git(['-C', mainRoot, 'log', '--oneline', `${lastCp.commit}..${branch}`], mainRoot, true);
           if (ahead) {
             const list = ahead.split('\n').filter(Boolean);
-            console.log(`⚠ I2 漏网 ${list.length} commit 未登记 → 补登 checkpoint（模型落笔）：`);
+            console.log(`⚠ 存档对账（I2） 漏网 ${list.length} commit 未登记 → 补登 checkpoint（模型落笔）：`);
             for (const l of list.slice(0, 10)) console.log(`    ${l}`);
             bad++;
-          } else console.log(`✓ I2 与最后存档一致（${lastCp.commit}）`);
+          } else console.log(`✓ 存档对账（I2）与最后存档一致（${lastCp.commit}）`);
         }
       }
       // 未提交改动（managed 且 worktree 在）
@@ -758,25 +758,25 @@ function doctor(args = []) {
       for (const m of mergeMarks) {
         const cShort = String(m.commit).slice(0, 7);
         const onMain = [mainRef, 'refs/remotes/origin/main', 'refs/heads/main', 'HEAD'].filter(Boolean).some((r) => isAnc(mainRoot, m.commit, r));
-        if (onMain) console.log(`✓ I2 merge 标记 ${cShort} 已在主 ref 历史（不参与 tip 对比）`);
-        else { console.log(`⚠ I2 merge 标记 ${cShort} 不在任何主 ref 历史 → 列差异交用户取舍`); bad++; }
+        if (onMain) console.log(`✓ 存档对账（I2） merge 标记 ${cShort} 已在主 ref 历史（不参与 tip 对比）`);
+        else { console.log(`⚠ 存档对账（I2） merge 标记 ${cShort} 不在任何主 ref 历史 → 列差异交用户取舍`); bad++; }
       }
     }
 
     // I3 worktree 存在性（终态任务 worktree 缺失=归档清理到位，不误报；残留由 I5 判定）
     const terminal = t.status === 'merged' || t.status === 'archived';
-    if (t.anchor === 'attached') console.log('✓ I3 attached 挂靠任务，worktree=null 是正常态');
-    else if (terminal) { if (t.worktree && fs.existsSync(t.worktree)) console.log('ℹ I3 终态任务 worktree 仍在（是否残留由 I5 判定）'); else console.log('✓ I3 终态任务 worktree 已按归档清理'); }
-    else if (t.worktree && fs.existsSync(t.worktree)) console.log('✓ I3 worktree 存在');
-    else { console.log(`⚠ I3 worktree 丢失：${t.worktree ?? '未记录'} → 询问是否重建${t.status === 'verifying' ? '（verifying 期间尤其需要）' : ''}`); bad++; }
+    if (t.anchor === 'attached') console.log('✓ worktree 在位（I3） attached 挂靠任务，worktree=null 是正常态');
+    else if (terminal) { if (t.worktree && fs.existsSync(t.worktree)) console.log('ℹ worktree 在位（I3） 终态任务 worktree 仍在（是否残留由 I5 判定）'); else console.log('✓ worktree 在位（I3） 终态任务已按归档清理'); }
+    else if (t.worktree && fs.existsSync(t.worktree)) console.log('✓ worktree 在位（I3）');
+    else { console.log(`⚠ worktree 在位（I3）丢失：${t.worktree ?? '未记录'} → 询问是否重建${t.status === 'verifying' ? '（verifying 期间尤其需要）' : ''}`); bad++; }
 
     // I5 归档清理（仅 merged；须 doctor --all 或点名才可达）
     if (t.status === 'merged') {
       let m = 0;
-      if (isGit && branch && refSt === 1) { console.log(`⚠ I5 merged 分支被删除：${branch}（应保留作追溯；git reflog 可寻回 tip）`); bad++; m++; }
-      else if (isGit && branch && refSt !== 0) { console.log(`⚠ I5 查询 ${branch} git 异常（exit ${refSt}）→ 勿误诊为已删`); bad++; m++; }
-      if (t.anchor === 'managed' && t.worktree && fs.existsSync(t.worktree)) { console.log(`⚠ I5 managed worktree 残留未清理：${t.worktree}`); bad++; m++; }
-      if (!m) console.log('✓ I5 归档清理到位');
+      if (isGit && branch && refSt === 1) { console.log(`⚠ 归档清理（I5） merged 分支被删除：${branch}（应保留作追溯；git reflog 可寻回 tip）`); bad++; m++; }
+      else if (isGit && branch && refSt !== 0) { console.log(`⚠ 归档清理（I5） 查询 ${branch} git 异常（exit ${refSt}）→ 勿误诊为已删`); bad++; m++; }
+      if (t.anchor === 'managed' && t.worktree && fs.existsSync(t.worktree)) { console.log(`⚠ 归档清理（I5） managed worktree 残留未清理：${t.worktree}`); bad++; m++; }
+      if (!m) console.log('✓ 归档清理（I5）到位');
     }
 
     // I6 基线（仅 active/verifying——merged/archived 产物已进主干，无 rebase 可言。
@@ -788,13 +788,13 @@ function doctor(args = []) {
         // v2.19.0：落后量上机械分档（冲突税比日历更贴害处）——≤5 提交 ℹ / 6-15 ⚠ / >15 ⛔ 需决策
         // 落后 = 基线有而分支没有的提交：rev-list --count branch..base（方向：从 branch 看到 base 多出的）
         const behind = Number(git(['rev-list', '--count', `${branch}..${t.baseBranch}`], mainRoot, true) ?? NaN);
-        console.log(`⚠ I6 基线 ${t.baseBranch} 不在任务分支历史 → 先 merge/rebase 基线再继续（落后 ${t.baseBranch} ${Number.isFinite(behind) ? behind : '?'} 个提交${behind > AGE_TIERS.warn ? ' ⛔ 需决策：冲突税高，rebase 前勿再堆功能' : behind > AGE_TIERS.info ? ' ⚠ 冲突税增长中' : ''}）`);
+        console.log(`⚠ 基线同步（I6） 基线 ${t.baseBranch} 不在任务分支历史 → 先 merge/rebase 基线再继续（落后 ${t.baseBranch} ${Number.isFinite(behind) ? behind : '?'} 个提交${behind > AGE_TIERS.warn ? ' ⛔ 需决策：冲突税高，rebase 前勿再堆功能' : behind > AGE_TIERS.info ? ' ⚠ 冲突税增长中' : ''}）`);
         bad++;
       } else if (!mainIn) {
         const behind = Number(git(['rev-list', '--count', `${branch}..${mainRef}`], mainRoot, true) ?? NaN);
-        console.log(`⚠ I6 主干 ${mainRef} 有新提交未进本任务分支 → rebase 基线再继续（主干领先 ${Number.isFinite(behind) ? behind : '?'} 个提交${behind > AGE_TIERS.warn ? ' ⛔ 需决策：冲突税高' : behind > AGE_TIERS.info ? ' ⚠' : ''}）`);
+        console.log(`⚠ 基线同步（I6） 主干 ${mainRef} 有新提交未进本任务分支 → rebase 基线再继续（主干领先 ${Number.isFinite(behind) ? behind : '?'} 个提交${behind > AGE_TIERS.warn ? ' ⛔ 需决策：冲突税高' : behind > AGE_TIERS.info ? ' ⚠' : ''}）`);
         bad++;
-      } else console.log('✓ I6 基线与主干均已包含于任务分支');
+      } else console.log('✓ 基线同步（I6） 基线与主干均已包含于任务分支');
     }
     // I18 账实对账（提示级，v2.60.0，K8s reconcile 思想——level-triggered：resume 第 5 步 doctor 不可跳，对账每次会话自动发生）。
     //   攻击轮加固（v2.60.1，五路对抗审查实证）：①参与资格用 isVerifying()（顶层+deploy 双源，与 ls/📌块同口径——
@@ -806,24 +806,24 @@ function doctor(args = []) {
         const mergeRefs = ['origin/main', 'main', 'master', t.baseBranch].filter(Boolean)
           .filter((r) => git(['-C', mainRoot, 'rev-parse', '--verify', r], mainRoot, true));
         const hit = mergeRefs.find((r) => r !== branch && isAnc(mainRoot, branch, r));
-        // 证伪点（v2.70.0，J04）：归因「漏收口」前先证伪——unmergedAt 在档=回退已拍板（revert-plan 执行后落痕），
+        // 证伪点（v2.70.0，漏收口归因）：归因「漏收口」前先证伪——unmergedAt 在档=回退已拍板（revert-plan 执行后落痕），
         // 禁再建议 accept --pass；progress 尾部打回/修复字样=修复在途，催收口会打断修线。
         if (hit) {
           let progTail = ''; try { progTail = fs.readFileSync(path.join(tasksDir, t.id, 'progress.md'), 'utf8').split('\n').slice(-20).join('\n'); } catch { /* 无 progress.md */ }
           const bounced = /打回|修复/.test(progTail);
           // v2.71.0 C1：两信号并存=「回退后修复在途」复合语义——旧 else-if 链让 unmergedAt 遮蔽打回/修复字样，
           //   只说「禁建议 accept」漏掉恢复开发指引；复合指引双面覆盖（勿催收口 + 恢复/重开流程）
-          if (t.unmergedAt && bounced) console.log(`ℹ I18 ${t.id} 分支已并入 ${hit}，回退注记 unmergedAt 在档（${t.unmergedAt}）且 progress 尾部含打回/修复字样 → 复合信号（回退在档+打回修复在途）：勿建议 accept --pass（回退在档），勿催收口（修复在途）→ 明确恢复开发走完修复，或按 resume.md 重开流程后再走收口链（merge.md）`);
-          else if (t.unmergedAt) console.log(`ℹ I18 ${t.id} 分支已并入 ${hit} 但状态仍 active，且回退注记 unmergedAt 在档（${t.unmergedAt}）→ 已回退注记在档，禁建议 accept --pass；续做按 resume.md 开新任务或明确恢复开发`);
-          else if (bounced) console.log(`ℹ I18 ${t.id} 分支已并入 ${hit} 但 progress 尾部含打回/修复字样 → 疑似打回修复在途→恢复开发（勿催收口）`);
-          else console.log(`ℹ I18 ${t.id} 分支已并入 ${hit} 但状态仍 active → 疑似漏收口：已验收则 accept --pass；续做则明确恢复开发（收口链见 merge.md）`);
+          if (t.unmergedAt && bounced) console.log(`ℹ 账实对账（I18） ${t.id} 分支已并入 ${hit}，回退注记 unmergedAt 在档（${t.unmergedAt}）且 progress 尾部含打回/修复字样 → 复合信号（回退在档+打回修复在途）：勿建议 accept --pass（回退在档），勿催收口（修复在途）→ 明确恢复开发走完修复，或按 resume.md 重开流程后再走收口链（merge.md）`);
+          else if (t.unmergedAt) console.log(`ℹ 账实对账（I18） ${t.id} 分支已并入 ${hit} 但状态仍 active，且回退注记 unmergedAt 在档（${t.unmergedAt}）→ 已回退注记在档，禁建议 accept --pass；续做按 resume.md 开新任务或明确恢复开发`);
+          else if (bounced) console.log(`ℹ 账实对账（I18） ${t.id} 分支已并入 ${hit} 但 progress 尾部含打回/修复字样 → 疑似打回修复在途→恢复开发（勿催收口）`);
+          else console.log(`ℹ 账实对账（I18） ${t.id} 分支已并入 ${hit} 但状态仍 active → 疑似漏收口：已验收则 accept --pass；续做则明确恢复开发（收口链见 merge.md）`);
         }
       }
       if (t.lastActiveAt) {
         const idleDays = (Date.now() - Date.parse(t.lastActiveAt)) / 86400000;
         const leaseLive = !!(t.activeLease?.heartbeatAt && (Date.now() - Date.parse(t.activeLease.heartbeatAt)) <= 30 * 60000);
         if (Number.isFinite(idleDays) && idleDays >= 14 && !leaseLive) {
-          // 证伪点（v2.70.0，J05）：park 建议前先跑 I2 同款对照——分支存在未被 checkpoint 登记的提交=疑似在干活未存档
+          // 证伪点（v2.70.0，搁置归因）：park 建议前先跑 I2 同款对照——分支存在未被 checkpoint 登记的提交=疑似在干活未存档
           // （「14 天没动静」可能只是没簿记不是没干活），先补登再判定搁置。
           const cps = (t.checkpoints ?? []).map((c) => c?.commit).filter(Boolean);
           let unreg = '';
@@ -838,9 +838,9 @@ function doctor(args = []) {
               else unreg = String(git(['rev-list', '--no-merges', '--count', `${mr2 ?? 'main'}..${branch}`], mainRoot, true) ?? '').trim(); // 零存档任务：分支独有提交都算未登记
             }
           }
-          if (mergedNoCp) console.log(`ℹ I18 ${t.id} 已 ${Math.floor(idleDays)} 天无簿记动作且租约过期，但零 checkpoint 且分支已并入 ${mergedNoCp} → 疑似漏收口而非搁置（I18① 同款语义）：勿直接 park（掩盖漏收口）——已验收则 accept --pass 补收口，续做则明确恢复开发（收口链见 merge.md）`);
-          else if (Number(unreg) > 0) console.log(`ℹ I18 ${t.id} 已 ${Math.floor(idleDays)} 天无簿记动作且租约过期，但分支有未登记 commit（${unreg} 笔）→ 疑似在干活未存档：先补登 checkpoint 再判定，勿直接 park`);
-          else console.log(`ℹ I18 ${t.id} 已 ${Math.floor(idleDays)} 天无簿记动作且租约过期 → 疑似搁置：直接 park --reason 留档（可逆低影响，事后报告——v2.60.2 档位），或刷新续做`);
+          if (mergedNoCp) console.log(`ℹ 账实对账（I18） ${t.id} 已 ${Math.floor(idleDays)} 天无簿记动作且租约过期，但零 checkpoint 且分支已并入 ${mergedNoCp} → 疑似漏收口而非搁置（I18① 同款语义）：勿直接 park（掩盖漏收口）——已验收则 accept --pass 补收口，续做则明确恢复开发（收口链见 merge.md）`);
+          else if (Number(unreg) > 0) console.log(`ℹ 账实对账（I18） ${t.id} 已 ${Math.floor(idleDays)} 天无簿记动作且租约过期，但分支有未登记 commit（${unreg} 笔）→ 疑似在干活未存档：先补登 checkpoint 再判定，勿直接 park`);
+          else console.log(`ℹ 账实对账（I18） ${t.id} 已 ${Math.floor(idleDays)} 天无簿记动作且租约过期 → 疑似搁置：直接 park --reason 留档（可逆低影响，事后报告——v2.60.2 档位），或刷新续做`);
         }
       }
     }
@@ -851,10 +851,10 @@ function doctor(args = []) {
       const inMain = ['origin/main', 'main', 'master'].some((r) => isAnc(mainRoot, t.branch, r));
       const hrs = (Date.now() - Date.parse(t.deploy.deployedAt)) / 3600000;
       if (!inMain && hrs > 24) {
-        console.log(`⚠ I16 敞口：${t.id} 已部署(${t.deploy.version ?? '?'})未合并 main ${Math.floor(hrs)}h——线上跑的是分支包，main 构建部署将静默滚回；收口链：merge main → main 重建替换包（node tf.mjs deploy --branch main）→ 验收 accept --pass（顺序勿反：accept 前置=已并入主分支）`);
+        console.log(`⚠ 敞口（I16）：${t.id} 已部署(${t.deploy.version ?? '?'})未合并 main ${Math.floor(hrs)}h——线上跑的是分支包，main 构建部署将静默滚回；收口链：merge main → main 重建替换包（node tf.mjs deploy --branch main）→ 验收 accept --pass（顺序勿反：accept 前置=已并入主分支）`);
         bad++;
-      } else if (!inMain) console.log(`ℹ I16 已部署未合并 main ${Math.floor(hrs)}h（24h 容忍窗口内）`);
-      else console.log('✓ I16 已部署内容已进 main（敞口关闭）');
+      } else if (!inMain) console.log(`ℹ 敞口（I16） 已部署未合并 main ${Math.floor(hrs)}h（24h 容忍窗口内）`);
+      else console.log('✓ 敞口（I16）已关闭（已部署内容已进 main）');
     }
 
     // I7 defect→test 门禁（仅显式 kind=bugfix 的任务；缺省不打扰）
@@ -862,16 +862,16 @@ function doctor(args = []) {
       const bBase = mainRef ? git(['merge-base', mainRef, branch], mainRoot, true) : null;
       const diffArr = bBase ? (git(['diff', '--name-only', `${bBase}..${branch}`], mainRoot, true) ?? '').split('\n').filter(Boolean) : [];
       const hasTest = diffArr.some((f) => /\/(test|tests|e2e|__tests__)\//i.test(f) || /(Test|Tests|Spec)\.java$/i.test(f) || /\.(test|spec)\.[cm]?[jt]sx?$/i.test(f)); // v2.57.1：补 [cm]? 认 .mjs/.cjs——本仓库自家测试即 tf.test.mjs，旧正则令 I7 对自家 bugfix 任务误红（收口时门禁自证）
-      if (diffArr.length && !hasTest) { console.log('⚠ I7 bugfix 任务 diff 无测试改动 → defect→test 门禁：bug 必须固化为永久测试（testing.md §一/§六）'); bad++; }
-      else if (hasTest) console.log('✓ I7 bugfix diff 含测试改动（defect→test 达标）');
-      else console.log('ℹ I7 bugfix diff 为空（无改动可判）');
+      if (diffArr.length && !hasTest) { console.log('⚠ 缺陷固化测试（I7） bugfix 任务 diff 无测试改动 → defect→test 门禁：bug 必须固化为永久测试（testing.md §一/§六）'); bad++; }
+      else if (hasTest) console.log('✓ 缺陷固化测试（I7） bugfix diff 含测试改动（defect→test 达标）');
+      else console.log('ℹ 缺陷固化测试（I7） bugfix diff 为空（无改动可判）');
     }
     // （I8 已移至任务循环之外独立检查——缺省体检可达，见上方）
     // I9 会话租约（提示级：lease 让「他会在途」可见——它是护栏不是锁，最终裁决在对话确认）
     const lease = t.activeLease;
     if (lease?.heartbeatAt && (t.status === 'active' || t.status === 'verifying')) {
       const ageMin = Math.round((Date.now() - Date.parse(lease.heartbeatAt)) / 60000);
-      if (Number.isFinite(ageMin) && ageMin <= 30) console.log(`ℹ I9 lease 活跃：会话 ${String(lease.sessionID ?? '?').slice(0, 14)}…，心跳 ${ageMin} 分钟前 → 他会在途，续做前核对`);
+      if (Number.isFinite(ageMin) && ageMin <= 30) console.log(`ℹ 会话租约（I9） lease 活跃：会话 ${String(lease.sessionID ?? '?').slice(0, 14)}…，心跳 ${ageMin} 分钟前 → 他会在途，续做前核对`);
       else {
         // git 侧信道：代码作证——写动作必然留下 git 痕迹；并发冲突只来自写动作，
         // 光读不写的会话测不到也无害，因此侧信道理论完备（心跳失准不误杀真实活跃会话）
@@ -884,21 +884,21 @@ function doctor(args = []) {
             if (st) why = 'worktree 有未提交改动';
           }
         }
-        if (why) console.log(`ℹ I9 lease 名义过期（${Number.isFinite(ageMin) ? ageMin : '?'} 分钟）但 ${why} → 实际活跃（代码作证），续做前核对`);
-        else console.log(`ℹ I9 lease 已过期（${Number.isFinite(ageMin) ? ageMin : '?'} 分钟）→ 可接管，接管时刷新 activeLease`);
+        if (why) console.log(`ℹ 会话租约（I9） lease 名义过期（${Number.isFinite(ageMin) ? ageMin : '?'} 分钟）但 ${why} → 实际活跃（代码作证），续做前核对`);
+        else console.log(`ℹ 会话租约（I9） lease 已过期（${Number.isFinite(ageMin) ? ageMin : '?'} 分钟）→ 可接管，接管时刷新 activeLease`);
       }
     }
     // I10 worktree 属主三态（提示级）：.owner.json + pid 活性×started_at 双判据（superdx 借鉴；NEVER 删 foreign 是编排层纪律）
     if ((t.status === 'active' || t.status === 'verifying') && t.worktree && fs.existsSync(t.worktree)) {
       const ownerP = path.join(t.worktree, '.owner.json');
-      if (!fs.existsSync(ownerP)) console.log('ℹ I10 worktree 无主（缺 .owner.json）→ 属主会话原子补写 {sessionID,pid,started_at}（conventions 三态：owned 可清/foreign 永不删/unowned 问用户）');
+      if (!fs.existsSync(ownerP)) console.log('ℹ 属主凭证（I10） worktree 无主（缺 .owner.json）→ 属主会话原子补写 {sessionID,pid,started_at}（conventions 三态：owned 可清/foreign 永不删/unowned 问用户）');
       else {
         let ow = null;
         try { ow = JSON.parse(fs.readFileSync(ownerP, 'utf8')); } catch {}
-        if (!ow || !ow.pid) console.log('ℹ I10 .owner.json 缺失/损坏 → 属主会话重写');
-        else if (!pidAlive(Number(ow.pid))) console.log(`ℹ I10 属主进程已死（pid ${ow.pid}）→ 大概率可接管：接管仪式改 sessionID + 重写 .owner.json`);
-        else if (!ownerAlive(Number(ow.pid), typeof ow.started_at === 'string' ? ow.started_at : null)) console.log(`ℹ I10 pid 存活但启动时间与凭证不符（pid ${ow.pid} 复用嫌疑）→ 视为无主：接管仪式重写 .owner.json`);
-        else console.log(`✓ I10 属主存活（pid ${ow.pid}${ow.started_at ? '，pid+started_at 双判据' : ''}）`);
+        if (!ow || !ow.pid) console.log('ℹ 属主凭证（I10） .owner.json 缺失/损坏 → 属主会话重写');
+        else if (!pidAlive(Number(ow.pid))) console.log(`ℹ 属主凭证（I10） 属主进程已死（pid ${ow.pid}）→ 大概率可接管：接管仪式改 sessionID + 重写 .owner.json`);
+        else if (!ownerAlive(Number(ow.pid), typeof ow.started_at === 'string' ? ow.started_at : null)) console.log(`ℹ 属主凭证（I10） pid 存活但启动时间与凭证不符（pid ${ow.pid} 复用嫌疑）→ 视为无主：接管仪式重写 .owner.json`);
+        else console.log(`✓ 属主凭证（I10） 属主存活（pid ${ow.pid}${ow.started_at ? '，pid+started_at 双判据' : ''}）`);
       }
     }
 
@@ -908,40 +908,40 @@ function doctor(args = []) {
     const specText = fs.existsSync(specP) ? fs.readFileSync(specP, 'utf8') : null;
     const coreHash = specText !== null ? specCoreHash(specText) : null;
     if (specText === null) {
-      if (t.goalHash) { console.log('⚠ I11 spec.md 缺失但 goalHash 在档 → spec 被删/移动？恢复文件或 req-confirm 重锚'); bad++; }
+      if (t.goalHash) { console.log('⚠ 需求指纹（I11） spec.md 缺失但 goalHash 在档 → spec 被删/移动？恢复文件或 req-confirm 重锚'); bad++; }
     } else if (!coreHash) {
-      console.log('ℹ I11 spec 无可解析承重节（「目标」「验收标准」皆缺）——需求不变量不适用，按模板补节');
+      console.log('ℹ 需求指纹（I11） spec 无可解析承重节（「目标」「验收标准」皆缺）——需求不变量不适用，按模板补节');
     } else if (!t.goalHash) {
-      console.log(`ℹ I11 需求基线未锚定（${(t.checkpoints ?? []).length ? '存量档案' : '首个 commit 自动锚定'}）→ 跑 node tf.mjs req-confirm ${t.id} --note "补锚" 补`);
+      console.log(`ℹ 需求指纹（I11） 需求基线未锚定（${(t.checkpoints ?? []).length ? '存量档案' : '首个 commit 自动锚定'}）→ 跑 node tf.mjs req-confirm ${t.id} --note "补锚" 补`);
     } else if (coreHash !== t.goalHash) {
-      console.log(`⚠ I11 需求承重节自最后确认后被改（档 ${t.goalHash} ≠ 现 ${coreHash}）→ 需求变更门补确认（node tf.mjs req-confirm ${t.id} --note "…"）或回退 spec`);
+      console.log(`⚠ 需求指纹（I11） 需求承重节自最后确认后被改（档 ${t.goalHash} ≠ 现 ${coreHash}）→ 需求变更门补确认（node tf.mjs req-confirm ${t.id} --note "…"）或回退 spec`);
       bad++;
-    } else console.log('✓ I11 需求承重节与最后确认一致');
+    } else console.log('✓ 需求指纹（I11） 需求承重节与最后确认一致');
 
     // I12 需求基线链接核对（红级，v2.23.0）：基线节点名的 docs/prd 文件与锚点必须真实存在
     const baseSecLines = specText !== null ? (specSections(specText)['需求基线'] ?? null) : null;
     const baseLines = Array.isArray(baseSecLines) ? baseSecLines.join('\n') : null;
     if (specText !== null && baseSecLines === null) {
-      console.log('ℹ I12 spec 无「需求基线」节（pre-v2.23 档案）→ 续迭代时补（无 PRD 也要显式注记）');
+      console.log('ℹ 需求基线（I12） spec 无「需求基线」节（pre-v2.23 档案）→ 续迭代时补（无 PRD 也要显式注记）');
     } else if (baseLines !== null) {
       // 豁免注记优先（v2.23.1）：无 PRD + 拍板留痕（或 bugfix）= 豁免在案，注记内 docs 路径仅作语境不核链；
       // 链接语义 = 住址约定 docs/prd/（防 docs/ops 等语境提及被误抓成基线链接、目录误当条目）
       const links = [...baseLines.matchAll(/(docs\/prd\/[^\s`（）#，。；：]+)(?:#([^\s`（）)#，。；：]+))?/g)];
       const exempt = /无\s*PRD/.test(baseLines) && (t.kind === 'bugfix' || /(拍板|豁免)/.test(baseLines));
-      if (exempt) console.log(`✓ I12 需求基线：无 PRD 豁免在案（${t.kind === 'bugfix' ? 'bugfix 任务' : '用户拍板豁免'}）${links.length ? `；注记另提 ${links.length} 处 docs/prd 路径（语境提及，不核链）` : ''}`);
-      else if (!links.length && !/无\s*PRD/.test(baseLines)) { console.log('⚠ I12 需求基线节既无 PRD 链接也无「无 PRD」注记 → 补链接或显式注记（禁空节）'); bad++; }
+      if (exempt) console.log(`✓ 需求基线（I12） 需求基线：无 PRD 豁免在案（${t.kind === 'bugfix' ? 'bugfix 任务' : '用户拍板豁免'}）${links.length ? `；注记另提 ${links.length} 处 docs/prd 路径（语境提及，不核链）` : ''}`);
+      else if (!links.length && !/无\s*PRD/.test(baseLines)) { console.log('⚠ 需求基线（I12） 需求基线节既无 PRD 链接也无「无 PRD」注记 → 补链接或显式注记（禁空节）'); bad++; }
       else if (!links.length && t.kind !== 'bugfix' && !/(拍板|豁免)/.test(baseLines)) {
-        console.log('⚠ I12 无 PRD 注记缺拍板留痕 → 呈用户决定：补文档（新增需求禁豁免——原始需求必须可追溯，new-task.md 无 PRD 域引导）或注记「用户拍板豁免 <日期>：<原因>」（仅限 bug/排查/工程工具类）'); bad++;
+        console.log('⚠ 需求基线（I12） 无 PRD 注记缺拍板留痕 → 呈用户决定：补文档（新增需求禁豁免——原始需求必须可追溯，new-task.md 无 PRD 域引导）或注记「用户拍板豁免 <日期>：<原因>」（仅限 bug/排查/工程工具类）'); bad++;
       }
       else {
         let broken = 0;
         for (const [, file, anchor] of links) {
           const fp = [t.worktree, mainRoot].map((r) => (r ? path.join(r, file) : null)).find((p) => p && fs.existsSync(p) && fs.statSync(p).isFile());
-          if (!fp) { console.log(`⚠ I12 需求基线断链：${file} 不存在 → 修链接或补 PRD 条目`); broken++; continue; }
-          if (anchor && !fs.readFileSync(fp, 'utf8').includes(anchor)) { console.log(`⚠ I12 需求基线锚点失效：${file}#${anchor} → 修锚点或回写条目`); broken++; }
+          if (!fp) { console.log(`⚠ 需求基线（I12） 需求基线断链：${file} 不存在 → 修链接或补 PRD 条目`); broken++; continue; }
+          if (anchor && !fs.readFileSync(fp, 'utf8').includes(anchor)) { console.log(`⚠ 需求基线（I12） 需求基线锚点失效：${file}#${anchor} → 修锚点或回写条目`); broken++; }
         }
         if (broken) bad++;
-        else if (links.length) console.log(`✓ I12 需求基线链接可达（${links.length} 条）`);
+        else if (links.length) console.log(`✓ 需求基线（I12） 需求基线链接可达（${links.length} 条）`);
       }
     }
 
@@ -954,7 +954,7 @@ function doctor(args = []) {
         if (!fp) continue;
         const lastCommit = git(['-C', mainRoot, 'log', '-1', '--format=%cI', '--', file], mainRoot, true);
         const lr = Date.parse(lastReq), lc = Date.parse(lastCommit ?? '');
-        if (lastCommit && Number.isFinite(lr) && Number.isFinite(lc) && lr > lc) console.log(`ℹ I13 ${file} 最后提交 ${lastCommit.slice(0, 10)} 早于最后需求确认 ${lastReq.slice(0, 10)} → PRD 疑未回写，人工核对`);
+        if (lastCommit && Number.isFinite(lr) && Number.isFinite(lc) && lr > lc) console.log(`ℹ PRD 回写（I13） ${file} 最后提交 ${lastCommit.slice(0, 10)} 早于最后需求确认 ${lastReq.slice(0, 10)} → PRD 疑未回写，人工核对`);
       }
     }
 
@@ -965,7 +965,7 @@ function doctor(args = []) {
 
   console.log(`\n## 汇总`);
   const scope = idArg ? dirtyTasks : dirtyTasks + projDirty;
-  if (idArg && projDirty) console.log(`ℹ 项目级另有 ${projDirty} 项提示（I4/幽灵登记），未计入本次单任务体检退出码。`);
+  if (idArg && projDirty) console.log(`ℹ 项目级另有 ${projDirty} 项提示（档案不入库（I4）/幽灵登记），未计入本次单任务体检退出码。`);
   console.log(scope ? `有差异。修复动作（回写 / 补登 / 重建 / 清理）由编排层执行——本脚本只读。` : '全部全绿。');
   return scope ? 1 : 0;
 }
@@ -1058,7 +1058,7 @@ function reconcile(args = []) {
 
   const hardIssues = plans.length || ghosts.length || CORRUPTED.length;
   if (!hardIssues) {
-    if (depHint.length) for (const d of depHint) console.log(`ℹ ${d.id}：dependencies 提到 task/* 但缺 baseBranch 字段 → 建议补（I6 依赖它）`);
+    if (depHint.length) for (const d of depHint) console.log(`ℹ ${d.id}：dependencies 提到 task/* 但缺 baseBranch 字段 → 建议补（基线同步（I6）依赖它）`);
     console.log(`✓ 账目一致，无可修复项（幂等：重跑零动作）${depHint.length ? `；另含 ${depHint.length} 条 baseBranch 建议（不计入退出码）` : ''}`);
     return 0;
   }
@@ -1066,7 +1066,7 @@ function reconcile(args = []) {
     ? `ℹ ${p.id}：index 缺登记 → 补行（${Object.keys(p.vals).join('/')}）`
     : `ℹ ${p.id}：回写 ${p.diffs.join('/')}（以 task.json 为准）`);
   for (const g of ghosts) console.log(`ℹ ${g?.id ?? '(无 id 行)'}：幽灵登记（无 task.json）→ 移除该行`);
-  for (const d of depHint) console.log(`ℹ ${d.id}：dependencies 提到 task/* 但缺 baseBranch 字段 → 建议补（I6 依赖它）`);
+  for (const d of depHint) console.log(`ℹ ${d.id}：dependencies 提到 task/* 但缺 baseBranch 字段 → 建议补（基线同步（I6）依赖它）`);
   if (CORRUPTED.length) console.log('⚠ 损坏的 task.json 脚本不自动修（需人工/模型修 JSON）');
   if (!fix) { console.log('\ndry-run：以上为计划；加 --fix 执行回写（原子写：tmp+rename，重跑幂等）'); return 1; }
 
@@ -1285,6 +1285,7 @@ function accept(idArg, args = []) {
   for (const l of items) console.log(l);
   if (userSteps.length) console.log('\n（以上来自 spec「用户验收」节，可直接照做）');
   else console.log('\n⚠ 以上是工程验收标准——编排层须逐条**翻译**成用户操作路径（打开哪个页面 → 做什么 → 预期看到什么）再呈出');
+  console.log('\n使用者视角检查：<本次改动触达的使用者触点（入口/文案/交互步骤/边界态）与顺带易用性观察；无写「无」>');
   console.log('\n## 怎么回复');
   console.log('- 全部符合 → 回复「验收通过」，任务才 merge 归档（完成定义）');
   console.log('- 任何一条不符 → 说明第几条 + 实际看到什么 → 回到修复循环（保持 verifying）');
@@ -2069,7 +2070,7 @@ function revertPlanCmd(args = []) {
    表输出 + verdict 收尾。不改任何状态；不替代 mergegate 的处置指引（mergegate 输出逐门完整修复路径）。 */
 function gatesCmd(args = []) {
   const id = args.find((a) => !String(a).startsWith('--'));
-  if (!id) { console.error('用法：node tf.mjs gates <task-id>\n门责任链聚合（只读）：快照门/越界门/分支已并入预检/stale/I16 敞口 五道门一次跑完，尾行 verdict。不改任何状态；逐门完整处置指引跑 mergegate。'); return 1; }
+  if (!id) { console.error('用法：node tf.mjs gates <task-id>\n门责任链聚合（只读）：快照门/越界门/分支已并入预检/stale/敞口（I16） 五道门一次跑完，尾行 verdict。不改任何状态；逐门完整处置指引跑 mergegate。'); return 1; }
   const { isGit, mainRoot, tasksDir } = locate();
   if (!isGit) { console.error('⚠ 非 git 项目无门可跑'); return 1; }
   const t = loadTasks(tasksDir).find((x) => x.id === id);
@@ -2110,7 +2111,7 @@ function gatesCmd(args = []) {
       ? { red: true, yellow: false, reason: `已部署未合并 main ${hrs}h（超 24h 敞口——线上跑分支包，收口链 merge→重部署→accept）` }
       : { red: false, yellow: false, reason: inMain ? '已部署内容已进 main（敞口关闭）' : `已部署未合并 main ${hrs}h（24h 容忍窗口内）` };
   }
-  rows.push(['I16 敞口', i16]);
+  rows.push(['敞口（I16）', i16]);
   console.log(`# 门责任链 — ${id}（${t.status}）`);
   for (const [name, g] of rows) console.log(`${name}：${g.red ? '红' : g.yellow ? '黄' : '过'}——${g.reason}`);
   const red = rows.filter(([, g]) => g.red).length;
@@ -2157,14 +2158,14 @@ function overlapCmd(args = []) {
   return 0;
 }
 
-/* ---------------- impact：J19 牵连排查 + J20 数据边界 机械保底（只读，恒 exit 0，v2.72.0） ----------------
-   纯文档纪律的「提醒必达」缺口：J19/J20 只活在文档里时靠模型自觉。本命令给「改动呈报前」一个机械底：
+/* ---------------- impact：牵连排查+数据边界 机械保底（只读，恒 exit 0，v2.72.0） ----------------
+   纯文档纪律的「提醒必达」缺口：牵连排查/数据边界只活在文档里时靠模型自觉。本命令给「改动呈报前」一个机械底：
    逐文件 ①basename 引用计数/清单（grep 级非语义级）②数据管道特征探测。提醒不拦截。
    检索面 = git grep --untracked（tracked+未忽略；node_modules/.git 等忽略面天然排除）——比裸 grep -r 快且稳。
    v2.76.0（A2 审查 E1/D1/D3）：检索串去扩展名取主名（.vue 例外）+ -w 整词防子串误中；命中面分代码/文档两组——
-   文档散文提及不计 J19 阈值；同名孪生命中列歧义标注；J20 特征扫首 500+尾 200 行、注释行剔除、词表补英文/SQL 形态。
-   阈值 TF_IMPACT_THRESHOLD（缺省 3，与守门 J19 共用）；语义级影响面归 code-review-graph impact 工具（如已挂载）。 */
-// J19/J20 机械面（impact 命令用；guard 侧持独立副本——守门是独立渲染产物必须自包含）：
+   文档散文提及不计牵连排查阈值；同名孪生命中列歧义标注；数据边界特征扫首 500+尾 200 行、注释行剔除、词表补英文/SQL 形态。
+   阈值 TF_IMPACT_THRESHOLD（缺省 3，与守门牵连排查共用）；语义级影响面归 code-review-graph impact 工具（如已挂载）。 */
+// 牵连排查/数据边界机械面（impact 命令用；guard 侧持独立副本——守门是独立渲染产物必须自包含）：
 const thresholdEnv = () => { const v = parseInt(process.env.TF_IMPACT_THRESHOLD ?? '', 10); return Number.isFinite(v) && v >= 1 ? v : 3; };
 // v2.76.0（A2 审查 D3②③/S10-8）：词表补英文管道形态（previousPeriod/last month/month over month 等，i 志大小写）；
 // 算子补 reduce/aggregate + i 志 + SQL GROUP BY 形态；注释行（//、/*、*、<!--、# 开头）剔除后再计数——
@@ -2185,7 +2186,7 @@ function j20Scan(text) {
   if (/\bGROUP\s+BY\b/i.test(body)) codes.add('GROUP BY');
   return { hit: words.length > 0 || codes.size >= 2, detail: [...words, ...codes].slice(0, 6).join('、') };
 }
-// basename 主名（J19 检索串口径，v2.76.0 E1）：.vue 保留扩展名（import 习惯带 .vue），其余去扩展名
+// basename 主名（牵连排查检索串口径，v2.76.0 E1）：.vue 保留扩展名（import 习惯带 .vue），其余去扩展名
 const impactKey = (p) => { const e = path.extname(p); return e === '.vue' ? path.basename(p) : path.basename(p, e); };
 // v2.77.1（R2 有效性攻击 F2b①）：同扩展名族映射——非 .vue 目标的 basename 检索限定同语言扩展名族
 // （share.ts 检索串「share」曾以整词命中 Java 注释/文案：dx-snap-share 实测报 80 个代码文件、真实 import 消费方 2 个，膨胀 40×）。
@@ -2198,14 +2199,14 @@ const EXT_FAMILY = {
   '.c': ['.c', '.h'], '.h': ['.c', '.h'], '.cpp': ['.cpp', '.cc', '.cxx', '.hpp'], '.cc': ['.cpp', '.cc', '.cxx', '.hpp'], '.cxx': ['.cpp', '.cc', '.cxx', '.hpp'], '.hpp': ['.cpp', '.cc', '.cxx', '.hpp'],
   '.vue': null,
 };
-// 文档与帮助文本判定（J19 阈值不计这组；guard 侧持独立副本同款——两处同步改）
+// 文档与帮助文本判定（牵连排查阈值不计这组；guard 侧持独立副本同款——两处同步改）
 const isDocPath = (f) => /\.(?:md|mdx|txt|rst|adoc)$/i.test(f) || /^(?:README|CHANGELOG|LICENSE|CONTRIBUTING)/i.test(path.basename(f)) || /(?:^|\/)docs?\//i.test(f);
 function impactCmd(args = []) {
   const th = thresholdEnv();
   const { isGit, mainRoot, tasksDir } = locate();
   const since = optArg(args, 'since');
   const filesArg = optArg(args, 'files');
-  console.log(`impact（J19 牵连排查 + J20 数据边界 机械保底；阈值=引用文件数≥${th}）：`);
+  console.log(`impact（牵连排查+数据边界 机械保底；阈值=引用文件数≥${th}）：`);
   const done = () => { console.log('—— grep 级分析（非语义级）；语义影响面可用 code-review-graph impact 工具（如已挂载）'); return 0; };
   let files = [];
   if (filesArg !== undefined) {
@@ -2245,7 +2246,7 @@ function impactCmd(args = []) {
     if (!fs.existsSync(abs)) { console.log('  ℹ 文件不存在（已删除？）跳过引用分析'); continue; }
     const rel = path.relative(mainRoot, abs);
     // v2.76.0（A2 审查 E1/D1）：检索串去扩展名取主名（.vue 例外）+ -w 整词（api.ts 检索不再误中 myapi.ts 子串）；
-    // 命中面分「代码文件 / 文档与帮助文本」两组——文档散文提及不计 J19 阈值（散文充数曾把真仓 44% 前端文件顶过
+    // 命中面分「代码文件 / 文档与帮助文本」两组——文档散文提及不计牵连排查阈值（散文充数曾把真仓 44% 前端文件顶过
     // 阈值）；同名异扩展/同名异路径孪生命中列歧义标注（com.a/com.b 同名类互不污染面不可辨，呈报给人工核对）。
     const ext = path.extname(f);
     const key = impactKey(f);
@@ -2306,13 +2307,13 @@ function impactCmd(args = []) {
     const j20 = j20Scan((() => { try { return fs.readFileSync(abs, 'utf8'); } catch { return ''; } })());
     if (j20.hit) {
       j20Files.push(f);
-      console.log(`  ③数据管道特征：J20 风险：涉数据管道（命中：${j20.detail}）`);
+      console.log(`  ③数据管道特征：数据边界风险：涉数据管道（命中：${j20.detail}）`);
     } else {
       console.log('  ③数据管道特征：未命中');
     }
   }
   if (fanFiles.length) console.log(`\nJ19 牵连排查：以上 ${fanFiles.length} 个文件被多处引用，改动呈报须含影响面清单（${fanFiles.join('、')}）`);
-  if (j20Files.length) console.log(`J20 数据边界：枚举真空与失真形态（空集/单条/首期无参照/异常值/口径变更/范围串扰），禁算了不传/传空容器/硬凑对比（${j20Files.join('、')}）`);
+  if (j20Files.length) console.log(`数据边界：枚举真空与失真形态（空集/单条/首期无参照/异常值/口径变更/范围串扰），禁算了不传/传空容器/硬凑对比（${j20Files.join('、')}）`);
   if (!fanFiles.length && !j20Files.length) console.log('ℹ 无高扇出/数据管道文件');
   return done();
 }
@@ -2782,12 +2783,46 @@ function archiveCmd(args = []) {
 
 /* ---------------- 入口 ---------------- */
 
+/* ---------------- mechanisms：guard 门清单（只读，v2.83.0 机制透明化）----------------
+   治「guard 加了很多门但用户不知道、看不懂被拦/被提醒的原因」：按行解析 guard 源码头注释 handler 主行
+   （三空格开头、含全角冒号；六空格续行与非注释行跳过）逐门输出中文名/管什么/开关 env/是否写触发日志——
+   guard 注释改了这里自动同步，无第二事实源。gate token 映射为英文机器键（guardLog 落盘用），供对照日志行。 */
+function mechanismsCmd() {
+  const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+  let src = ''; try { src = fs.readFileSync(path.join(root, 'assets', 'guard', 'taskflow-guard.js'), 'utf8'); } catch {}
+  const lines = src.split('\n');
+  const headEnd = lines.findIndex((l) => l.startsWith('import '));
+  const block = headEnd === -1 ? [] : lines.slice(0, headEnd);
+  const gateTokens = { 状态翻转墙: 'status-wall', 部署墙: 'deploy-wall', 编辑边界门: 'boundary', 牵连排查: 'impact', 数据边界: 'data-boundary', 同类排查提醒: 'class-sweep', 词表反馈沉淀: 'glossary', 渲染证据墙: 'render', 验收期提醒: 'verify-remind', 档案删除告警: 'archive-rm', 多假设排序弹脸: 'triage' };
+  const rows = [];
+  for (let i = 0; i < block.length; i++) {
+    if (!/^\/\/ {3}(?! {3})/.test(block[i])) continue;
+    const nameM = block[i].match(/^\/\/ {3}(.+?)：/);
+    if (!nameM) continue;
+    const name = nameM[1];
+    let what = block[i].slice(nameM[0].length).trim();
+    if (/[，、——]$/.test(what)) what = `${what.replace(/[，、——]+$/, '')}…`; // 主行折行截断：去断裂标点补省略号（细节看 guard 源注释）
+    let envs = [...new Set((what.match(/TF_[A-Z0-9_]+/g) ?? []).filter((e) => e !== 'TF_GUARD_LOG'))];
+    for (let j = i + 1; j < block.length && /^\/\/ {6}/.test(block[j]); j++) { // 开关 env 常在续行——扫整块
+      envs.push(...((block[j].match(/TF_[A-Z0-9_]+/g) ?? []).filter((e) => e !== 'TF_GUARD_LOG' && !envs.includes(e))));
+    }
+    const matched = Object.entries(gateTokens).filter(([cn]) => name.includes(cn)).map(([, tk]) => tk);
+    rows.push(`${name}：${what}｜开关：${envs.length ? envs.join(' ') : '无'}｜触发日志：${matched.length ? `写 .guard-log.jsonl（gate=${matched.join(',')})` : '不写'}`);
+  }
+  console.log('# guard 机制清单（解析自 assets/guard/taskflow-guard.js 头注释——guard 注释改了这里自动同步）');
+  for (const r of rows) console.log(r);
+  console.log('被拦/被提醒时问「为什么」，模型按本清单大白话解释当前生效的门与触发原因，代号首现带括号白话；');
+  console.log('触发日志在 .taskflow/.guard-log.jsonl（TF_GUARD_LOG=off 关）。');
+  return 0;
+}
+
 const USAGE = `用法：
   node tf.mjs ls [--all]                 盘点：登记任务表 + 游离工作（只读；--all 展开已归档；无活任务时打印可续迭代入口句）
   node tf.mjs doctor [--all] [--self] [--data <path>] [task-id]  体检：不变量逐条检查（缺省=active/verifying + 根层死任务，--all 含 archive/ 内 merged）；--self=不变量 spec↔注册表↔实现 三源一致性（--data 指 spec 副本，测试用）（只读）
-  node tf.mjs reconcile [--fix]         对账：I1 回写/幽灵清理/损坏报告；默认 dry-run，--fix=原子回写（唯一写命令，幂等）
+  node tf.mjs reconcile [--fix]         对账：档案对账（I1）回写/幽灵清理/损坏报告；默认 dry-run，--fix=原子回写（唯一写命令，幂等）
   node tf.mjs scout <关键词…> [--files]  历史检索：约定→决策库→任务档案→git 考古；命中=线索，判断归模型（只读）
   node tf.mjs skills [领域词]           领域技能在场检测：缺哪些+怎么装；呈用户选装（不装则如实注记）（只读）；--usage=技能加载埋点报表（TF_SKILL_USAGE 单文件聚合，仅 omp 侧显式 skill:// 加载计数）
+  node tf.mjs mechanisms               guard 门清单（机制透明化，v2.83.0，只读）：逐行输出宿主防护层每个门的中文名/管什么/开关 env/是否写触发日志——被拦或被提醒时按它向用户解释原因
   node tf.mjs accept <task-id> [--pass]  缺省=验收简报：任务是什么/部署状态/验什么/怎么验/怎么回复；--pass=机械翻转 *→merged（前置=分支已并入主分支，幂等）
   node tf.mjs takeover <task-id> --session <本会话ID>  接管仪式：改 sessionID + 重写 .owner.json + 刷新 lease + 打印桌面清点清单（清点判断归编排层）
   node tf.mjs park <task-id> --reason "<原因>"   搁置在途任务（active→parked，簿记写入口）——档案保留、体检（缺省）与 G 门不再盘点；等验收中（含部署态）拒
@@ -2800,11 +2835,11 @@ const USAGE = `用法：
   node tf.mjs lock <name> [--release] [--session <本会话ID>] [--ttl <秒=120>]  排队锁：合并端局等关键窗口串行化（他人新鲜锁 → 拒绝排队；陈旧 → 强占；--release 释放/幂等）
   node tf.mjs snapshot <task-id>            合并快照：审查呈报后拍 main HEAD（事务 ID 类比）写入 task.json.mergeSnapshot
   node tf.mjs mergegate <task-id>           合并双门（MERGE_GATE）：①快照门（文件级分类）——main 现值≠审查快照时比对「main 变更×任务读写集」：命中=红（逐文件重审）、未触碰=黄（同步合并+刷新快照免第 3 步重审；黄红均 exit 1）；②越界门——分支 diff 超出 spec「改动文件集合声明」（matchPath 目录前缀）=红（req-confirm 补声明或收窄）
-  node tf.mjs gates <task-id>               门责任链聚合（只读）：快照/越界/已并入预检/stale/I16 敞口 五道门一次跑完，统一「门名：过/红/黄——一句原因」表+verdict 收尾；逐门完整处置指引跑 mergegate
+  node tf.mjs gates <task-id>               门责任链聚合（只读）：快照/越界/已并入预检/stale/敞口（I16） 五道门一次跑完，统一「门名：过/红/黄——一句原因」表+verdict 收尾；逐门完整处置指引跑 mergegate
   node tf.mjs revert-plan <task-id>         Saga 补偿方案生成器（只读不执行）：为 merged 任务生成逐条 git revert -m 1 方案落 <taskDir>/revert-plan.md（含档案注记与红线）；非 merged 拒（active/verifying 打回走 resume.md 第 9 步）；执行需用户逐条确认
   node tf.mjs stale [task-id]              在途任务失效感知（STALE_CHECK，v2.59.0）：main 自任务基线 baseCommit 的改动 × 本任务读写集（写集声明∪影响面地图反引号资产）求交——命中=影响面漂移，先重验 spec 影响面地图对应行再动工；无 id 全量扫 active/verifying；无基线锚/分支已并入 main/无机读声明均 ℹ 降级（只读，不改任何状态）
   node tf.mjs overlap <task-id>            并行派发准入预检（DISPATCH_OVERLAP，v2.59.0）：子任务 spec「## 涉及文件」反引号路径两两 matchPath 求交——重叠对=不准并行（场景① 前提=写集两两不相交：改串行/调整拆分边界/呈用户仲裁）；无子任务 ℹ exit 0（只读）
-  node tf.mjs impact [--files f1,f2,…] [--since <git-ref>]  牵连排查+数据边界机械保底（J19/J20，v2.72.0，只读恒 exit 0）：缺省文件集=active/verifying 任务 baseCommit..HEAD 改动（无 baseCommit 用主分支..HEAD；无在档任务=已暂存+工作区改动；--since 覆盖区间）——逐文件 basename 引用计数/清单（前 5 处）+数据管道特征（J20 风险标注）；阈值 TF_IMPACT_THRESHOLD（缺省 3）；语义级影响面用 code-review-graph impact（如已挂载）
+  node tf.mjs impact [--files f1,f2,…] [--since <git-ref>]  牵连排查+数据边界机械保底（v2.72.0，只读恒 exit 0）：缺省文件集=active/verifying 任务 baseCommit..HEAD 改动（无 baseCommit 用主分支..HEAD；无在档任务=已暂存+工作区改动；--since 覆盖区间）——逐文件 basename 引用计数/清单（前 5 处）+数据管道特征（数据边界风险标注）；阈值 TF_IMPACT_THRESHOLD（缺省 3）；语义级影响面用 code-review-graph impact（如已挂载）
   node tf.mjs deploy --branch <部署分支> [--web-only] [--dry-run] [--version V]  部署唯一入口：门禁（deploy-preflight）内嵌，红=拒绝；部署后自动 --record 登记（project.json deploy 配置命令序列；deploy.procProbe 可选=进程清点探针命令，透传 --proc-probe）
   node tf.mjs migrate                      一次性数据搬迁：.opencode/tasks/ → .taskflow/（exclude 顶替+待改引用清单；并存拒动）
   node tf.mjs archive [task-id]            死档案归层：merged/archived → archive/（journal 三件套归位；活任务拒动；幂等；输出可复制的续迭代入口句）
@@ -2814,7 +2849,7 @@ const USAGE = `用法：
   node tf.mjs lint                         流程文档自检：步骤引用/编号连续/兼容标注/闸门关键词/未入库引用/机制触点可达/机制fixture落痕/事实禁改写/模板中性/挂接对账（只读）
   环境变量 TF_STATUS=<off|warn|enforce>    守门 J 状态翻转墙档位（v2.69.0；缺省 enforce——手改 task.json/index.json 的 status 物理拦截，翻转唯一写路径是扳机命令，档案修复走 reconcile --fix；off=单次豁免）
   环境变量 TF_VERIFY_WARN=off              关闭守门 K 验收期提醒（v2.69.0；git push/merge 时在档等验收任务的时序核对提醒，缺省开，提醒不拦）
-  环境变量 TF_IMPACT_THRESHOLD=<N 缺省 3>  basename 引用文件数阈值（impact 命令与守门 J19 共用）；TF_J19_WARN / TF_J20_WARN=off 各自关闭守门 J19/J20 提醒（v2.72.0；缺省 warn，纯提醒不拦、无 enforce 档）
+  环境变量 TF_IMPACT_THRESHOLD=<N 缺省 3>  basename 引用文件数阈值（impact 命令与守门牵连排查共用）；TF_J19_WARN / TF_J20_WARN=off 各自关闭守门牵连排查/数据边界提醒（v2.72.0；缺省 warn，纯提醒不拦、无 enforce 档）
   node tf.mjs mech ls                      机制采纳清单：token/状态（已装/可装/漂移）+ 产物（只读；真相源=机制登记表「采纳产物」列）
   node tf.mjs mech check                   机制采纳对账：每机制 token/已装版本/当前版本/状态（一致|漂移|未装）；声明采纳者有漂移 → exit 1（统一谓词，doctor 采纳对账同源；只读）
   node tf.mjs mech install <token> [--yes] 机制生成安装：assets/harness+design 模板渲染入项目（assetExts 注入）+ docs/CHANGELOG.md 建档锚点 + conventions/AGENTS 补记 + project.json.mechanisms 登记（簿记写入口；幂等；CI 挂点只建议不自动改——经确认门写入）。确认闸（v2.65.0）：已装版本漂移刷新或将整文件覆盖已有文件 → 拒绝落盘并打印将覆盖文件清单，显式 --yes 才执行；首装空位不拦（懒加载，首装确认归 DEP_ASK_GATE 呈报流程）
@@ -3512,9 +3547,10 @@ if (cmd === 'snapshot') process.exit(snapshotCmd(rest));
 if (cmd === 'mergegate') process.exit(mergegateCmd(rest));
 if (cmd === 'stale') process.exit(staleCmd(rest)); // STALE_CHECK（v2.59.0）：在途任务影响面漂移检查，只读
 if (cmd === 'revert-plan') process.exit(revertPlanCmd(rest)); // Saga 补偿方案生成器（v2.69.0）：merged 任务的 revert 方案，只读不执行
+if (cmd === 'mechanisms') process.exit(mechanismsCmd()); // guard 门清单（v2.83.0 机制透明化）：解析守源头注释逐门输出，只读
 if (cmd === 'gates') process.exit(gatesCmd(rest)); // 门责任链聚合（v2.69.0）：五道合并相关门一次跑完，只读
 if (cmd === 'overlap') process.exit(overlapCmd(rest)); // DISPATCH_OVERLAP（v2.59.0）：并行派发写集求交预检，只读
-if (cmd === 'impact') process.exit(impactCmd(rest)); // J19 牵连排查+J20 数据边界机械保底（v2.72.0）：basename 引用面+数据管道特征，只读恒 0
+if (cmd === 'impact') process.exit(impactCmd(rest)); // 牵连排查+数据边界机械保底（v2.72.0）：basename 引用面+数据管道特征，只读恒 0
 if (cmd === 'deploy') process.exit(deployCmd(rest));
 if (cmd === 'migrate') process.exit(migrateCmd());
 if (cmd === 'archive') process.exit(archiveCmd(rest));

@@ -142,9 +142,9 @@ try {
   const doc = run(['doctor'], repo);
   ok(doc.status === 1, `doctor 有差异 → 退出码 1（实际 ${doc.status}）`);
   ok(doc.stdout.includes('I4'), 'doctor 检查 I4（状态文件不进 git）');
-  ok(/⚠ I1 对账：index\.status=merged ≠ task\.json\.status=active/.test(doc.stdout), 'doctor 检出 I1 对账漂移');
-  ok(doc.stdout.includes('I2 漏网 1 commit'), 'doctor 检出 I2 漏网 commit');
-  ok(doc.stdout.includes('I3 worktree 丢失'), 'doctor 检出 I3 worktree 丢失');
+  ok(/⚠ 档案对账（I1）：index\.status=merged ≠ task\.json\.status=active/.test(doc.stdout), 'doctor 检出 I1 对账漂移');
+  ok(doc.stdout.includes('漏网 1 commit'), 'doctor 检出 I2 漏网 commit');
+  ok(doc.stdout.includes('worktree 在位（I3）丢失'), 'doctor 检出 I3 worktree 丢失');
   ok(doc.stdout.includes('t3-ghost-20260101'), 'doctor 报告幽灵登记');
   ok(doc.stdout.includes('只读'), 'doctor 重申修复由编排层执行（脚本只读）');
 
@@ -185,7 +185,7 @@ try {
   const lsGhost = run(['ls'], repo);
   ok(/t10-orphan-20260101（源:ghost-src-20260101，不在档）/.test(lsGhost.stdout) && /tg-orphan-20260101（源:ghost-src-20260101，不在档）/.test(lsGhost.stdout), 'ls 孤儿源标注：源不在档的簇头一级列自带（源:xxx，状态）——血缘随行自足，无需组头行');
   const docAfter = run(['doctor', 't2-drift-20260101'], repo);
-  ok(!/I1 对账：index\./.test(docAfter.stdout), '--fix 后 t2 的 I1 对账漂移消失');
+  ok(!/档案对账（I1）：index\./.test(docAfter.stdout), '--fix 后 t2 的 I1 对账漂移消失');
 
   // 修好损坏 JSON → 补登记 → 幂等终态
   fs.writeFileSync(path.join(tasksDir, 't4-bad-20260101', 'task.json'), J({
@@ -199,7 +199,7 @@ try {
   const docAll = run(['doctor', '--all'], repo);
   ok(docAll.stdout.includes('I5') && docAll.stdout.includes('t5-gone'), 'doctor --all 使 I5（merged 分支被删）可达');
   const docDef = run(['doctor'], repo);
-  ok(!docDef.stdout.includes('I5') && docDef.stdout.includes('ℹ I8 t5-gone-20260101'), 'doctor 缺省：I5 体检不进日常噪音，I8 提示行在（根层死任务可见）');
+  ok(!docDef.stdout.includes('I5') && docDef.stdout.includes('活死分层（I8） t5-gone-20260101'), 'doctor 缺省：I5 体检不进日常噪音，I8 提示行在（根层死任务可见）');
 
   // ---- scout：历史检索（改形裁决的替代机制：检索归脚本、判断归模型）----
   const sc = run(['scout', '弹层'], repo);
@@ -329,7 +329,7 @@ try {
   fs.writeFileSync(path.join(t6wt, 'src', 'FixTest.java'), 't\n');
   sh('git add -A && git commit -qm "test: 回归锁"', t6wt);
   const dI7ok = run(['doctor', 't6-bugfix-20260101'], repo);
-  ok(dI7ok.stdout.includes('✓ I7'), 'I7：补测试文件后转绿');
+  ok(dI7ok.stdout.includes('✓ 缺陷固化测试（I7）'), 'I7：补测试文件后转绿');
   const dNoKind = run(['doctor', 't1-ok-20260101'], repo);
   ok(!dNoKind.stdout.includes('I7'), 'kind 缺省 → I7 不打扰');
 
@@ -454,13 +454,13 @@ try {
   t1j.checkpoints.push({ ts: now, commit: base, type: 'merge', summary: 'merge: 合入 main', files: [] });
   fs.writeFileSync(path.join(t1dir2, 'task.json'), J(t1j));
   const i2m = run(['doctor', 't1-ok-20260101'], repo);
-  ok(i2m.stdout.includes('I2 merge 标记') && i2m.stdout.includes('已在主 ref 历史'), 'I2：merge 标记不参与 tip 对比，改校验主 ref 历史');
+  ok(i2m.stdout.includes('存档对账（I2） merge 标记') && i2m.stdout.includes('已在主 ref 历史'), 'I2：merge 标记不参与 tip 对比，改校验主 ref 历史');
   ok(!i2m.stdout.includes('被回退') && !i2m.stdout.includes('不在分支历史'), 'I2：merge 条目不再误报 tip 漂移');
   const t1jL = JSON.parse(fs.readFileSync(path.join(t1dir2, 'task.json'), 'utf8'));
   t1jL.activeLease = { sessionID: 'ses_other_12345678', acquiredAt: now, heartbeatAt: new Date(Date.now() - 5 * 60000).toISOString() };
   fs.writeFileSync(path.join(t1dir2, 'task.json'), J(t1jL));
   const i9a = run(['doctor', 't1-ok-20260101'], repo);
-  ok(i9a.stdout.includes('I9 lease 活跃') && i9a.stdout.includes('他会在途'), 'I9：lease 活跃 → 他会在途提示');
+  ok(i9a.stdout.includes('lease 活跃') && i9a.stdout.includes('他会在途'), 'I9：lease 活跃 → 他会在途提示');
   const t1jE = JSON.parse(fs.readFileSync(path.join(t1dir2, 'task.json'), 'utf8'));
   t1jE.activeLease.heartbeatAt = new Date(Date.now() - 3 * 3600000).toISOString();
   fs.writeFileSync(path.join(t1dir2, 'task.json'), J(t1jE));
@@ -468,7 +468,7 @@ try {
   const d4h = new Date(Date.now() - 4 * 3600000).toISOString();
   sh(`GIT_COMMITTER_DATE="${d4h}" GIT_AUTHOR_DATE="${d4h}" git commit --allow-empty -qm "anchor: 4h前"`, t1wt);
   const i9b = run(['doctor', 't1-ok-20260101'], repo);
-  ok(i9b.stdout.includes('I9 lease 已过期') && i9b.stdout.includes('可接管'), 'I9：lease 过期且无代码作证 → 可接管提示');
+  ok(i9b.stdout.includes('lease 已过期') && i9b.stdout.includes('可接管'), 'I9：lease 过期且无代码作证 → 可接管提示');
   // polish：I9 git 侧信道——名义过期但分支 tip 晚于心跳 → 实际活跃（代码作证），不误杀
   fs.writeFileSync(path.join(t1wt, 'h.txt'), '侧信道心跳\n');
   sh('git add -A && git commit -qm "wip: 侧信道心跳"', t1wt);
@@ -526,10 +526,10 @@ try {
 
   // ---- I6 基线语义：仅活任务查、落后主干可检出、死任务跳过（用 t7——t1 已被上方可续迭代测试归档消费）----
   const i6ok = run(['doctor', 't7-lock-20260101'], repo);
-  ok(i6ok.stdout.includes('✓ I6'), 'I6：活任务分支包含基线+主干 → 绿');
+  ok(i6ok.stdout.includes('✓ 基线同步（I6）'), 'I6：活任务分支包含基线+主干 → 绿');
   sh('echo more > m.txt && git add -A && git commit -qm "main 前进"', repo);
   const i6behind = run(['doctor', 't7-lock-20260101'], repo);
-  ok(i6behind.stdout.includes('⚠ I6'), 'I6：主干有新提交未进任务分支 → 点名 rebase');
+  ok(i6behind.stdout.includes('⚠ 基线同步（I6）'), 'I6：主干有新提交未进任务分支 → 点名 rebase');
   const i6dead = run(['doctor', '--all'], repo);
   const t2sec = i6dead.stdout.split('## ').find((s) => s.includes('t2-drift-20260101')) ?? '';
   ok(t2sec.length > 0 && !t2sec.includes('I6'), 'I6：merged/archived 任务跳过（死任务无 rebase 可言）');
@@ -613,7 +613,7 @@ try {
   // doctor I6 落后提交数可见（t7 此前已因「main 前进」处于 I6 ⚠ 态）
   const i6cnt = run(['doctor', 't7-lock-20260101'], repo);
   const i6flat = i6cnt.stdout.replace(/\n/g, ' ');
-  ok(/I6 (基线|主干) .*(落后|领先).*[1-9][0-9]* 个提交/.test(i6flat), 'doctor I6：量化落后提交数（冲突税机械可见）');
+  ok(/基线同步（I6） (基线|主干) .*(落后|领先).*[1-9][0-9]* 个提交/.test(i6flat), 'doctor I6：量化落后提交数（冲突税机械可见）');
 
   // ---- v2.21.0 自洽根治：doctor --self 三源一致 / accept --pass / takeover / lint 三新检查 ----
   // 造一个落后的 origin/main（远端跟踪 ref 先命中场景）：本地合并未 push 时 accept --pass 不得误拒
@@ -679,9 +679,9 @@ try {
 
   // ---- v2.52.0 lint 检查器自身修复的红绿两路（对抗审查 A1/A2/B1/B3/C1/C2/F 实证形态，副本真跑）----
   // v2.70.0：--root 夹具须自带最小入口路由注册表（挂接对账红「缺失」会淹没本节红绿语义；行指向夹具内真实文件=绿）
-  // v2.71.0 D3：J01 纪律锚词改专用词 JDISC-ANCHOR-X7（唯一存在理由=J01 行本身；旧词「机制登记表」恰是 data.md
+  // v2.71.0 D3：多假设排序 纪律锚词改专用词 JDISC-ANCHOR-X7（唯一存在理由=多假设排序 行本身；旧词「机制登记表」恰是 data.md
   //   其他检查的必需节头=自指，检查器坏多少断言都测不出来）；锚词经 mkLintCase 尾部统一落载体
-  const MIN_ER = ['## 表一：意图入口路由', '', '| 入口id | 话术样例 | 路由动作 | 指向 | 纪律形态 | 加载面 | description锚 |', '| --- | --- | --- | --- | --- | --- | --- |', '| R01 | x | x | references/data.md::机制登记表 | x | 否 | |', '', '## 表二：判定点纪律', '', '| 判定id | 判定点 | 纪律形态 | 载体 | 纪律锚词 |', '| --- | --- | --- | --- | --- |', '| J01 | x | x | references/data.md::机制登记表 | JDISC-ANCHOR-X7 |', ''].join('\n');
+  const MIN_ER = ['## 表一：意图入口路由', '', '| 入口id | 话术样例 | 路由动作 | 指向 | 纪律形态 | 加载面 | description锚 |', '| --- | --- | --- | --- | --- | --- | --- |', '| R01 | x | x | references/data.md::机制登记表 | x | 否 | |', '', '## 表二：判定点纪律', '', '| 判定id | 判定点 | 纪律形态 | 载体 | 纪律锚词 |', '| --- | --- | --- | --- | --- |', '| 多假设排序 | x | x | references/data.md::机制登记表 | JDISC-ANCHOR-X7 |', ''].join('\n');
   const mkLintCase = (name, dataMd, tail = '\n状态机（唯一事实源\n判定纪律锚行：JDISC-ANCHOR-X7\n') => {
     const fr = path.join(tmp, name);
     for (const d of ['references', 'templates', 'scripts']) fs.mkdirSync(path.join(fr, d), { recursive: true });
@@ -851,9 +851,9 @@ try {
     return outs.join('\n');
   };
   const v1 = await vgFire('edit', { path: 'a.vue', old_string: '.a{color:red}', new_string: '.a{color:red}\n@media (min-width: 600px){.a{color:blue}}' });
-  ok(v1.includes('TASKFLOW_GUARD V 渲染证据提醒'), 'V 渲染证据提醒：样式载体改动+任务分支+无证据 → 弹（每任务一次；看板字体失调打回沉淀）');
+  ok(v1.includes('TASKFLOW_GUARD 渲染证据墙'), 'V 渲染证据提醒：样式载体改动+任务分支+无证据 → 弹（每任务一次；看板字体失调打回沉淀）');
   const v2 = await vgFire('edit', { path: 'a.vue', old_string: '.a{color:red}', new_string: '.a{color:darkred}' });
-  ok(!v2.includes('TASKFLOW_GUARD V'), 'V 渲染证据提醒：状态标在 → 同任务静默（防逐编辑噪音）');
+  ok(!v2.includes('TASKFLOW_GUARD 渲染证据墙'), 'V 渲染证据提醒：状态标在 → 同任务静默（防逐编辑噪音）');
   // 三件套之二：逐轮催(before_provider_request)——义务开时每轮 system 前置待补行(E 墙同 handler 面,共存断言)
   const vgBp = async () => {
     const outs = [];
@@ -931,19 +931,19 @@ try {
   sh('git add -A && git commit -qm "docs: X 域 PRD"', repo);
 
   const d13pre = run(['doctor', t13id], repo);
-  ok(d13pre.status === 0 && d13pre.stdout.includes('ℹ I11') && !d13pre.stdout.includes('⚠ I11'), 'I11：未锚定 → ℹ 提示不红（新任务等 commit 自动锚）');
-  ok(d13pre.stdout.includes('✓ I12'), 'I12：基线链接可达（文件+锚点都在）→ 绿');
+  ok(d13pre.status === 0 && d13pre.stdout.includes('ℹ 需求指纹（I11）') && !d13pre.stdout.includes('⚠ 需求指纹（I11）'), 'I11：未锚定 → ℹ 提示不红（新任务等 commit 自动锚）');
+  ok(d13pre.stdout.includes('✓ 需求基线（I12）'), 'I12：基线链接可达（文件+锚点都在）→ 绿');
 
   fs.writeFileSync(path.join(t13wt, 'feat.txt'), '2\n');   // d13pre 之后才有未提交改动，避免「未提交改动」咬红污染 I11/I12 断言
   const c13 = run(['commit', '-m', 'c2: 触发锚定', '--files', 'feat.txt'], t13wt);  ok(c13.status === 0 && c13.stdout.includes('锚定'), 'commit：首个提交自动锚定 goalHash（零新仪式）');
   const t13j1 = JSON.parse(fs.readFileSync(path.join(t13dir, 'task.json'), 'utf8'));
   ok(!!t13j1.goalHash && t13j1.goalHash.length >= 8, 'goalHash 已落档 task.json（syncIndexRow 由 reconcile 复核）');
   const d13ok = run(['doctor', t13id], repo);
-  ok(d13ok.status === 0 && d13ok.stdout.includes('✓ I11'), '锚定后 doctor I11 绿');
+  ok(d13ok.status === 0 && d13ok.stdout.includes('✓ 需求指纹（I11）'), '锚定后 doctor I11 绿');
 
   fs.writeFileSync(path.join(t13dir, 'spec.md'), t13spec.replace('做 X', '做 X（口径修订）'));
   const d13bad = run(['doctor', t13id], repo);
-  ok(d13bad.status === 1 && d13bad.stdout.includes('⚠ I11') && d13bad.stdout.includes('req-confirm'), 'I11 红：承重节被改未经变更门 → 咬住并指路 req-confirm');
+  ok(d13bad.status === 1 && d13bad.stdout.includes('⚠ 需求指纹（I11）') && d13bad.stdout.includes('req-confirm'), 'I11 红：承重节被改未经变更门 → 咬住并指路 req-confirm');
   ok(fs.readFileSync(path.join(t13dir, 'task.json'), 'utf8').includes(t13j1.goalHash) && !JSON.parse(fs.readFileSync(path.join(t13dir, 'task.json'), 'utf8')).reqChanges, 'I11 红灯只报告不改档（修复归编排层，脚本不越权）');
 
   const rcNoNote = run(['req-confirm', t13id], repo);
@@ -952,12 +952,12 @@ try {
   ok(rc.status === 0 && rc.stdout.includes('留痕'), 'req-confirm：hash 刷新 + reqChanges 落痕');
   const t13j2 = JSON.parse(fs.readFileSync(path.join(t13dir, 'task.json'), 'utf8'));
   ok(t13j2.reqChanges?.length === 1 && t13j2.reqChanges[0].note.includes('拍板') && t13j2.goalHash !== t13j1.goalHash, 'reqChanges 条目完整（ts/hash/note）且 goalHash 已刷新');
-  ok(run(['doctor', t13id], repo).stdout.includes('✓ I11'), 'req-confirm 后 I11 转绿（同一 spec，合法留痕）');
+  ok(run(['doctor', t13id], repo).stdout.includes('✓ 需求指纹（I11）'), 'req-confirm 后 I11 转绿（同一 spec，合法留痕）');
 
   const cur13 = fs.readFileSync(path.join(t13dir, 'spec.md'), 'utf8'); // 已确认版（口径修订），I11 绿基线
   fs.writeFileSync(path.join(t13dir, 'spec.md'), cur13.replace('- [ ] AC1', '- [x] AC1'));
   const d13chk = run(['doctor', t13id], repo);
-  ok(!d13chk.stdout.includes('⚠ I11') && d13chk.stdout.includes('✓ I11'), 'I11 边界值：验收勾选 [ ]→[x] 不触发误报（规范化归一）');
+  ok(!d13chk.stdout.includes('⚠ 需求指纹（I11）') && d13chk.stdout.includes('✓ 需求指纹（I11）'), 'I11 边界值：验收勾选 [ ]→[x] 不触发误报（规范化归一）');
   fs.writeFileSync(path.join(t13dir, 'spec.md'), cur13);
 
   const rcMiss = run(['req-confirm', 'no-such', '--note', 'x'], repo);
@@ -966,7 +966,7 @@ try {
   // I12 三态：断链红 / 锚点失效红 / 无 PRD 注记合法（从已确认版出发——I11 保持绿，红灯只来自 I12）
   fs.writeFileSync(path.join(t13dir, 'spec.md'), cur13.replace('docs/prd/x/domain.md', 'docs/prd/x/gone.md'));
   const d12a = run(['doctor', t13id], repo);
-  ok(d12a.status === 1 && d12a.stdout.includes('⚠ I12') && d12a.stdout.includes('gone.md'), 'I12 红：基线链接断链被咬住');
+  ok(d12a.status === 1 && d12a.stdout.includes('⚠ 需求基线（I12）') && d12a.stdout.includes('gone.md'), 'I12 红：基线链接断链被咬住');
   fs.writeFileSync(path.join(t13dir, 'spec.md'), cur13.replace('#口径', '#不存在的锚'));
   const d12b = run(['doctor', t13id], repo);
   ok(d12b.status === 1 && d12b.stdout.includes('锚点失效'), 'I12 红：锚点文本在目标文件中找不到');
@@ -978,15 +978,15 @@ try {
   fs.writeFileSync(path.join(t14dir, 'spec.md'), t14specOk);
   fs.writeFileSync(path.join(t14dir, 'task.json'), J({ id: t14id, title: '无PRD样例', goal: '做 Y', tier: 'small', anchor: 'attached', status: 'active', branch: null, worktree: null, createdAt: now, lastActiveAt: now, sessionID: 'ses_h', checkpoints: [], subtasks: [] }));
   const d14 = run(['doctor', t14id], repo);
-  ok(!d14.stdout.includes('⚠ I12') && d14.stdout.includes('豁免在案'), 'I12：无 PRD + 用户拍板豁免留痕 = 合法跳过');
+  ok(!d14.stdout.includes('⚠ 需求基线（I12）') && d14.stdout.includes('豁免在案'), 'I12：无 PRD + 用户拍板豁免留痕 = 合法跳过');
   // 新需求户口门（v2.23.1）：裸注记（无拍板留痕）→ 红——模型禁自选降级，无文档时呈用户决定
   fs.writeFileSync(path.join(t14dir, 'spec.md'), '# Spec\n\n## 目标\n\n做 Y\n\n## 需求基线\n\n- 无 PRD——口径以本 spec 为准（没有现成文档）\n\n## 验收标准\n\n- [ ] ACY\n');
   const d14bare = run(['doctor', t14id], repo);
-  ok(d14bare.status === 1 && d14bare.stdout.includes('⚠ I12') && d14bare.stdout.includes('拍板'), 'I12 红：无 PRD 注记缺拍板留痕——新增需求禁自选降级');
+  ok(d14bare.status === 1 && d14bare.stdout.includes('⚠ 需求基线（I12）') && d14bare.stdout.includes('拍板'), 'I12 红：无 PRD 注记缺拍板留痕——新增需求禁自选降级');
   // bugfix 任务自动豁免：bug 的原始需求=既有行为，不需拍板留痕（t6 已被归档进 archive/——顺带验证归档路径回退）
   fs.writeFileSync(path.join(tasksDir, 'archive', 't6-bugfix-20260101', 'spec.md'), '# Spec\n\n## 目标\n\n修 bug\n\n## 需求基线\n\n- 无 PRD——口径以本 spec 为准（缺陷修复，恢复既有行为）\n\n## 验收标准\n\n- [ ] 回归锁\n');
   const d6i12 = run(['doctor', 't6-bugfix-20260101'], repo);
-  ok(!d6i12.stdout.includes('⚠ I12') && d6i12.stdout.includes('bugfix'), 'I12：kind=bugfix 任务无 PRD 自动豁免（bug 修复不强制建文档）');
+  ok(!d6i12.stdout.includes('⚠ 需求基线（I12）') && d6i12.stdout.includes('bugfix'), 'I12：kind=bugfix 任务无 PRD 自动豁免（bug 修复不强制建文档）');
   fs.writeFileSync(path.join(t14dir, 'spec.md'), t14specOk);
 
   // I13 提示级：merged 后 reqChanges 晚于 PRD 最后提交 → 疑未回写
@@ -996,7 +996,7 @@ try {
   t13j3.reqChanges = [{ ts: '2099-01-01T00:00:00Z', hash: t13j3.goalHash, note: '迟到的口径确认' }];
   fs.writeFileSync(path.join(t13dir, 'task.json'), J(t13j3));
   const d13m = run(['doctor', t13id], repo);
-  ok(d13m.stdout.includes('ℹ I13') && d13m.stdout.includes('回写'), 'I13：reqChanges 晚于 PRD 最后提交 → ℹ 疑未回写（提示级不咬退出码语义由 bad 控制）');
+  ok(d13m.stdout.includes('ℹ PRD 回写（I13）') && d13m.stdout.includes('回写'), 'I13：reqChanges 晚于 PRD 最后提交 → ℹ 疑未回写（提示级不咬退出码语义由 bad 控制）');
   t13j3.reqChanges = [{ ts: '2000-01-01T00:00:00Z', hash: t13j3.goalHash, note: '早于 PRD 提交的确认' }];
   fs.writeFileSync(path.join(t13dir, 'task.json'), J(t13j3));
   ok(!run(['doctor', t13id], repo).stdout.includes('I13'), 'I13 边界值：确认早于 PRD 提交 → 不提示');
@@ -1008,7 +1008,7 @@ try {
   const arch13 = run(['archive', t13id], repo);
   ok(arch13.status === 0, `archive：t13 归层（merged + managed worktree 自动清）——实际 ${arch13.status}`);
   const d13arch = run(['doctor', t13id], repo);
-  ok(d13arch.status === 0 && d13arch.stdout.includes('✓ I11') && !d13arch.stdout.includes('⚠ I11'), '归档任务（spec 住 archive/）I11 保持绿——假红死锁回归被咬住');
+  ok(d13arch.status === 0 && d13arch.stdout.includes('✓ 需求指纹（I11）') && !d13arch.stdout.includes('⚠ 需求指纹（I11）'), '归档任务（spec 住 archive/）I11 保持绿——假红死锁回归被咬住');
 
   // ---- svc 服务端口租约（claim 让位/回收/补登 + release + doctor I14 对账）----
   // 端口全部从 freePort 派生，防与宿主机真实监听撞车；occupiedPort 挂真实监听模拟「其他任务在测服务」
@@ -1057,13 +1057,13 @@ try {
     { port: freePort + 40, service: 'dup', task: 't1-ok-20260101', session: 'ses_a', pid: process.pid, startedAt: now },
   ] }));
   const d14bad = run(['doctor', 't1-ok-20260101'], repo);
-  ok(d14bad.stdout.includes('⚠ I14') && d14bad.stdout.includes('重复'), 'I14 红：端口重复登记');
-  ok(d14bad.stdout.includes('ℹ I14') && d14bad.stdout.includes('stale') && d14bad.stdout.includes('orphan'), 'I14 提示级：pid 死=stale / task 不在 index=orphan');
+  ok(d14bad.stdout.includes('⚠ 端口租约（I14）') && d14bad.stdout.includes('重复'), 'I14 红：端口重复登记');
+  ok(d14bad.stdout.includes('ℹ 端口租约（I14）') && d14bad.stdout.includes('stale') && d14bad.stdout.includes('orphan'), 'I14 提示级：pid 死=stale / task 不在 index=orphan');
   fs.writeFileSync(svcFile, J({ services: [{ port: freePort + 11, service: 'web', task: 't1-ok-20260101', session: 'ses_a', pid: process.pid, startedAt: now }] }));
-  ok(run(['doctor', 't1-ok-20260101'], repo).stdout.includes('✓ I14'), 'I14 绿：租约在册且全活');
+  ok(run(['doctor', 't1-ok-20260101'], repo).stdout.includes('✓ 端口租约（I14）'), 'I14 绿：租约在册且全活');
   fs.writeFileSync(svcFile, '{ "services": "oops" }');
   const d14schema = run(['doctor', 't1-ok-20260101'], repo);
-  ok(d14schema.stdout.includes('⚠ I14') && run(['svc', 'ls'], repo).status === 1, 'I14：schema 非法 → doctor 红 + svc ls 拒绝');
+  ok(d14schema.stdout.includes('⚠ 端口租约（I14）') && run(['svc', 'ls'], repo).status === 1, 'I14：schema 非法 → doctor 红 + svc ls 拒绝');
   fs.rmSync(svcFile);
 
   // ---- 2.29.0 加固：doctor 分层 / I15 幽灵目录 / svc 正交标注 / accept 状态门 / ownerAlive 双判据 / mech 生成安装 ----
@@ -1087,7 +1087,7 @@ try {
   const d2i15 = run(['doctor'], repo2);
   ok(d2i15.stdout.includes('I15') && d2i15.stdout.includes('ab-ghostshots-20260101'), 'I15：幽灵目录点名（有内容无登记）');
   fs.mkdirSync(path.join(td2, 'decisions'), { recursive: true });
-  ok(!run(['doctor'], repo2).stdout.includes('I15 幽灵目录 decisions'), 'I15：decisions/ 目录不误报（幽灵目录仍点名）');
+  ok(!run(['doctor'], repo2).stdout.includes('幽灵目录（I15） decisions'), 'I15：decisions/ 目录不误报（幽灵目录仍点名）');
 
   // svc ls 正交标注：pid 维度 × orphan 维度并列（复合态不再互斥）
   fs.writeFileSync(path.join(td2, 'services.json'), J({ services: [
@@ -1112,7 +1112,7 @@ try {
   fs.writeFileSync(path.join(wt6, '.owner.json'), J({ sessionID: 'ses_f', pid: process.pid, started_at: '2000-01-01T00:00:00+08:00' }));
   ok(run(['doctor'], repo2).stdout.includes('复用嫌疑'), 'I10 双判据：pid 活 + started_at 不符 → 复用嫌疑');
   fs.writeFileSync(path.join(wt6, '.owner.json'), J({ sessionID: 'ses_f', pid: process.pid }));
-  ok(run(['doctor'], repo2).stdout.includes('✓ I10'), 'I10 双判据：无 started_at 凭证 → 降级旧语义（pid 活即活）');
+  ok(run(['doctor'], repo2).stdout.includes('✓ 属主凭证（I10）'), 'I10 双判据：无 started_at 凭证 → 降级旧语义（pid 活即活）');
 
   // accept 状态门：verifying 无警告 / 非 verifying 有状态标注（用 repo2 自建任务——主沙箱 t1 已被更早的 --pass 测试翻状态，禁依赖漂移态）
   const accV = run(['accept', 't6-verify-20260101'], repo2);
@@ -1439,13 +1439,13 @@ try {
   }));
   fs.writeFileSync(path.join(tasksDir, 'index.json'), J({ tasks: [...(JSON.parse(fs.readFileSync(path.join(tasksDir, 'index.json'), 'utf8')).tasks), { id: 't9-exp-20260101', title: '敞口样例', status: 'verifying', tier: 'small', branch: 'task/t9-exp-20260101', worktree: t9wt, sessionID: 'ses_g', createdAt: now, lastActiveAt: now }] }));
   const doc16 = run(['doctor'], repo);
-  ok(/⚠ I16 敞口：t9-exp-20260101 已部署\(0\.9\.9\)未合并 main/.test(doc16.stdout), 'doctor I16 红路：verifying 已部署未合并 main 超 24h → 敞口点名（静默敞口显式化）');
-  ok(/I17 (ssh 不可达|无 project\.json deploy)/.test(doc16.stdout) || /ℹ I17/.test(doc16.stdout), 'doctor I17：ssh 不可达（fixture）→ 信息级跳过不误红（通用项目零误报）');
+  ok(/⚠ 敞口（I16）：t9-exp-20260101 已部署\(0\.9\.9\)未合并 main/.test(doc16.stdout), 'doctor I16 红路：verifying 已部署未合并 main 超 24h → 敞口点名（静默敞口显式化）');
+  ok(/ℹ 实况对账（I17）/.test(doc16.stdout), 'doctor I17：ssh 不可达（fixture）→ 信息级跳过不误红（通用项目零误报）');
   const ls16 = run(['ls'], repo);
   ok(/t9-exp-20260101 .*⚠敞口[0-9]+天\(main一部署即滚回\)/.test(ls16.stdout), 'ls 待验收块：敞口任务带 ⚠敞口N天(main一部署即滚回) 标记');
   sh('git merge --no-ff -q task/t9-exp-20260101 -m "merge t9"', repo);
   const doc16b = run(['doctor', 't9-exp-20260101'], repo);
-  ok(/✓ I16 已部署内容已进 main（敞口关闭）/.test(doc16b.stdout), 'doctor I16 绿路：分支并入 main → 敞口关闭（收口链终点判定）');
+  ok(/✓ 敞口（I16）已关闭（已部署内容已进 main）/.test(doc16b.stdout), 'doctor I16 绿路：分支并入 main → 敞口关闭（收口链终点判定）');
   const acc9 = run(['accept', 't9-exp-20260101', '--pass'], repo);
   ok(acc9.status === 0 && /立即三件事收敞口/.test(acc9.stdout) && /deploy --branch main/.test(acc9.stdout), 'accept --pass：deploy 在档 → 翻转成功即打印收口三件事（merge/重建替换包/登记）');
   const stateRec = path.join(tmp, 'live-rec.json');
@@ -1746,7 +1746,7 @@ try {
     '## 约束与禁止', '', '- 禁止改动：其他文件', '',
   ].join('\n'));
   const f1 = await fcall({ toolName: 'task', input: { context: 'ctx', tasks: [{ name: 'Impl', task: '实现票 1，spec 见 .taskflow/g-live-20260101/subtasks/1-impl/spec.md' }] } });
-  ok(f1?.input?.tasks?.[0]?.task.includes('F 派发门') && f1.input.tasks[0].task.includes('## 约束与禁止') && f1.input.tasks[0].task.includes('工作目录（worktree）') && f1.input.tasks[0].task.includes('实现票 1'), 'TASKFLOW_GUARD F1：引用合法 subtask spec → {input} 机械注入 spec 全文+worktree+原派发词保留');
+  ok(f1?.input?.tasks?.[0]?.task.includes('派发门') && f1.input.tasks[0].task.includes('## 约束与禁止') && f1.input.tasks[0].task.includes('工作目录（worktree）') && f1.input.tasks[0].task.includes('实现票 1'), 'TASKFLOW_GUARD F1：引用合法 subtask spec → {input} 机械注入 spec 全文+worktree+原派发词保留');
   ok(f1.input.context === 'ctx' && f1.input.tasks[0].name === 'Impl', 'TASKFLOW_GUARD F1：input 其余字段原样保留（增量替换不删减）');
   const f2a = await fcall({ toolName: 'task', input: { tasks: [{ task: '见 .taskflow/g-live-20260101/subtasks/9-x/spec.md' }] } });
   ok(f2a?.block === true && /不存在/.test(f2a.reason), 'TASKFLOW_GUARD F2：引用不存在的 spec → block 点名路径');
@@ -1788,39 +1788,39 @@ try {
   ok(gNeg?.additionalContext && /编辑边界门/.test(gNeg.additionalContext), 'TASKFLOW_GUARD G 负面清单：明确禁止行中的路径不入清单 → 编辑它仍越界警告（旧版收入清单=放行禁改文件）');
   const gTilde = await gcall({ toolName: 'edit', input: { path: '~/.config/openedge/some-file.ts' } });
   ok(gTilde === undefined, 'TASKFLOW_GUARD G 波浪号（v2.54.1）：~/ 路径按主目录展开后无归属 → 零干扰放行（旧版 resolve 不展开 ~ 拼成 <cwd>/~/x 误报越界——另一 agent 会话 4 次误报实证）');
-  // ---- v2.49.1 TASKFLOW_GUARD H（事件面重设计：context——活体实证 tool_result(task) 只有 spawn 回执）----
+  // ---- v2.49.1 TASKFLOW_GUARD 同类排查提醒（事件面重设计：context——活体实证 tool_result(task) 只有 spawn 回执）----
   const hcall = async (msgs, cwd = gproj) => handlers['context']?.[0]?.({ messages: msgs }, { cwd, ui: {} });
   const mkMsg = (role, text) => ({ role, content: [{ type: 'text', text }] });
   const h1 = await hcall([mkMsg('user', '继续'), mkMsg('assistant', '<task-result id="a1" agent="scout" status="completed">…{"blockers":["G 死路"]}…</task-result>')]);
-  ok(Array.isArray(h1?.messages) && h1.messages.length === 3 && h1.messages[2].role === 'user' && /同类排查/.test(String(h1.messages[2].content)) && /可能猜错/.test(String(h1.messages[2].content)) && String(h1.messages[2].content).includes('按关键词在代码里搜索') && !/报了阻塞项/.test(String(h1.messages[2].content)), 'TASKFLOW_GUARD H：子代理报告进 context 链（chunk 数组，带属性 task-result 形态——2026-10-13 探针实证信封）→ 追加三问提醒消息（含「同类排查」「可能猜错」，grep 带括号白话，无旧措辞「报了阻塞项」），原消息保留');
-  const h1b = await hcall([mkMsg('user', '继续'), mkMsg('assistant', '报告 blockers:2'), { role: 'user', content: '⚠ TASKFLOW_GUARD H：已提醒过' }]);
-  ok(h1b === undefined, 'TASKFLOW_GUARD H 幂等+来源限定：无标签消息不武装，尾部已有提醒标记亦不追加');
+  ok(Array.isArray(h1?.messages) && h1.messages.length === 3 && h1.messages[2].role === 'user' && /同类排查/.test(String(h1.messages[2].content)) && /可能猜错/.test(String(h1.messages[2].content)) && String(h1.messages[2].content).includes('按关键词在代码里搜索') && !/报了阻塞项/.test(String(h1.messages[2].content)), 'TASKFLOW_GUARD 同类排查提醒：子代理报告进 context 链（chunk 数组，带属性 task-result 形态——2026-10-13 探针实证信封）→ 追加三问提醒消息（含「同类排查」「可能猜错」，grep 带括号白话，无旧措辞「报了阻塞项」），原消息保留');
+  const h1b = await hcall([mkMsg('user', '继续'), mkMsg('assistant', '报告 blockers:2'), { role: 'user', content: '⚠ TASKFLOW_GUARD 同类排查提醒：已提醒过' }]);
+  ok(h1b === undefined, 'TASKFLOW_GUARD 同类排查提醒 幂等+来源限定：无标签消息不武装，尾部已有提醒标记亦不追加');
   const h2 = await hcall([mkMsg('user', '正常完成')]);
   const h4 = await hcall([mkMsg('assistant', 'blocker')], tmp);
   const h6 = await hcall(null);
-  ok(h2 === undefined && h4 === undefined && h6 === undefined, 'TASKFLOW_GUARD H 边界：无特征 / 非 taskflow / 空 messages 全静默');
+  ok(h2 === undefined && h4 === undefined && h6 === undefined, 'TASKFLOW_GUARD 同类排查提醒 边界：无特征 / 非 taskflow / 空 messages 全静默');
   const h5 = await hcall([{ role: 'assistant', content: '<task-result>报告 blocking issues 2 个</task-result>' }]);
-  ok(Array.isArray(h5?.messages) && h5.messages.length === 2, 'TASKFLOW_GUARD H 变体：task-result 无属性形态 + string content + blocking 一词在标签内命中 → 注入');
+  ok(Array.isArray(h5?.messages) && h5.messages.length === 2, 'TASKFLOW_GUARD 同类排查提醒 变体：task-result 无属性形态 + string content + blocking 一词在标签内命中 → 注入');
   // ---- v2.61.0 触发源收紧（来源限定）：非 task-result 来源一律静默——旧全文扫描曾自我喂养连续 8~10 轮（两会话实证）----
   const h8 = await hcall([mkMsg('user', '继续'), mkMsg('assistant', '任务无 blockers，一切正常')]);
-  ok(h8 === undefined, 'TASKFLOW_GUARD H v2.61.0 翻转旧 h7：assistant 否定语境（无 blockers）→ 静默（旧版注入且被钉成已知良性噪音，现改判负例）');
+  ok(h8 === undefined, 'TASKFLOW_GUARD 同类排查提醒 v2.61.0 翻转旧 h7：assistant 否定语境（无 blockers）→ 静默（旧版注入且被钉成已知良性噪音，现改判负例）');
   const h9 = await hcall([mkMsg('user', '继续'), mkMsg('assistant', '我在排查并修复阻塞问题，进展顺利')]);
-  ok(h9 === undefined, 'TASKFLOW_GUARD H v2.61.0：编排模型自述含「阻塞」→ 静默（无 task-result 标签，不再武装——旧版自我喂养主源）');
+  ok(h9 === undefined, 'TASKFLOW_GUARD 同类排查提醒 v2.61.0：编排模型自述含「阻塞」→ 静默（无 task-result 标签，不再武装——旧版自我喂养主源）');
   const h10 = await hcall([mkMsg('user', '这个任务卡住了，先停一下')]);
-  ok(h10 === undefined, 'TASKFLOW_GUARD H v2.61.0：user 消息含「卡住」→ 静默（用户陈述不触发）');
+  ok(h10 === undefined, 'TASKFLOW_GUARD 同类排查提醒 v2.61.0：user 消息含「卡住」→ 静默（用户陈述不触发）');
   const h11 = await hcall([mkMsg('user', '⛔ 需你决策 3 项 ⚠ 敞口 2')]);
-  ok(h11 === undefined, 'TASKFLOW_GUARD H v2.61.0：工具图例符号（⛔/⚠）无特征词 → 静默');
-  const h12 = await hcall([mkMsg('user', '继续'), mkMsg('assistant', '<task-result>{"blockers":[1]}</task-result>'), { role: 'user', content: '⚠ TASKFLOW_GUARD H：提醒文本本身含阻塞/blocker 字样' }]);
-  ok(h12 === undefined, 'TASKFLOW_GUARD H v2.61.0 自我喂养切断：真实报告触发一轮后，自家提醒（无 task-result 标签）不再重新武装');
-  const h13 = await hcall([mkMsg('user', '⚠ TASKFLOW_GUARD H：旧提醒'), mkMsg('assistant', '继续讨论阻塞话题'), mkMsg('user', '图例行 ⛔')]);
-  ok(h13 === undefined, 'TASKFLOW_GUARD H v2.61.0：提醒老化出尾部后，普通对话含「阻塞」也不复活');
+  ok(h11 === undefined, 'TASKFLOW_GUARD 同类排查提醒 v2.61.0：工具图例符号（⛔/⚠）无特征词 → 静默');
+  const h12 = await hcall([mkMsg('user', '继续'), mkMsg('assistant', '<task-result>{"blockers":[1]}</task-result>'), { role: 'user', content: '⚠ TASKFLOW_GUARD 同类排查提醒：提醒文本本身含阻塞/blocker 字样' }]);
+  ok(h12 === undefined, 'TASKFLOW_GUARD 同类排查提醒 v2.61.0 自我喂养切断：真实报告触发一轮后，自家提醒（无 task-result 标签）不再重新武装');
+  const h13 = await hcall([mkMsg('user', '⚠ TASKFLOW_GUARD 同类排查提醒：旧提醒'), mkMsg('assistant', '继续讨论阻塞话题'), mkMsg('user', '图例行 ⛔')]);
+  ok(h13 === undefined, 'TASKFLOW_GUARD 同类排查提醒 v2.61.0：提醒老化出尾部后，普通对话含「阻塞」也不复活');
 
-  // ---- v2.57.0 TASKFLOW_GUARD I：词表反馈沉淀（用户拍板「逐轮催+压缩兜底」——正/负/消账/压缩/渲染源锚真跑）----
+  // ---- v2.57.0 TASKFLOW_GUARD 词表反馈沉淀（用户拍板「逐轮催+压缩兜底」——正/负/消账/压缩/渲染源锚真跑）----
   const icall = async (msgs, cwd) => handlers['context']?.[1]?.({ messages: msgs }, cwd ? { cwd, ui: {} } : mkCtx());
   const sedcall = async (tn, p) => handlers['tool_call']?.[3]?.({ toolName: tn, input: { path: p } }, mkCtx());
   await icall([mkMsg('user', '这段术语太多，我看不懂')]);
   const i1 = await call('before_provider_request', { payload: { system: 'BASE', messages: [] } });
-  ok(typeof i1?.system === 'string' && i1.system.includes('词表反馈沉淀') && i1.system.includes('1 条') && i1.system.includes('BASE'), 'TASKFLOW_GUARD I1 正路：user「看不懂」反馈 → E 通道追加沉淀指令（含计数，原 system 与规范块保留）');
+  ok(typeof i1?.system === 'string' && i1.system.includes('词表反馈沉淀') && i1.system.includes('1 条') && i1.system.includes('BASE'), 'TASKFLOW_GUARD I1 正路：user「看不懂」反馈 → 输出规范通道追加沉淀指令（含计数，原 system 与规范块保留）');
   await icall([mkMsg('user', '这段术语太多，我看不懂')]);
   const i1b = await call('before_provider_request', { payload: { system: 'BASE', messages: [] } });
   ok(i1b.system.includes('1 条'), 'TASKFLOW_GUARD I1 去重：context 重放同消息不重复计数');
@@ -1845,7 +1845,7 @@ try {
   ok(Array.isArray(i4b?.context) && !i4b.context.some((l) => String(l).includes('词表反馈沉淀')), 'TASKFLOW_GUARD I4 消账后：压缩行消失（任务接力行保留）');
   const guardSrcI = fs.readFileSync(guardPath, 'utf8');
   const tgDocI = fs.readFileSync(path.join(path.dirname(script), '..', 'references', 'taskflow-guard.md'), 'utf8');
-  ok(guardSrcI.includes('I 词表反馈沉淀') && tgDocI.includes('词表反馈沉淀') && tfmjsSrc.includes('词表反馈沉淀'), 'TASKFLOW_GUARD I 渲染源锚×3：guard 头注释 / taskflow-guard.md / MECH_PROSE 均含 I 条目（v2.56.2 渲染源漂移防复发）');
+  ok(guardSrcI.includes('词表反馈沉淀') && tgDocI.includes('词表反馈沉淀') && tfmjsSrc.includes('词表反馈沉淀'), 'TASKFLOW_GUARD I 渲染源锚×3：guard 头注释 / taskflow-guard.md / MECH_PROSE 均含 I 条目（v2.56.2 渲染源漂移防复发）');
   // ---- v2.49.1 G 活体热修回归：多活并集归属 + 解析加固 ----
   const glP = path.join(gproj, '.taskflow', 'g-live-20260101', 'task.json');
   const glBak = fs.readFileSync(glP, 'utf8');
@@ -2215,11 +2215,11 @@ try {
   pkAddT('pk-onmain-20260101', { branch: 'main', checkpoints: [] });
   const guardDoc = run(['doctor'], pkRepo);
   ok(!/I18 pk-zero-20260101/.test(guardDoc.stdout) && !/I18 pk-onmain-20260101/.test(guardDoc.stdout), 'v2.60.1 I18① 守卫（B1/F4）：零提交新任务（分支==基线 tip，isAnc 自反恒真）与 attached-on-main 不再误报未开工任务');
-  ok(/I18 pk-b-20260101 分支已并入 main/.test(guardDoc.stdout), 'v2.60.1 I18① 守卫不误伤：有 checkpoint 的真漏收口（pk-b）照报');
+  ok(/账实对账（I18） pk-b-20260101 分支已并入 main/.test(guardDoc.stdout), 'v2.60.1 I18① 守卫不误伤：有 checkpoint 的真漏收口（pk-b）照报');
   ok(!/I18 pk-dv-20260101/.test(guardDoc.stdout), 'v2.60.1 I18 参与资格（B4）：双源 verifying（等验收态）不参与账实对账');
   sh(`git update-ref refs/remotes/origin/main ${pkBase}`, pkRepo);
   const syncDoc = run(['doctor'], pkRepo);
-  ok(/I18 pk-b-20260101 分支已并入 main/.test(syncDoc.stdout), 'v2.60.1 I18① refs 同源（B2）：origin/main 滞后（已合未推窗口）仍由本地 main 命中——旧版只认单一 mainRef 会漏报刚合完最可能忘 accept 的高价值时刻');
+  ok(/账实对账（I18） pk-b-20260101 分支已并入 main/.test(syncDoc.stdout), 'v2.60.1 I18① refs 同源（B2）：origin/main 滞后（已合未推窗口）仍由本地 main 命中——旧版只认单一 mainRef 会漏报刚合完最可能忘 accept 的高价值时刻');
   const pk2 = path.join(tmp, 'pk2');
   fs.mkdirSync(path.join(pk2, '.taskflow', 'pk2-p-20260101'), { recursive: true });
   fs.writeFileSync(path.join(pk2, '.taskflow', 'pk2-p-20260101', 'task.json'), J({ id: 'pk2-p-20260101', title: '😀'.repeat(45), goal: 'g', tier: 'small', anchor: 'attached', status: 'parked', parkedReason: '等产品拍板', createdAt: pkNow, lastActiveAt: pkNow, sessionID: 's', subtasks: [] }));
@@ -2319,7 +2319,7 @@ try {
   pjDeploy.deploy.server = pjDeploy.deploy.server || 'fixture-host';
   fs.writeFileSync(path.join(tasksDir, 'project.json'), JSON.stringify(pjDeploy, null, 2) + '\n');
   const doc17Probe = run(['doctor'], repo);
-  ok(/I17 live-state 无 jar\.md5 登记/.test(doc17Probe.stdout), 'doctor I17 配置入口：仅 jarProbe 无 jarPath → 走到对账逻辑（fixture 无服务器=base 空），不再被「无 deploy 配置」拒收');
+  ok(/实况对账（I17） live-state 无 jar\.md5 登记/.test(doc17Probe.stdout), 'doctor I17 配置入口：仅 jarProbe 无 jarPath → 走到对账逻辑（fixture 无服务器=base 空），不再被「无 deploy 配置」拒收');
   delete pjDeploy.deploy.jarProbe;
   fs.writeFileSync(path.join(tasksDir, 'project.json'), JSON.stringify(pjDeploy, null, 2) + '\n');
 
@@ -2487,7 +2487,7 @@ try {
     ok(cRG.status === 0 && cRG.stdout.includes('基线对照门'), 'validate-changelog 串接：基线对照门入收尾链全过');
   }
 
-  // ---- 2.69.0：状态机机器源 + 事件日志 + revert-plan + gates + 守门 J 墙/K/E/T + skills --usage ----
+  // ---- 2.69.0：状态机机器源 + 事件日志 + revert-plan + gates + 守门 状态翻转墙/K/E/T + skills --usage ----
   {
     // 状态机模块（纯函数直测）+ data.md 表对账 + STATUS 键集合一致
     const sm = await import('file://' + path.join(path.dirname(script), 'taskflow-state-machine.mjs'));
@@ -2570,13 +2570,13 @@ try {
     // gates：双绿 verdict 可进合并 / 越界红
     ok(run(['snapshot', 'ev-a-20260101'], evRepo).status === 0, 'v2.81.0 前置：ev-a 拍快照（fail-closed 后快照门绿前置——本块只验门责任链聚合语义）');
     const gGreen = run(['gates', 'ev-a-20260101'], evRepo);
-    ok(gGreen.status === 0 && /快照门：过/.test(gGreen.stdout) && /越界门：过/.test(gGreen.stdout) && /已并入预检：过/.test(gGreen.stdout) && /stale：过/.test(gGreen.stdout) && /I16 敞口：过/.test(gGreen.stdout) && /gates verdict：0 红 0 黄——可进合并/.test(gGreen.stdout), `v2.69.0 gates 双绿：五道门全过 + verdict 可进合并${gGreen.status ? ' ← ' + gGreen.stdout + gGreen.stderr : ''}`);
+    ok(gGreen.status === 0 && /快照门：过/.test(gGreen.stdout) && /越界门：过/.test(gGreen.stdout) && /已并入预检：过/.test(gGreen.stdout) && /stale：过/.test(gGreen.stdout) && /敞口（I16）：过/.test(gGreen.stdout) && /gates verdict：0 红 0 黄——可进合并/.test(gGreen.stdout), `v2.69.0 gates 双绿：五道门全过 + verdict 可进合并${gGreen.status ? ' ← ' + gGreen.stdout + gGreen.stderr : ''}`);
     // 红路：分支追加声明集外提交（分支新提交未并入 main——越界门 diff 非空报红；同根预检红（未并入）+ stale 红（分支脱离主线），合计 3 红）
     sh('git checkout -q task/ev-a-20260101 && echo b > b-out.txt && git add -A && git commit -qm out-of-scope && git checkout -q main', evRepo);
     const gRed = run(['gates', 'ev-a-20260101'], evRepo);
     ok(gRed.status === 1 && /越界门：红/.test(gRed.stdout) && /gates verdict：3 红 0 黄——先消化红灯/.test(gRed.stdout), `v2.69.0 gates 红路：分支越界提交 → 越界+预检+stale 三红 + verdict 先消化红灯${gRed.status !== 1 ? ' ← ' + gRed.stdout + gRed.stderr : ''}`);
 
-    // J 墙 / K / E / T（gproj 守门夹具伪造事件——遍历全部 tool_call handler，与宿主派发同序）
+    // 状态翻转墙/验收期提醒/输出规范注入/技能加载埋点（gproj 守门夹具伪造事件——遍历全部 tool_call handler，与宿主派发同序）
     const jcall = async (toolName, input, env = {}) => {
       for (const k of Object.keys(env)) process.env[k] = env[k];
       let out;
@@ -2587,31 +2587,31 @@ try {
     const jT = path.join(gproj, '.taskflow', 'g-ver-20260101', 'task.json');
     const jOld = fs.readFileSync(jT, 'utf8');
     const jFlip = await jcall('write', { path: jT, content: JSON.stringify({ ...JSON.parse(jOld), status: 'active' }) });
-    ok(jFlip?.block === true && /J 状态翻转墙/.test(jFlip.reason) && /TF_STATUS=off/.test(jFlip.reason), 'v2.69.0 J 墙 enforce（缺省）：write 手改 status → block，reason 含豁免指引');
+    ok(jFlip?.block === true && /状态翻转墙/.test(jFlip.reason) && /TF_STATUS=off/.test(jFlip.reason), 'v2.69.0 状态翻转墙 enforce（缺省）：write 手改 status → block，reason 含豁免指引');
     const jOff = await jcall('write', { path: jT, content: JSON.stringify({ ...JSON.parse(jOld), status: 'active' }) }, { TF_STATUS: 'off' });
-    ok(jOff === undefined, 'v2.69.0 J 墙 off：TF_STATUS=off 单次豁免放行');
+    ok(jOff === undefined, 'v2.69.0 状态翻转墙 off：TF_STATUS=off 单次豁免放行');
     const jWarn = await jcall('write', { path: jT, content: JSON.stringify({ ...JSON.parse(jOld), status: 'active' }) }, { TF_STATUS: 'warn' });
-    ok(jWarn?.additionalContext && /J 状态翻转墙/.test(jWarn.additionalContext) && !jWarn.block, 'v2.69.0 J 墙 warn：警告档放行附 additionalContext');
+    ok(jWarn?.additionalContext && /状态翻转墙/.test(jWarn.additionalContext) && !jWarn.block, 'v2.69.0 状态翻转墙 warn：警告档放行附 additionalContext');
     const jNote = await jcall('write', { path: jT, content: JSON.stringify({ ...JSON.parse(jOld), note: '备注变更' }) });
-    ok(jNote === undefined, 'v2.69.0 J 墙误报面：纯 note 字段变更放行');
+    ok(jNote === undefined, 'v2.69.0 状态翻转墙误报面：纯 note 字段变更放行');
     const jNew = await jcall('write', { path: path.join(gproj, '.taskflow', 'g-new-20260101', 'task.json'), content: JSON.stringify({ id: 'g-new-20260101', status: 'active' }) });
-    ok(jNew === undefined, 'v2.69.0 J 墙建档路：新文件 status=active 放行');
+    ok(jNew === undefined, 'v2.69.0 状态翻转墙建档路：新文件 status=active 放行');
     const jNewV = await jcall('write', { path: path.join(gproj, '.taskflow', 'g-new2-20260101', 'task.json'), content: JSON.stringify({ id: 'g-new2-20260101', status: 'verifying' }) });
-    ok(jNewV?.block === true, 'v2.69.0 J 墙建档路：新文件 status=verifying 拦（仅 active 可建档）');
+    ok(jNewV?.block === true, 'v2.69.0 状态翻转墙建档路：新文件 status=verifying 拦（仅 active 可建档）');
     const jBad = await jcall('write', { path: jT, content: '{oops' });
-    ok(jBad?.block === true && /坏档案/.test(jBad.reason), 'v2.69.0 J 墙：坏 JSON 视同违规拦截');
+    ok(jBad?.block === true && /坏档案/.test(jBad.reason), 'v2.69.0 状态翻转墙：坏 JSON 视同违规拦截');
     const jEdit = await jcall('edit', { path: jT, old_string: '"status": "verifying"', new_string: '"status": "merged"' });
-    ok(jEdit?.block === true && /status verifying→merged/.test(jEdit.reason), 'v2.69.0 J 墙 edit 通道：字面替换模拟检出翻转 → block');
+    ok(jEdit?.block === true && /status verifying→merged/.test(jEdit.reason), 'v2.69.0 状态翻转墙 edit 通道：字面替换模拟检出翻转 → block');
     const jEditNote = await jcall('edit', { path: jT, old_string: '"title": "验收中"', new_string: '"title": "验收中二"' });
-    ok(jEditNote === undefined, 'v2.69.0 J 墙 edit 通道：非状态字段替换放行');
+    ok(jEditNote === undefined, 'v2.69.0 状态翻转墙 edit 通道：非状态字段替换放行');
     const jSed = await jcall('bash', { command: "sed -i 's/verifying/merged/' .taskflow/g-ver-20260101/task.json" });
-    ok(jSed?.block === true && /J 状态翻转墙/.test(jSed.reason), 'v2.69.0 J 墙 bash 通道：sed -i 触及 task.json 且不含 tf.mjs → block');
+    ok(jSed?.block === true && /状态翻转墙/.test(jSed.reason), 'v2.69.0 状态翻转墙 bash 通道：sed -i 触及 task.json 且不含 tf.mjs → block');
     const jSedOff = await jcall('bash', { command: "sed -i 's/verifying/merged/' .taskflow/g-ver-20260101/task.json" }, { TF_STATUS: 'off' });
-    ok(jSedOff === undefined, 'v2.69.0 J 墙 bash 通道：TF_STATUS=off 放行');
+    ok(jSedOff === undefined, 'v2.69.0 状态翻转墙 bash 通道：TF_STATUS=off 放行');
     const jTfmjs = await jcall('bash', { command: 'node tf.mjs park g-x --reason y' });
-    ok(jTfmjs === undefined, 'v2.69.0 J 墙 bash 通道：tf.mjs 命令零干扰');
+    ok(jTfmjs === undefined, 'v2.69.0 状态翻转墙 bash 通道：tf.mjs 命令零干扰');
     const k1 = await jcall('bash', { command: 'git push origin main' });
-    ok(k1?.additionalContext && /TASKFLOW_GUARD K/.test(k1.additionalContext) && /g-ver-20260101/.test(k1.additionalContext) && !k1.block, 'v2.69.0 K：verifying 在档时 git push → 提醒不拦（点名任务）');
+    ok(k1?.additionalContext && /TASKFLOW_GUARD 验收期提醒/.test(k1.additionalContext) && /g-ver-20260101/.test(k1.additionalContext) && !k1.block, 'v2.69.0 K：verifying 在档时 git push → 提醒不拦（点名任务）');
     const k2 = await jcall('bash', { command: 'git push origin main' }, { TF_VERIFY_WARN: 'off' });
     ok(k2 === undefined, 'v2.69.0 K：TF_VERIFY_WARN=off 关闭提醒');
     const eLive = await call('before_provider_request', { payload: { system: 'BASE', messages: [] } });
@@ -2814,13 +2814,13 @@ try {
   const lgLoadDrift = runEnv(['lint'], r2, { TF_ENTRY_ROUTES: mut(/\| 是 \| 部署 \|/, '| 主链路 | 部署 |') });
   ok(lgLoadDrift.status === 1 && /加载面值漂移「主链路」/.test(lgLoadDrift.stdout), 'v2.71.0 A4 lint：加载面值非 是*/否* → 值漂移红');
 
-  // ---- 2.72.0 机械保底：impact 命令（J19 引用面 + J20 数据管道特征）+ guard J19/J20 提醒 ----
+  // ---- 2.72.0 机械保底：impact 命令（牵连排查 引用面 + 数据边界 数据管道特征）+ guard 牵连排查/数据边界 提醒 ----
   // 三前提（上轮实证踩坑）：guardOn 采纳闸（mech 渲染 project.json 登记）/env 卫生（档位变量用完即删）/fixture 完整性（真 git 仓 + index.json）
   {
     const iRepo = path.join(tmp, 'impact-proj');
     fs.mkdirSync(path.join(iRepo, 'src'), { recursive: true });
     sh('git init -q -b main && git config user.email t@t && git config user.name t && echo \'.taskflow/\' >> .git/info/exclude', iRepo);
-    // 三文件互引夹具：report.ts 被 calc/store/view 引用（3 处 ≥ 阈值 3）；calc.ts 含环比词特征 → J20
+    // 三文件互引夹具：report.ts 被 calc/store/view 引用（3 处 ≥ 阈值 3）；calc.ts 含环比词特征 → 数据边界
     fs.writeFileSync(path.join(iRepo, 'src', 'report.ts'), [
       "import { calcSum, mom } from './calc.ts';",
       "import { store } from './store.ts';",
@@ -2849,9 +2849,9 @@ try {
     ok(r1.status === 0, '2.72.0 impact：恒 exit 0（提醒不拦截）');
     ok(/── src\/report\.ts/.test(r1.stdout) && /代码引用文件数 3（阈值判定），文档提及 0，命中次数 6（主名「report」整词检索，排除自身；grep 级，含注释\/文案，非引用语义）/.test(r1.stdout), '2.72.0 impact ①引用计数：report.ts 代码引用文件数 3（calc/store/view，2.76.0 主名整词+分组口径）+ 命中次数 6');
     ok(/src\/calc\.ts:1/.test(r1.stdout) && /src\/view\.ts:1/.test(r1.stdout), '2.72.0 impact ②引用清单：文件:行号 形态（calc.ts:1 / view.ts:1）');
-    ok(/③数据管道特征：J20 风险：涉数据管道（命中：环比/.test(r1.stdout) && /── src\/report\.ts[\s\S]*③数据管道特征：未命中/.test(r1.stdout), '2.72.0 impact ③数据管道特征：calc.ts 词特征命中标 J20 风险，report.ts 未命中不标（单 sort( 不算——report 无特征）');
-    ok(/J19 牵连排查：以上 1 个文件被多处引用，改动呈报须含影响面清单（src\/report\.ts）/.test(r1.stdout), '2.72.0 impact 尾行 J19：超阈值文件点名+影响面清单纪律');
-    ok(/J20 数据边界：枚举真空与失真形态（空集\/单条\/首期无参照\/异常值\/口径变更\/范围串扰），禁算了不传\/传空容器\/硬凑对比/.test(r1.stdout), '2.72.0 impact 尾行 J20：真空与失真形态枚举纪律（2.76.0 A1b 口径）');
+    ok(/③数据管道特征：数据边界风险：涉数据管道（命中：环比/.test(r1.stdout) && /── src\/report\.ts[\s\S]*③数据管道特征：未命中/.test(r1.stdout), '2.72.0 impact ③数据管道特征：calc.ts 词特征命中标 数据边界 风险，report.ts 未命中不标（单 sort( 不算——report 无特征）');
+    ok(/牵连排查：以上 1 个文件被多处引用，改动呈报须含影响面清单（src\/report\.ts）/.test(r1.stdout), '2.72.0 impact 尾行 牵连排查：超阈值文件点名+影响面清单纪律');
+    ok(/数据边界：枚举真空与失真形态（空集\/单条\/首期无参照\/异常值\/口径变更\/范围串扰），禁算了不传\/传空容器\/硬凑对比/.test(r1.stdout), '2.72.0 impact 尾行 数据边界：真空与失真形态枚举纪律（2.76.0 A1b 口径）');
     ok(r1.stdout.includes('grep 级分析（非语义级）'), '2.72.0 impact 尾注：grep 级声明+语义级工具指引');
     const r1n = run(['impact'], iRepo);
     ok(r1n.status === 0 && /无可分析的改动/.test(r1n.stdout), '2.72.0 impact：无在档任务+干净工作区 → ℹ 无可分析的改动（恒 exit 0）');
@@ -2866,7 +2866,7 @@ try {
     ok(/── src\/extra\.ts/.test(r2.stdout) && !/── src\/report\.ts/.test(r2.stdout), '2.72.0 impact 缺省文件集：active 任务 baseCommit..HEAD 改动（extra.ts 在列，基线已含的 report.ts 不在列）');
     const r3 = run(['impact', '--since', iBase], iRepo);
     ok(/── src\/extra\.ts/.test(r3.stdout), '2.72.0 impact --since：覆盖缺省区间（same 改动集）');
-    // guard J19/J20 提醒：mech 渲染 + mock pi 真执行；直接取末位 tool_call handler（本节新增，不挪既有下标）
+    // guard 牵连排查/数据边界 提醒：mech 渲染 + mock pi 真执行；直接取末位 tool_call handler（本节新增，不挪既有下标）
     const jproj = path.join(tmp, 'impact-guard-proj');
     fs.mkdirSync(path.join(jproj, '.taskflow'), { recursive: true });
     sh('git init -q -b main && git config user.email t@t && git config user.name t && echo \'.taskflow/\' >> .git/info/exclude', jproj);
@@ -2877,7 +2877,7 @@ try {
     for (const n of ['a1', 'a2', 'a3']) fs.writeFileSync(path.join(jproj, 'src', n + '.ts'), `import { rep } from './core/rep.ts';\nexport const ${n} = rep;\n`);
     sh('git add -A && git commit -qm src', jproj);
     const instJ = run(['mech', 'install', 'TASKFLOW_GUARD'], jproj);
-    ok(instJ.status === 0 && fs.existsSync(path.join(jproj, '.omp', 'hooks', 'pre', 'taskflow-guard.js')), '2.72.0 guard J19/J20 夹具：mech 渲染 guard（guardOn 采纳闸前提）');
+    ok(instJ.status === 0 && fs.existsSync(path.join(jproj, '.omp', 'hooks', 'pre', 'taskflow-guard.js')), '2.72.0 guard 牵连排查/数据边界 夹具：mech 渲染 guard（guardOn 采纳闸前提）');
     const guardModJ = await import('file://' + path.join(jproj, '.omp', 'hooks', 'pre', 'taskflow-guard.js'));
     const handlersJ = {};
     guardModJ.default({ setLabel() {}, on: (ev, fn) => { (handlersJ[ev] ??= []).push(fn); } });
@@ -2888,29 +2888,29 @@ try {
       finally { for (const k of Object.keys(env)) delete process.env[k]; } // env 卫生：档位变量用完即删，防串档
     };
     const bothJ = await jx('edit', { path: 'src/core/rep.ts', old_string: '环比', new_string: '同比' });
-    ok(typeof bothJ?.additionalContext === 'string' && /⚠ TASKFLOW_GUARD J19/.test(bothJ.additionalContext) && /⚠ TASKFLOW_GUARD J20/.test(bothJ.additionalContext)
-      && bothJ.additionalContext.indexOf('J19') < bothJ.additionalContext.indexOf('J20') && !bothJ.block,
-      '2.72.0 guard：J19+J20 双命中合并为一条 additionalContext（换行分隔两行，不注入两条）');
-    ok(/字符串命中 3 个代码文件（grep 级，含注释\/文案，非引用语义）/.test(bothJ?.additionalContext ?? '') && /impact --files src\/core\/rep\.ts/.test(bothJ?.additionalContext ?? ''), '2.72.0 guard J19：提醒含代码文件命中数（阈=3 达标）与 impact 指引（2.76.0 grep 级对冲口径）');
+    ok(typeof bothJ?.additionalContext === 'string' && /⚠ TASKFLOW_GUARD 牵连排查提醒/.test(bothJ.additionalContext) && /⚠ TASKFLOW_GUARD 数据边界提醒/.test(bothJ.additionalContext)
+      && bothJ.additionalContext.indexOf('牵连排查') < bothJ.additionalContext.indexOf('数据边界') && !bothJ.block,
+      '2.72.0 guard：牵连排查+数据边界 双命中合并为一条 additionalContext（换行分隔两行，不注入两条）');
+    ok(/字符串命中 3 个代码文件（grep 级，含注释\/文案，非引用语义）/.test(bothJ?.additionalContext ?? '') && /impact --files src\/core\/rep\.ts/.test(bothJ?.additionalContext ?? ''), '2.72.0 guard 牵连排查：提醒含代码文件命中数（阈=3 达标）与 impact 指引（2.76.0 grep 级对冲口径）');
     const j19off = await jx('edit', { path: 'src/core/rep.ts', old_string: '环比', new_string: '同比' }, { TF_J19_WARN: 'off' });
-    ok(j19off?.additionalContext?.includes('J20') && !j19off.additionalContext.includes('J19'), '2.72.0 guard 档位：TF_J19_WARN=off → 仅 J20 注入');
+    ok(j19off?.additionalContext?.includes('数据边界') && !j19off.additionalContext.includes('牵连排查'), '2.72.0 guard 档位：TF_J19_WARN=off → 仅 数据边界 注入');
     const j20off = await jx('edit', { path: 'src/core/rep.ts', old_string: '环比', new_string: '同比' }, { TF_J20_WARN: 'off' });
-    ok(j20off?.additionalContext?.includes('J19') && !j20off.additionalContext.includes('J20'), '2.72.0 guard 档位：TF_J20_WARN=off → 仅 J19 注入');
+    ok(j20off?.additionalContext?.includes('牵连排查') && !j20off.additionalContext.includes('数据边界'), '2.72.0 guard 档位：TF_J20_WARN=off → 仅 牵连排查 注入');
     const bothOff = await jx('edit', { path: 'src/core/rep.ts', old_string: '环比', new_string: '同比' }, { TF_J19_WARN: 'off', TF_J20_WARN: 'off' });
     ok(bothOff === undefined, '2.72.0 guard 档位：两档全 off → 零注入（纯提醒无 enforce）');
     const lowJ = await jx('edit', { path: 'src/a1.ts', old_string: 'rep', new_string: 'rep2' });
-    ok(lowJ === undefined, '2.72.0 guard J19 阈下：零引用文件不注入（a1.ts 无引用且无 J20 特征）');
+    ok(lowJ === undefined, '2.72.0 guard 牵连排查 阈下：零引用文件不注入（a1.ts 无引用且无 数据边界 特征）');
     const hiTh = await jx('edit', { path: 'src/core/rep.ts', old_string: '环比', new_string: '同比' }, { TF_IMPACT_THRESHOLD: '99' });
-    ok(hiTh?.additionalContext?.includes('J20') && !hiTh.additionalContext.includes('J19'), '2.72.0 guard 阈值：TF_IMPACT_THRESHOLD=99 → J19 不达不注入（J20 不受阈值影响）');
+    ok(hiTh?.additionalContext?.includes('数据边界') && !hiTh.additionalContext.includes('牵连排查'), '2.72.0 guard 阈值：TF_IMPACT_THRESHOLD=99 → 牵连排查 不达不注入（数据边界 不受阈值影响）');
     const newFileJ = await jx('write', { path: 'src/pipe.ts', content: '导出统计\nconst t = sum(1) + count(2);\n' });
-    ok(newFileJ?.additionalContext?.includes('J20') && !newFileJ.additionalContext.includes('J19'), '2.72.0 guard J20：未落盘 write 用 input.content 探测（新文件也有面；J19 零引用不注入）');
+    ok(newFileJ?.additionalContext?.includes('数据边界') && !newFileJ.additionalContext.includes('牵连排查'), '2.72.0 guard 数据边界：未落盘 write 用 input.content 探测（新文件也有面；牵连排查 零引用不注入）');
     const bkJ = await jx('edit', { path: '.taskflow/index.json', old_string: '[]', new_string: '[{"id":"x"}]' });
-    ok(bkJ === undefined, '2.72.0 guard 零干扰①：.taskflow/ 档案归既有 J 墙/G 门，本 handler 不注入');
+    ok(bkJ === undefined, '2.72.0 guard 零干扰①：.taskflow/ 档案归既有 状态翻转墙/编辑边界门，本 handler 不注入');
     const outJ = await jx('edit', { path: path.join(tmp, 'outside-impact.md'), old_string: 'a', new_string: 'b' });
     ok(outJ === undefined, '2.72.0 guard 零干扰②：仓库外文件不注入');
   }
 
-  // ---- 2.76.0 机械修复（A2 对抗审查 D3/E1/D1/S10-8/A1b/S10-9）：guard J19/J20 弹脸 + impact 检索修正 ----
+  // ---- 2.76.0 机械修复（A2 对抗审查 D3/E1/D1/S10-8/A1b/S10-9）：guard 牵连排查/数据边界 弹脸 + impact 检索修正 ----
   // 三前提照守：guardOn 采纳闸（mech 渲染登记）/env 卫生（档位变量用完即删）/fixture 真 git 仓 + index.json
   {
     // ① E1/D1（impact）：主名整词检索 + 代码/文档分组 + 同名歧义
@@ -2934,7 +2934,7 @@ try {
     ok(!/myapi\.ts:/.test(re1.stdout), '2.76.0 E1 ②：myapi.ts 子串污染不命中（-w 整词）');
     ok(!/文档与帮助文本（不计阈值）：/.test(re1.stdout), '2.76.0 E1 ②（2.77.1 F2b 修订口径）：.ts 目标检索面限同族后 .md 不入搜索面、文档组不再出现（文档分组对映射外扩展名仍生效+不计阈值，见 2.77.1 节 conf/share.cfg 断言）');
     ok(/⚠ 同名歧义：主名「api」/.test(re1.stdout) && /src\/api\.tsx/.test(re1.stdout), '2.76.0 E1 ②：同名异扩展孪生标注歧义');
-    ok(!re1.stdout.includes('J19 牵连排查：'), '2.76.0 E1 尾行：文档充数后代码 2<阈值 3 不点名 J19（旧混合计数 3+ 会点名——散文充数根除）');
+    ok(!re1.stdout.includes('牵连排查 牵连排查：'), '2.76.0 E1 尾行：文档充数后代码 2<阈值 3 不点名 牵连排查（旧混合计数 3+ 会点名——散文充数根除）');
     // ② D3②③④（impact j20Scan）：英文词 / SQL 大写+GROUP BY / 首尾窗口 / 注释行剔除
     fs.writeFileSync(path.join(e1, 'src', 'pipeEn.ts'), 'const total = rows.reduce((a, r) => a + r.previousPeriod, 0);\nexport const summarize = (xs) => xs.join(\',\');\n');
     fs.writeFileSync(path.join(e1, 'src', 'repSql.xml'), '<select>\nSELECT SUM(amount), COUNT(*) FROM orders GROUP BY day\n</select>\n');
@@ -2943,9 +2943,9 @@ try {
     sh('git add -A && git commit -qm j20', e1);
     const rj20 = run(['impact', '--files', 'src/pipeEn.ts,src/repSql.xml,src/bigShift.ts,src/onlyComment.ts'], e1);
     const secOf = (stdout, f) => stdout.split('\n── ').find((s) => s.startsWith(`${f}\n`)) ?? ''; // 按文件节切分（禁跨节惰性匹配假绿）
-    ok(/③数据管道特征：J20 风险：涉数据管道（命中：previousPeriod/.test(secOf(rj20.stdout, 'src/pipeEn.ts')), '2.76.0 D3②：英文管道词（previousPeriod）计入特征（旧闭集中文词表全 miss）');
-    ok(/③数据管道特征：J20 风险/.test(secOf(rj20.stdout, 'src/repSql.xml')), '2.76.0 D3③：SQL 大写 SUM(/COUNT(+GROUP BY 计入（旧正则大小写敏感且无 SQL 形态全 miss）');
-    ok(/③数据管道特征：J20 风险/.test(secOf(rj20.stdout, 'src/bigShift.ts')), '2.76.0 D3④：首 500 行+尾 200 行窗口——文件尾部特征可见（旧固定 500 行窗口漏）');
+    ok(/③数据管道特征：数据边界风险：涉数据管道（命中：previousPeriod/.test(secOf(rj20.stdout, 'src/pipeEn.ts')), '2.76.0 D3②：英文管道词（previousPeriod）计入特征（旧闭集中文词表全 miss）');
+    ok(/③数据管道特征：数据边界风险/.test(secOf(rj20.stdout, 'src/repSql.xml')), '2.76.0 D3③：SQL 大写 SUM(/COUNT(+GROUP BY 计入（旧正则大小写敏感且无 SQL 形态全 miss）');
+    ok(/③数据管道特征：数据边界风险/.test(secOf(rj20.stdout, 'src/bigShift.ts')), '2.76.0 D3④：首 500 行+尾 200 行窗口——文件尾部特征可见（旧固定 500 行窗口漏）');
     ok(/③数据管道特征：未命中/.test(secOf(rj20.stdout, 'src/onlyComment.ts')), '2.76.0 S10-8：注释行词特征不计（// 环比…注释不再是管道证据）');
     // ③ guard：mech 渲染 + D3① edit 增量扫描 + 泛名降档 + 文档不计阈值 + 新提醒词
     const gp = path.join(tmp, 'guard-e1-proj');
@@ -2956,7 +2956,7 @@ try {
     fs.mkdirSync(path.join(gp, 'src', 'core'), { recursive: true });
     fs.writeFileSync(path.join(gp, 'src', 'core', 'rep.ts'), 'export const rep = (xs) => xs.map((v) => v * 2);\n');
     for (const n of ['a1', 'a2', 'a3']) fs.writeFileSync(path.join(gp, 'src', n + '.ts'), `import { rep } from './core/rep.ts';\nexport const ${n} = rep;\n`);
-    fs.writeFileSync(path.join(gp, 'NOTES.md'), 'rep.ts 是核心工具\n'); // 文档提及：不计 J19 阈值
+    fs.writeFileSync(path.join(gp, 'NOTES.md'), 'rep.ts 是核心工具\n'); // 文档提及：不计 牵连排查 阈值
     fs.writeFileSync(path.join(gp, 'src', 'index.ts'), 'export const idx = 1;\n');
     for (const n of ['f1', 'f2', 'f3']) fs.writeFileSync(path.join(gp, 'src', n + '.ts'), "import { idx } from './index.ts';\n"); // 3 个代码引用（泛名降档用）
     fs.writeFileSync(path.join(gp, 'src', 'cold.ts'), 'export const cold = 1;\n');
@@ -2973,18 +2973,18 @@ try {
       finally { for (const k of Object.keys(env)) delete process.env[k]; } // env 卫生：用完即删防串档
     };
     const d3 = await gx('edit', { path: 'src/cold.ts', old_string: 'cold = 1', new_string: "const label = '环比统计';" });
-    ok(d3?.additionalContext?.includes('J20') && !d3.additionalContext.includes('J19'), '2.76.0 D3①：edit 新增环比特征 → J20 弹（旧读编辑前磁盘内容，最该弹的那次恰好不弹）');
+    ok(d3?.additionalContext?.includes('数据边界') && !d3.additionalContext.includes('牵连排查'), '2.76.0 D3①：edit 新增环比特征 → 数据边界 弹（旧读编辑前磁盘内容，最该弹的那次恰好不弹）');
     const d3en = await gx('edit', { path: 'src/cold.ts', old_string: 'cold = 1', new_string: 'const t = row.previousPeriod;' });
-    ok(d3en?.additionalContext?.includes('J20'), '2.76.0 D3②：edit 注入英文管道词（previousPeriod）→ J20 弹');
+    ok(d3en?.additionalContext?.includes('数据边界'), '2.76.0 D3②：edit 注入英文管道词（previousPeriod）→ 数据边界 弹');
     const d3c = await gx('edit', { path: 'src/cold.ts', old_string: 'cold = 1', new_string: '// 环比同比统计对比' });
-    ok(d3c === undefined, '2.76.0 S10-8：注释行词特征不弹 J20（纯注释编辑零噪音）');
+    ok(d3c === undefined, '2.76.0 S10-8：注释行词特征不弹 数据边界（纯注释编辑零噪音）');
     const j19 = await gx('edit', { path: 'src/core/rep.ts', old_string: 'rep', new_string: 'rep2' });
-    ok(j19?.additionalContext?.includes('J19') && /字符串命中 3 个代码文件（grep 级，含注释\/文案，非引用语义）/.test(j19.additionalContext), '2.76.0 D1：J19 只计代码文件（a1/a2/a3=3；NOTES.md 提及不计）且文案带 grep 级对冲');
-    ok(!/13\+ 引用形态/.test(j19?.additionalContext ?? ''), '2.76.0 D4：J19 提醒不再带会漂移的形态清单数字');
+    ok(j19?.additionalContext?.includes('牵连排查') && /字符串命中 3 个代码文件（grep 级，含注释\/文案，非引用语义）/.test(j19.additionalContext), '2.76.0 D1：牵连排查 只计代码文件（a1/a2/a3=3；NOTES.md 提及不计）且文案带 grep 级对冲');
+    ok(!/13\+ 引用形态/.test(j19?.additionalContext ?? ''), '2.76.0 D4：牵连排查 提醒不再带会漂移的形态清单数字');
     const gen = await gx('edit', { path: 'src/index.ts', old_string: 'idx', new_string: 'idx2' });
-    ok(gen === undefined, '2.76.0 S10-8：泛名（index）不弹 J19（防噪音疲劳——真仓实测前端噪音率 44%）');
+    ok(gen === undefined, '2.76.0 S10-8：泛名（index）不弹 牵连排查（防噪音疲劳——真仓实测前端噪音率 44%）');
     const j20w = await gx('edit', { path: 'src/cold.ts', old_string: 'cold = 1', new_string: "const label = '统计口径';" });
-    ok(j20w?.additionalContext?.includes('枚举真空与失真形态（空集/单条/首期无参照/异常值/口径变更/范围串扰）'), '2.76.0 A1b：J20 提醒词升级为真空与失真形态（含口径变更/范围串扰，与 data-boundary 清单同步）');
+    ok(j20w?.additionalContext?.includes('枚举真空与失真形态（空集/单条/首期无参照/异常值/口径变更/范围串扰）'), '2.76.0 A1b：数据边界 提醒词升级为真空与失真形态（含口径变更/范围串扰，与 data-boundary 清单同步）');
   }
 
   // ---- 2.77.1 检索精度残余（R2 有效性攻击）：F2a 孪生独立来源 + F2b 跨语言同名词膨胀 ----
@@ -3053,9 +3053,71 @@ try {
     const gJ2 = gH2['tool_call'][gH2['tool_call'].length - 1];
     const gx2 = async (toolName, input) => gJ2({ toolName, input }, { cwd: g2, ui: {} });
     const f2bG = await gx2('edit', { path: 'share.ts', old_string: 'share', new_string: 'share2' });
-    ok(f2bG === undefined, '2.77.1 guard F2b①：编辑 share.ts 只计同扩展名族（2<阈值 3）不弹 J19（旧被 Java 噪音顶到 8 误弹）');
+    ok(f2bG === undefined, '2.77.1 guard F2b①：编辑 share.ts 只计同扩展名族（2<阈值 3）不弹 牵连排查（旧被 Java 噪音顶到 8 误弹）');
     const f2bX = await gx2('edit', { path: 'conf/share.cfg', old_string: 'threshold', new_string: 'threshold2' });
-    ok(f2bX?.additionalContext?.includes('J19') && f2bX.additionalContext.includes('命中跨语言形态，basename 泛用词风险高'), '2.77.1 guard F2b②：映射外扩展名异族命中过半 → J19 提醒附跨语言歧义注记');
+    ok(f2bX?.additionalContext?.includes('牵连排查') && f2bX.additionalContext.includes('命中跨语言形态，basename 泛用词风险高'), '2.77.1 guard F2b②：映射外扩展名异族命中过半 → 牵连排查 提醒附跨语言歧义注记');
+
+    // ---- v2.83.0：guard 触发日志 + 多假设排序弹脸 + 链路文案 + 使用者视角落点（T1/T2/T3/T10）----
+    fs.writeFileSync(path.join(g2, '.taskflow', 'index.json'), J({ tasks: [{ id: 't-log-20260101', title: 'log', status: 'active', branch: 'task/t-log', worktree: path.join(g2, 'wt') }, { id: 't-acc-20260101', title: 'acc', status: 'verifying', branch: 'task/t-acc', worktree: null }] }));
+    fs.mkdirSync(path.join(g2, '.taskflow', 't-log-20260101'), { recursive: true });
+    fs.writeFileSync(path.join(g2, '.taskflow', 't-log-20260101', 'spec.md'), '## 目标\nlog 夹具\n## 边界与影响面\n- `in-scope.ts`\n');
+    fs.mkdirSync(path.join(g2, 'wt'), { recursive: true });
+    fs.writeFileSync(path.join(g2, 'wt', 'in-scope.ts'), 'x\n');
+    const logPath = path.join(g2, '.taskflow', '.guard-log.jsonl');
+    const gxAll = async (toolName, input) => { const outs = []; for (const h of gH2['tool_call'] ?? []) { try { const r = await h({ toolName, input }, { cwd: g2, ui: {} }); if (r?.additionalContext) outs.push(r.additionalContext); } catch { /* 单 handler 失败不连坐 */ } } return outs.join('\n'); };
+    const logBefore = fs.existsSync(logPath) ? fs.readFileSync(logPath, 'utf8') : '';
+    const gBound = await gxAll('edit', { path: 'outside.ts', old_string: 'a', new_string: 'b' });
+    ok(gBound.includes('编辑边界门'), '2.83.0 T1 前置：清单外主仓编辑 → 编辑边界门警告');
+    const logAfter = fs.readFileSync(logPath, 'utf8');
+    ok(logAfter.includes('"gate":"boundary"') && logAfter.length > logBefore.length, '2.83.0 T1 触发日志：编辑边界门触发 → .guard-log.jsonl 落 gate=boundary 行');
+    process.env.TF_GUARD_LOG = 'off';
+    await gxAll('edit', { path: 'outside2.ts', old_string: 'a', new_string: 'b' });
+    ok(fs.readFileSync(logPath, 'utf8') === logAfter, '2.83.0 T1 触发日志：TF_GUARD_LOG=off → 零新增行');
+    delete process.env.TF_GUARD_LOG;
+    const ctxFns = gH2['context'] ?? [];
+    const fireCtx = async (messages) => { let out = null; for (const h of ctxFns) { try { const r = await h({ messages }, { cwd: g2, ui: {} }); if (r?.messages) out = r; } catch { /* 单 handler 失败不连坐 */ } } return out; };
+    const bugMsgs = [{ role: 'user', content: '这个页面打不开了' }];
+    const t2a = await fireCtx(bugMsgs);
+    ok(Array.isArray(t2a?.messages) && t2a.messages.length === 2 && t2a.messages[1].content.includes('多假设排序'), '2.83.0 T2 弹脸：报障话语 → 注入多假设排序提醒');
+    ok(fs.readFileSync(logPath, 'utf8').includes('"gate":"triage"'), '2.83.0 T2 日志：弹脸触发 → gate=triage 落盘');
+    ok((await fireCtx(bugMsgs)) === null, '2.83.0 T2 去重：同报障话语二次不重复注入');
+    ok((await fireCtx([{ role: 'user', content: '帮我加个按钮' }])) === null, '2.83.0 T2 负路：非报障话语零注入');
+    fs.writeFileSync(path.join(g2, 'pipe.ts'), 'const x = [1].sort((a,b)=>a-b);\nconst n = [1].filter(v=>v);\n// 环比统计\n');
+    sh('git add -A && git commit -qm pipe', g2);
+    const imp3 = await gx2('edit', { path: 'conf/share.cfg', old_string: 'threshold', new_string: 'threshold9' });
+    ok(imp3?.additionalContext?.includes('skill://impact-analysis/SKILL.md'), '2.83.0 T3 链路：牵连排查提醒含可执行加载指令');
+    const db3 = await gx2('edit', { path: 'pipe.ts', old_string: '环比统计', new_string: '环比统计2' });
+    ok(db3?.additionalContext?.includes('skill://data-boundary/SKILL.md'), '2.83.0 T3 链路：数据边界提醒含可执行加载指令');
+    fs.mkdirSync(path.join(g2, '.taskflow', 't-acc-20260101'), { recursive: true });
+    fs.writeFileSync(path.join(g2, '.taskflow', 't-acc-20260101', 'spec.md'), '## 目标\nacc 夹具\n## 验收标准\n- [ ] 页面能打开\n');
+    fs.writeFileSync(path.join(g2, '.taskflow', 't-acc-20260101', 'task.json'), J({ id: 't-acc-20260101', title: 'acc', goal: 'acc 夹具', status: 'verifying', anchor: 'managed' }));
+    const acc10 = run(['accept', 't-acc-20260101'], g2);
+    ok(acc10.stdout.includes('使用者视角检查'), '2.83.0 T10 验收简报：accept 输出固定含使用者视角检查行');
+  }
+
+  // ---- v2.83.0：残留断言 + mechanisms 子命令 + 锚点 grep（T4/T8/T9/T10/T11）----
+  {
+    const repoRoot = path.resolve(import.meta.dirname, '..');
+    const mech = run(['mechanisms'], tmp);
+    const guardSrc = fs.readFileSync(path.join(repoRoot, 'assets', 'guard', 'taskflow-guard.js'), 'utf8');
+    const gl = guardSrc.split('\n');
+    const mainRows = gl.slice(0, gl.findIndex((l) => l.startsWith('import '))).filter((l) => /^\/\/ {3}(?! {3})/.test(l));
+    const mechRows = mech.stdout.split('\n').filter((l) => l.includes('｜开关：'));
+    ok(mech.status === 0 && mechRows.length === mainRows.length, `2.83.0 T8 mechanisms：输出条数与 guard 头注释主行数一致（${mechRows.length}/${mainRows.length}）`);
+    ok(['状态翻转墙', '编辑边界门', '渲染证据墙', '牵连排查', '多假设排序弹脸', 'TF_STATUS', 'TF_BOUND', 'TF_V_WARN', 'TF_J01_WARN', 'TF_GUARD_LOG'].every((k) => mech.stdout.includes(k)), '2.83.0 T8 mechanisms：中文名与 TF_ 开关齐全');
+    const jRe = /\bJ\d\d\b/;
+    const jLeft = [];
+    const walk = (d) => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { if (e.name.startsWith('.') || e.name === 'node_modules') continue; const fp = path.join(d, e.name); if (e.isDirectory()) walk(fp); else if (/\.(md|mjs|js)$/.test(e.name)) { const rel = path.relative(repoRoot, fp); if (rel === 'CHANGELOG.md') continue; fs.readFileSync(fp, 'utf8').split('\n').forEach((ln, i) => { if (!jRe.test(ln.replace(/TF_[A-Z0-9_]+/g, ' '))) return; if (rel === 'references/entry-routes.md' && /^\|\s*J\d\d\s*\|/.test(ln)) return; if (rel === 'references/terminology.md' && /（注册号 J\d\d/.test(ln)) return; jLeft.push(`${rel}:${i + 1}`); }); } } };
+    walk(repoRoot);
+    ok(jLeft.length === 0, `2.83.0 T4 残留断言：白名单外零 J 编号${jLeft.length ? `（残留 ${jLeft.slice(0, 6).join('、')}）` : ''}`);
+    ok((fs.readFileSync(path.join(repoRoot, 'references', 'new-task.md'), 'utf8').match(/三源对照/g) ?? []).length >= 1, '2.83.0 T9 锚点：new-task.md 含方案三源对照节');
+    ok(fs.readFileSync(path.join(repoRoot, 'references', 'plain-speech.md'), 'utf8').includes('业内做法对照'), '2.83.0 T9 槽位：plain-speech.md §4 含业内做法对照');
+    ok(fs.readFileSync(path.join(repoRoot, 'SKILL.md'), 'utf8').includes('理解重述'), '2.83.0 T11 锚点：SKILL.md 全局判定纪律区含理解重述');
+  }
+  {
+    sh('git checkout -qb task/t-rve2', rveRepo);
+    const v10 = await vgFire('edit', { path: 'a.vue', old_string: '.a{color:red}', new_string: '.a{color:crimson}' });
+    ok(v10.includes('渲染证据墙') && v10.includes('使用者视角'), '2.83.0 T10 宿主提醒：渲染证据墙提醒含使用者视角扩句');
   }
 
   process.exitCode = failures ? 1 : 0; // 失败≠0：堵住链式调用「grep 匹配到失败文案也算成功」的放行洞

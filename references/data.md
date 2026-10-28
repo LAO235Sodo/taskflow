@@ -23,26 +23,26 @@ git diff main...task/<id>                   # 任务全量改动
 
 `scripts/tf.mjs doctor`（只读）按此逐条检查，退出码 0=全绿 / 1=有差异；修复动作（回写/补登/重建/清理）由编排层落笔。脚本自身写入口限簿记命令（清单真相源 = tf.mjs 头注释「能力声明」），叙事与损坏 JSON 修复仍归编排层，绕不开确认门槛。
 
-| # | 不变量 | 违反时的修复动作 |
-| --- | --- | --- |
-| I1 | index 与 task.json 的 status / tier / sessionID / branch / worktree 一致（task.json 为准） | 以 task.json 回写 index，禁止只改一处 |
-| I2 | 分支 HEAD == 最后一条**非 merge** 条目的 commit；HEAD 领先 = 漏网 commit；落后/分叉 = 记录与代码不一致。`type: "merge"` 条目（合并事件标记）不参与 tip 对比，doctor 改校验其已存在于主分支历史 | 漏网 → 补登 checkpoint（前缀 `(补登,…)`）；不一致 → 列差异交用户取舍 |
-| I3 | managed 任务 worktree 存在（attached 的 `worktree: null` 是正常态，不得误报丢失） | 报告并询问是否重建；verifying 期间尤其需要 |
-| I4 | `.taskflow/` 不被 git 追踪（旧 `.opencode/tasks/` 同） | 补 `.git/info/exclude` + `git rm -r --cached` |
-| I5 | merged 任务：分支保留（`-d` 非 `-D`）、managed worktree 已移除 | 分支被删 / 目录残留 → 报告 |
-| I6 | （仅 active/verifying）任务分支须包含基线与主干最新——落后即提示 rebase；merged/archived 跳过 | resume / merge 时提示 |
-| I7 | （仅显式 `kind: "bugfix"` 的任务，缺省不打扰）任务分支 diff 必须含测试改动——defect→test 门禁：bug 必须固化为永久测试（testing.md §一/§六） | diff 有改动无测试 → 补测试或显式豁免注记；diff 为空 → ℹ 提示无改动可判 |
-| I8 | （提示级；独立于任务循环，**缺省体检必须可达**）已完结任务（merged/archived）必须住 archive/——死任务住根层 = 归档没做完（实证：某会话假归档——status=merged 就汇报完成，journal 平铺根层三天无人察觉） | `node tf.mjs archive` 归层（journal 三件套顺手归位，merge.md 第 8 步） |
-| I9 | activeLease 心跳新鲜（≤30 分钟）= 有会话在途 | ℹ 提示级：lease 活跃 → 「他会在途，续做前核对」；过期 → 可接管，接管经 `tf.mjs takeover`（resume.md 第 8 步） |
-| I10 | active/verifying 任务的 worktree 有属主凭证：`.owner.json`（sessionID/pid/started_at 原子写）+ pid 活性 × started_at 单向判据（进程启动显著晚于凭证 = pid 复用嫌疑；进程先于凭证 = 长驻进程合法态，v2.29.0） | ℹ 提示级：缺文件=无主 → 属主补写；pid 死 → 可接管（接管仪式经 `tf.mjs takeover`：改 sessionID + 重写 `.owner.json` + 刷新 lease + 打印清点清单）。清理三态：owned 可清 / **foreign 永不删** / unowned 问用户。隔离层硬拒由 `commit --session` 乐观锁承担（属主不符拒写），lease 是护栏不是锁 |
-| I11 | （spec.md 存在且含「目标/验收标准」节的任务）spec 承重节现算 hash == task.json.goalHash——需求变更唯一合法写路径 = `tf.mjs req-confirm`（需求变更门落痕）；`[x]`/`[ ]` 勾选归一不参与比对 | 红：跑 `tf.mjs req-confirm <id> --note "…"` 补确认或回退 spec；无 goalHash = pre-v2.23 档案 → ℹ 补锚；spec.md 缺失但 goalHash 在档 → 红（恢复文件或重锚） |
-| I12 | spec「需求基线」节声明的 docs/prd 链接真实存在（文件可寻于 worktree 或主仓库 + 锚点文本在文件中）；「无 PRD」注记仅当 kind=bugfix 或含「拍板/豁免」留痕字样才合法（**新增需求禁豁免——原始需求必须可追溯**）；条目级锚（验收项逐条挂 PRD 条目 ID、基线外草案登记与升格）归 REQ_ANCHOR_GATE 管，本行仍管文件级链接 | 红：修链接 / 补 PRD 条目 / 呈用户拍板豁免并补留痕字样（禁空节）；节缺失（pre-v2.23 档案）→ ℹ 续迭代时补 |
-| I13 | （仅 merged/archived 且有 reqChanges）最后 reqChange 时刻 ≤ 基线节 PRD 文件最后 git 提交时刻 | ℹ：reqChanges 晚于 PRD 最后提交 → PRD 疑未回写，人工核对后补提交 |
-| I14 | services.json 服务端口租约对账：schema 合法（services 数组、条目 port/service 必填）、端口不重复；pid 死 = stale、task 不在 index = orphan（svc ls 标注正交：orphan 为独立后缀，可与 pid 态复合，v2.29.0） | ⚠ 红：schema 非法 / 端口重复；ℹ 提示级：stale/orphan 可回收/认领（claim 自动回收死租约须端口实测空闲；release 手动释放） |
-| I15 | 根层幽灵目录对账：有内容、无 task.json、不在 index → 点名（提示级） | ℹ：认领建档 / 移 archive/ / 确认无用后删除——禁静默无视 |
-| I16 | verifying 敞口：`deploy` 在档且任务分支 ∉ main 超 24h → 红（线上跑分支包，任何 main 构建部署将静默滚回——双包事故实证） | 收口链：验收 `accept --pass` → merge main → main 重建替换包（`tf.mjs deploy --branch main`）；ls 待验收块同步 ⚠敞口 标记 |
-| I17 | 线上实况对账（本地触点版）：live-state jar.md5 vs 服务器实际 jar md5（ssh 只读；前提 project.json deploy 配置；ssh 不通/无配置=信息级跳过；CI/CD 到位后被流水线替代——2026-10-08 拍板不上服务器侧） | 红=未登记部署/手工换包 → `deploy-preflight --record` 补账 |
-| I18 | （提示级；仅 active 任务——参与资格以 isVerifying() 为准：顶层 + deploy 双源，等验收态不参与）账实对账：①分支已并入任一主 ref（与 accept --pass 前置同源集合，含 baseBranch；须有 checkpoint 才报——零提交新任务分支==基线 tip 的 identity 祖先恒真，不算漏收口）= 疑似漏收口；②lastActiveAt 距今 ≥14 天且 activeLease 过期 = 疑似搁置 | ℹ：①呈报验收简报（accept 是验收拍板，不可代理）或恢复开发；②直接 `park <id> --reason` 留档（可逆低影响，事后报告，v2.60.2 档位）或刷新续做；确认仍活跃则保持并刷新 lease |
+| # | 不变量 | 大白话 | 违反时的修复动作 |
+| --- | --- | --- | --- |
+| I1 | index 与 task.json 的 status / tier / sessionID / branch / worktree 一致（task.json 为准） | index 登记表和任务档案两处状态信息对得上，以任务档案为准 | 以 task.json 回写 index，禁止只改一处 |
+| I2 | 分支 HEAD == 最后一条**非 merge** 条目的 commit；HEAD 领先 = 漏网 commit；落后/分叉 = 记录与代码不一致。`type: "merge"` 条目（合并事件标记）不参与 tip 对比，doctor 改校验其已存在于主分支历史 | 分支最新提交和档案里最后一条存档记录对得上，漏登记的提交会被点名补登 | 漏网 → 补登 checkpoint（前缀 `(补登,…)`）；不一致 → 列差异交用户取舍 |
+| I3 | managed 任务 worktree 存在（attached 的 `worktree: null` 是正常态，不得误报丢失） | 登记为要用的独立工作副本（worktree）目录真实存在 | 报告并询问是否重建；verifying 期间尤其需要 |
+| I4 | `.taskflow/` 不被 git 追踪（旧 `.opencode/tasks/` 同） | .taskflow/ 状态档案目录不被 git 追踪（状态文档永不进 git） | 补 `.git/info/exclude` + `git rm -r --cached` |
+| I5 | merged 任务：分支保留（`-d` 非 `-D`）、managed worktree 已移除 | 已完结任务的分支保留、工作副本目录已移除 | 分支被删 / 目录残留 → 报告 |
+| I6 | （仅 active/verifying）任务分支须包含基线与主干最新——落后即提示 rebase；merged/archived 跳过 | 进行中任务的分支包含基线分支与主干最新提交 | resume / merge 时提示 |
+| I7 | （仅显式 `kind: "bugfix"` 的任务，缺省不打扰）任务分支 diff 必须含测试改动——defect→test 门禁：bug 必须固化为永久测试（testing.md §一/§六） | bug 修复任务的改动里必须包含测试 | diff 有改动无测试 → 补测试或显式豁免注记；diff 为空 → ℹ 提示无改动可判 |
+| I8 | （提示级；独立于任务循环，**缺省体检必须可达**）已完结任务（merged/archived）必须住 archive/——死任务住根层 = 归档没做完（实证：某会话假归档——status=merged 就汇报完成，journal 平铺根层三天无人察觉） | 已完结任务住 archive/ 目录，不留在根层 | `node tf.mjs archive` 归层（journal 三件套顺手归位，merge.md 第 8 步） |
+| I9 | activeLease 心跳新鲜（≤30 分钟）= 有会话在途 | 会话心跳新鲜=有会话在途，防止两个会话同时改一个任务 | ℹ 提示级：lease 活跃 → 「他会在途，续做前核对」；过期 → 可接管，接管经 `tf.mjs takeover`（resume.md 第 8 步） |
+| I10 | active/verifying 任务的 worktree 有属主凭证：`.owner.json`（sessionID/pid/started_at 原子写）+ pid 活性 × started_at 单向判据（进程启动显著晚于凭证 = pid 复用嫌疑；进程先于凭证 = 长驻进程合法态，v2.29.0） | 工作副本有属主凭证文件，进程活着且凭证对得上 | ℹ 提示级：缺文件=无主 → 属主补写；pid 死 → 可接管（接管仪式经 `tf.mjs takeover`：改 sessionID + 重写 `.owner.json` + 刷新 lease + 打印清点清单）。清理三态：owned 可清 / **foreign 永不删** / unowned 问用户。隔离层硬拒由 `commit --session` 乐观锁承担（属主不符拒写），lease 是护栏不是锁 |
+| I11 | （spec.md 存在且含「目标/验收标准」节的任务）spec 承重节现算 hash == task.json.goalHash——需求变更唯一合法写路径 = `tf.mjs req-confirm`（需求变更门落痕）；`[x]`/`[ ]` 勾选归一不参与比对 | spec 承重节指纹与档案一致，改需求必须过变更门留痕 | 红：跑 `tf.mjs req-confirm <id> --note "…"` 补确认或回退 spec；无 goalHash = pre-v2.23 档案 → ℹ 补锚；spec.md 缺失但 goalHash 在档 → 红（恢复文件或重锚） |
+| I12 | spec「需求基线」节声明的 docs/prd 链接真实存在（文件可寻于 worktree 或主仓库 + 锚点文本在文件中）；「无 PRD」注记仅当 kind=bugfix 或含「拍板/豁免」留痕字样才合法（**新增需求禁豁免——原始需求必须可追溯**）；条目级锚（验收项逐条挂 PRD 条目 ID、基线外草案登记与升格）归 REQ_ANCHOR_GATE 管，本行仍管文件级链接 | spec 声明的 PRD 文档与锚点真实存在 | 红：修链接 / 补 PRD 条目 / 呈用户拍板豁免并补留痕字样（禁空节）；节缺失（pre-v2.23 档案）→ ℹ 续迭代时补 |
+| I13 | （仅 merged/archived 且有 reqChanges）最后 reqChange 时刻 ≤ 基线节 PRD 文件最后 git 提交时刻 | 需求确认不能晚于 PRD 最后提交，晚=疑未回写 | ℹ：reqChanges 晚于 PRD 最后提交 → PRD 疑未回写，人工核对后补提交 |
+| I14 | services.json 服务端口租约对账：schema 合法（services 数组、条目 port/service 必填）、端口不重复；pid 死 = stale、task 不在 index = orphan（svc ls 标注正交：orphan 为独立后缀，可与 pid 态复合，v2.29.0） | 服务端口登记表 schema 合法、端口不重复、进程活性可判 | ⚠ 红：schema 非法 / 端口重复；ℹ 提示级：stale/orphan 可回收/认领（claim 自动回收死租约须端口实测空闲；release 手动释放） |
+| I15 | 根层幽灵目录对账：有内容、无 task.json、不在 index → 点名（提示级） | 根层有内容但没有档案的目录被点名，不静默 | ℹ：认领建档 / 移 archive/ / 确认无用后删除——禁静默无视 |
+| I16 | verifying 敞口：`deploy` 在档且任务分支 ∉ main 超 24h → 红（线上跑分支包，任何 main 构建部署将静默滚回——双包事故实证） | 已部署未合并超 24 小时=滚回倒计时，必须收口 | 收口链：验收 `accept --pass` → merge main → main 重建替换包（`tf.mjs deploy --branch main`）；ls 待验收块同步 ⚠敞口 标记 |
+| I17 | 线上实况对账（本地触点版）：live-state jar.md5 vs 服务器实际 jar md5（ssh 只读；前提 project.json deploy 配置；ssh 不通/无配置=信息级跳过；CI/CD 到位后被流水线替代——2026-10-08 拍板不上服务器侧） | 登记的部署指纹与服务器实际文件一致，手工换包必被点名 | 红=未登记部署/手工换包 → `deploy-preflight --record` 补账 |
+| I18 | （提示级；仅 active 任务——参与资格以 isVerifying() 为准：顶层 + deploy 双源，等验收态不参与）账实对账：①分支已并入任一主 ref（与 accept --pass 前置同源集合，含 baseBranch；须有 checkpoint 才报——零提交新任务分支==基线 tip 的 identity 祖先恒真，不算漏收口）= 疑似漏收口；②lastActiveAt 距今 ≥14 天且 activeLease 过期 = 疑似搁置 | 分支已并入但状态还活着=疑似漏收口；长期没动静=疑似搁置 | ℹ：①呈报验收简报（accept 是验收拍板，不可代理）或恢复开发；②直接 `park <id> --reason` 留档（可逆低影响，事后报告，v2.60.2 档位）或刷新续做；确认仍活跃则保持并刷新 lease |
 
 ## index.json（L1）
 
