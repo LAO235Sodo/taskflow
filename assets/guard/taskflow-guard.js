@@ -21,6 +21,10 @@
 //   输出规范注入：before_provider_request 每轮把「双层输出规范 + 项目词表」前置进 system——
 //      非 taskflow 会话也有叙事体+结构化底线；词表活读（.taskflow/glossary.md），词条改写下一轮即生效
 //      （用户反馈「看不懂」→ 当场改写该词条白话到用户能理解的风格，无需重装 extension）
+//   状态引导注入（v2.84.0）：before_provider_request（输出规范同通道追加）每轮把任务状态机「下一步动作+禁令」与
+//      active 任务未完成子任务清单前置进 system——治长会话指令稀释（字段住懒加载 references 从未被读，2026-10-28
+//      审计实证；注入只放浓缩指令，禁指路型提醒）；TF_STATE_INJECT=off 关（保留实况行=回退 2.83.0 行为）；状态指纹
+//      变化写 .taskflow/.guard-log.jsonl（gate=state-inject，TF_GUARD_LOG=off 关）——规则遵循从「模型记得」降为「宿主每轮重放」
 //   派发门：tool_call(task)——派发 prompt 引用 subtask spec 路径 → 校验必填节（背景/目标/验收/涉及文件/约束与禁止）
 //      后把 spec 全文机械注入派发 prompt（{input} 替换）——「编排层凭记忆转述」物理失效（split.md 自包含纪律的宿主落地）；
 //      引用了 spec 但文件缺失/必填节空 = 无条件 block；未引用 spec 的派发 = 提醒不拦（调研/审查类合法，三场景管制②③）
@@ -175,8 +179,45 @@ function spaceSeparatedFiles(cmd) {
 const DEPLOY_SIG = /\brsync\b[^\n|;&]*(\/opt\/|\.jar\b|\/web\/)|\bscp\b[^\n|;&]*(\/opt\/|\.jar\b|\/web\/)|\bssh\b[^\n|;&]*systemctl[^\n|;&]*(restart|stop|reload)/;
 // ---- 反馈信号（用户「看不懂」类强信号；「人话」单词不单列——问原理也命中，2026-10-11 本会话实证误报） ----
 const FEEDBACK_SIG = /看不懂|没看懂|看不明白|读不懂|没明白|不明白|什么意思|说人话|讲人话|太术语/;
+// ---- 状态引导注入（v2.84.0）：状态机「下一步动作+禁令」+ active 任务未完成子任务清单，随实况行每轮前置 ----
+// 动机：规则字段住懒加载 references 从未被读（2026-10-28 审计实证五天 0 命中）——解法=宿主每轮重放浓缩指令，禁指路型提醒。
+// 逐字节稳定（cache warming byte-identical）：内容只由 status/id/parkedReason/deployedAt(分钟截断)/sessionID/subtasks 派生，禁 Date.now() 等每轮变化源。
+function parkedReasonBrief(reason) {
+  const s = String(reason ?? '').replace(/[\r\n|]+/g, ' ').trim(); // 换行/竖线折叠空格（写入侧 park 已净化 data.md，注入侧再兜一层）
+  return s.length > 20 ? `${s.slice(0, 20)}…` : s;
+}
+const stateSeen = new Map(); // tasksDir → Map(id→status)：上轮状态指纹（同 id 两轮状态不同=翻转才写日志；新出现/消失只换指纹不写行——新任务无「旧状态」可记）
+function stateGuideBlock(dir, cwd, live, sessionId) {
+  const rows = [...live.active, ...live.verifying, ...live.parked].map((t) => ({ id: t.id, status: t.status, tj: readJsonSafe(path.join(dir, t.id, 'task.json')) ?? {} }));
+  if (!rows.length) return null; // 三桶全空不输出（merged/archived 不在引导面）
+  try { // 状态翻转埋点（gate=state-inject）：埋点绝不影响注入主流程（hook fail-closed）
+    const prev = stateSeen.get(dir);
+    const cur = new Map(rows.map((r) => [r.id, r.status]));
+    if (prev) for (const [id, st] of cur) { const old = prev.get(id); if (old && old !== st) guardLog(cwd, 'state-inject', 'transition', `${id}: ${old}→${st}`); }
+    stateSeen.set(dir, cur);
+  } catch { /* 埋点失败静默 */ }
+  const out = ['[taskflow 状态引导（TASKFLOW_GUARD；状态翻转只经脚本命令，禁手改 status）]'];
+  const inSession = (tj) => (sessionId && tj.sessionID && tj.sessionID === sessionId ? '，本会话' : ''); // 会话 id 匹配才标；API 异常降级无标注
+  for (const r of rows) {
+    if (r.status === 'active') {
+      out.push(`- ${r.id}（active，实现中）：改动先 checkpoint；收尾走 merge 流程${inSession(r.tj)}`);
+      const pending = (Array.isArray(r.tj.subtasks) ? r.tj.subtasks : []).filter((s) => s && s.status !== 'done');
+      if (pending.length) {
+        out.push(`  ${r.id} 子任务待办：`);
+        if (pending.length > 8) out.push(`  …共 ${pending.length} 项未完成`);
+        else for (const s of pending) out.push(`  - [ ] ${s.title}${s.status === 'in_progress' ? '（进行中）' : ''}`);
+      }
+    } else if (r.status === 'verifying') {
+      out.push(`- ${r.id}（verifying，等用户验收）：验收只经 tf.mjs accept ${r.id} --pass；禁自行合并`); // 部署时刻不重复（实况行 vPart 已显示）
+    } else {
+      out.push(`- ${r.id}（parked，挂起：${parkedReasonBrief(r.tj.parkedReason) || '（无）'}）：恢复只经 tf.mjs unpark ${r.id}`);
+    }
+  }
+  return out.join('\n');
+}
+
 // ---- 输出规范注入（词表活读） ----
-function buildInject(cwd) {
+function buildInject(cwd, sessionId = null) {
   const dir = locateTasksDir(cwd);
   if (!dir) return null; // 零干扰边界：无 .taskflow 的项目不注入
   const lines = [
@@ -199,6 +240,10 @@ function buildInject(cwd) {
   if (vPart) parts.push(`等验收 ${vPart}`);
   if (live.parked.length) parts.push(`挂起 ${live.parked.map((t) => t.id).join('、')}`);
   if (parts.length) lines.push(`taskflow 实况：${parts.join('；')}`);
+  if (process.env.TF_STATE_INJECT !== 'off') { // v2.84.0 状态引导（U）：off=回退 2.83.0 行为（保留实况行）
+    const guide = stateGuideBlock(dir, cwd, live, sessionId);
+    if (guide) lines.push(guide);
+  }
   return lines.join('\n');
 }
 function readGlossary(p) {
@@ -808,7 +853,9 @@ function vObligation(dir) {
 
   pi.on('before_provider_request', async (event, ctx) => {
     if (!guardOn(ctx?.cwd)) return undefined; // v2.54.0 采纳面自检（E 输出规范同受采纳面约束——文档 20 行口径 v2.54.0 同步）
-    let inject = buildInject(ctx?.cwd);
+    // 「本会话」标注源（v2.84.0 状态引导）：会话文件 basename 去 .jsonl；API 不符预期降级无标注（fail-closed 不阻注入）
+    const sessId = (() => { try { const f = ctx?.sessionManager?.getSessionFile?.(); return typeof f === 'string' && f ? path.basename(f).replace(/\.jsonl$/, '') : null; } catch { return null; } })();
+    let inject = buildInject(ctx?.cwd, sessId);
     if (!inject) return undefined;
     if (sed.pending > 0) inject += `\n[词表反馈沉淀（TASKFLOW_GUARD 词表反馈沉淀——检测到你看不懂的反馈、词表还没更新）] 本会话已检测到 ${sed.pending} 条「看不懂」类反馈、项目词表尚未改写——把涉事术语的大白话改写/补录进 .taskflow/glossary.md（改完下一轮生效；这可能猜错，不拦任何操作）。`;
     const p = event.payload;

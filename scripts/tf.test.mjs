@@ -888,6 +888,142 @@ try {
   sh('git checkout -q -b main', rveRepo);
   const rveNA = spawnSync('bash', [RVE, '--repo', rveRepo], { cwd: rveRepo, encoding: 'utf8' });
   ok(rveNA.status === 0 && rveNA.stdout.includes('N/A'), '渲染证据哨兵：非任务上下文 → 绿 N/A');
+
+  // ---- v2.84.0 U 状态引导注入夹具（host-faithful：真实 handler 链式调用；三态引导行+子任务清单+翻转埋点+开关+逐字节稳定）----
+  {
+    delete process.env.TF_STATE_INJECT;
+    delete process.env.TF_GUARD_LOG;
+    const sRepo = path.join(tmp, 'state-inject-proj');
+    fs.mkdirSync(sRepo, { recursive: true });
+    sh('git init -q -b main && git config user.email t@t && git config user.name t', sRepo);
+    fs.writeFileSync(path.join(sRepo, 'a.txt'), 'a\n');
+    sh('git add -A && git commit -qm init', sRepo);
+    const mkT = (id, extra) => {
+      fs.mkdirSync(path.join(sRepo, '.taskflow', id), { recursive: true });
+      fs.writeFileSync(path.join(sRepo, '.taskflow', id, 'task.json'), J({ id, title: id, status: 'active', subtasks: [], ...extra }));
+    };
+    mkT('si-active-20260101', {
+      sessionID: 'ses_SI',
+      subtasks: [
+        { id: '1', title: '已完成子任务', status: 'done', spec: null, worktree: null, branch: null },
+        { id: '2', title: '进行中子任务', status: 'in_progress', spec: null, worktree: null, branch: null },
+        { id: '3', title: '待办子任务', status: 'pending', spec: null, worktree: null, branch: null },
+      ],
+    });
+    mkT('si-verify-20260101', { status: 'verifying', deploy: { status: 'verifying', deployedAt: '2026-01-01T10:00:00+08:00' } });
+    const siReason = '等产品拍板接口口径\n第二行很长很长很长很长很长超出二十字';
+    mkT('si-park-20260101', { status: 'parked', parkedReason: siReason });
+    fs.mkdirSync(path.join(sRepo, '.taskflow'), { recursive: true });
+    fs.writeFileSync(path.join(sRepo, '.taskflow', 'index.json'), J({ tasks: [
+      { id: 'si-active-20260101', status: 'active' },
+      { id: 'si-verify-20260101', status: 'verifying' },
+      { id: 'si-park-20260101', status: 'parked' },
+    ] }));
+    fs.writeFileSync(path.join(sRepo, '.taskflow', 'project.json'), JSON.stringify({ mechanisms: { TASKFLOW_GUARD: { version: '2.84.0' } } }));
+    const bpC = async (cwd, sessFile) => { // E+V 双 handler 全链收集（E 是首位；V 在本夹具无 .v-wall 不出声）
+      const outs = [];
+      for (const h of vgH['before_provider_request'] ?? []) {
+        try {
+          const r = await h({ payload: { system: 'BASE' } }, { cwd, ui: {}, sessionManager: sessFile ? { getSessionFile: () => sessFile } : {} });
+          if (typeof r?.system === 'string') outs.push(r.system);
+        } catch { /* 单 handler 失败不连坐 */ }
+      }
+      return outs.join('\n====\n');
+    };
+    const sessFile = path.join(sRepo, 'ses_SI.jsonl');
+    const g1 = await bpC(sRepo, sessFile);
+    const siBrief = siReason.replace(/[\r\n|]+/g, ' ').trim().slice(0, 20);
+    ok(g1.includes('[taskflow 状态引导（TASKFLOW_GUARD；状态翻转只经脚本命令，禁手改 status）]'), '2.84.0 U 状态引导：引导块随实况行注入');
+    ok(g1.includes('- si-active-20260101（active，实现中）：改动先 checkpoint；收尾走 merge 流程，本会话'), '2.84.0 U 状态引导：active 引导行+（本会话）标注（sessionID 匹配夹具会话）');
+    ok(g1.includes('  si-active-20260101 子任务待办：') && g1.includes('  - [ ] 待办子任务') && g1.includes('  - [ ] 进行中子任务（进行中）'), '2.84.0 U 状态引导：未完成子任务清单+in_progress 标注');
+    ok(!g1.includes('已完成子任务'), '2.84.0 U 状态引导：done 子任务不列');
+    ok(g1.includes('- si-verify-20260101（verifying，等用户验收）：验收只经 tf.mjs accept si-verify-20260101 --pass；禁自行合并'), '2.84.0 U 状态引导：verifying 引导行（部署时刻不重复，实况行已显示）');
+    ok(g1.includes(`- si-park-20260101（parked，挂起：${siBrief}…）：恢复只经 tf.mjs unpark si-park-20260101`) && !g1.includes('第二行很长很长很长很长很长超出二十字'), '2.84.0 U 状态引导：parked 原因换行折叠+20 字截断');
+    ok(g1.includes('taskflow 实况：活 si-active-20260101') && g1.includes('等验收 si-verify-20260101（部署 01-01 10:00）'), '2.84.0 U 状态引导：既有实况行保留（verifying 部署时刻在实况行）');
+    const g1b = await bpC(sRepo, sessFile);
+    ok(g1b === g1, '2.84.0 U 状态引导：连续两次调用逐字节相同（cache warming byte-identical）');
+    process.env.TF_STATE_INJECT = 'off';
+    const g2 = await bpC(sRepo, sessFile);
+    delete process.env.TF_STATE_INJECT;
+    ok(!g2.includes('[taskflow 状态引导') && g2.includes('taskflow 实况：活 si-active-20260101'), '2.84.0 U 状态引导：TF_STATE_INJECT=off 关引导块留实况行（回退 2.83.0 行为）');
+    const logP = path.join(sRepo, '.taskflow', '.guard-log.jsonl');
+    const before = fs.existsSync(logP) ? fs.readFileSync(logP, 'utf8').split('\n').filter(Boolean).length : 0;
+    const siTjP = path.join(sRepo, '.taskflow', 'si-active-20260101', 'task.json');
+    const siTj = JSON.parse(fs.readFileSync(siTjP, 'utf8'));
+    siTj.status = 'verifying';
+    fs.writeFileSync(siTjP, JSON.stringify(siTj, null, 2) + '\n');
+    await bpC(sRepo, sessFile);
+    const logLines = fs.readFileSync(logP, 'utf8').split('\n').filter(Boolean);
+    ok(logLines.length === before + 1 && logLines.some((l) => l.includes('"gate":"state-inject"') && l.includes('"action":"transition"') && l.includes('si-active-20260101: active→verifying')), '2.84.0 U 翻转埋点：状态翻转 → guardLog gate=state-inject 一行（每任务一行）');
+    await bpC(sRepo, sessFile);
+    ok(fs.readFileSync(logP, 'utf8').split('\n').filter(Boolean).length === before + 1, '2.84.0 U 翻转埋点：指纹未变不增行');
+  }
+
+  // ---- v2.84.0 回退传播加固夹具（V1 受影响任务/V2 对账 ref 本地优先/V4 嵌套标注/V3 快照门黄路加严）----
+  {
+    const rRepo = path.join(tmp, 'revert-hard-proj');
+    fs.mkdirSync(rRepo, { recursive: true });
+    sh('git init -q -b main && git config user.email t@t && git config user.name t && echo \'.taskflow/\' >> .git/info/exclude', rRepo);
+    fs.writeFileSync(path.join(rRepo, 'base.txt'), 'b\n');
+    sh('git add -A && git commit -qm base', rRepo);
+    const rBase = execFileSync('git', ['-C', rRepo, 'rev-parse', 'main'], { encoding: 'utf8' }).trim();
+    sh('git checkout -q -b task/rvA', rRepo);
+    fs.writeFileSync(path.join(rRepo, 'a.ts'), 'a\n');
+    sh('git add -A && git commit -qm "feat A"', rRepo);
+    sh('git checkout -q main && git merge -q --no-ff task/rvA -m "merge A"', rRepo);
+    const rMA = execFileSync('git', ['-C', rRepo, 'rev-parse', 'main'], { encoding: 'utf8' }).trim();
+    execFileSync('git', ['-C', rRepo, 'update-ref', 'refs/remotes/origin/main', rBase]); // V2 前提：origin/main 滞后在 base（本地 main 已含未推送 merge）
+    sh('git checkout -q -b task/rvB main', rRepo); // rvB 自 mA 分出 → V4 嵌套（rvB 含 rvA tip）
+    fs.writeFileSync(path.join(rRepo, 'b.ts'), 'b\n');
+    sh('git add -A && git commit -qm "feat B"', rRepo);
+    sh('git checkout -q main && git merge -q --no-ff task/rvB -m "merge B"', rRepo);
+    fs.mkdirSync(path.join(rRepo, '.taskflow', 'rh-a-20260101'), { recursive: true });
+    fs.writeFileSync(path.join(rRepo, '.taskflow', 'rh-a-20260101', 'task.json'), J({ id: 'rh-a-20260101', title: 'A', status: 'merged', branch: 'task/rvA', baseCommit: rBase, mergedAt: now, subtasks: [] }));
+    fs.writeFileSync(path.join(rRepo, '.taskflow', 'rh-a-20260101', 'spec.md'), '# Spec — A\n\n## 边界与影响面\n\n- **改动文件集合声明**：`a.ts`\n');
+    fs.mkdirSync(path.join(rRepo, '.taskflow', 'rh-b-20260101'), { recursive: true });
+    fs.writeFileSync(path.join(rRepo, '.taskflow', 'rh-b-20260101', 'task.json'), J({ id: 'rh-b-20260101', title: 'B', status: 'merged', branch: 'task/rvB', baseCommit: rMA, mergedAt: now, subtasks: [] }));
+    fs.writeFileSync(path.join(rRepo, '.taskflow', 'index.json'), J({ tasks: [] }));
+    const rpA = run(['revert-plan', 'rh-a-20260101'], rRepo);
+    ok(rpA.status === 0 && rpA.stdout.includes('2 条 git revert -m 1 候选'), 'V2 对账 ref 本地优先：origin 滞后仍检出本任务 merge+下游嵌套 merge 共 2 条（旧逻辑 origin 优先产出「未检出 merge」）');
+    let planA = fs.readFileSync(path.join(rRepo, '.taskflow', 'rh-a-20260101', 'revert-plan.md'), 'utf8');
+    ok(planA.includes(rMA.slice(0, 7)) && !planA.includes('未检出 merge'), 'V2 对账 ref 本地优先：方案含未推送 merge sha');
+    ok(!planA.includes('## 受影响任务'), 'V1 受影响任务：无在途任务时节整节省略');
+    ok(planA.includes('> 嵌套合并自新向旧回退：后执行的条目可能空 revert/冲突，属预期，逐条核对剩余 diff 再继续。'), 'V4 嵌套标注：补偿命令节首行冲突预期提示');
+    ok(planA.includes('# ⚠ 含下游任务 rh-b-20260101 的已验收产出，连带回退需 rh-b-20260101 档案注记（unmergedAt）+用户拍板'), 'V4 嵌套标注：候选行尾下游任务警示');
+    ok(planA.includes('执行后跑 node tf.mjs stale（全量）'), 'V1 红线补行：执行后全量 stale 核对');
+    sh('git checkout -q -b task/rvC main', rRepo); // rvC 在途分支含 mA → V1 命中①
+    fs.writeFileSync(path.join(rRepo, 'c.ts'), 'c\n');
+    sh('git add -A && git commit -qm "feat C"', rRepo);
+    fs.mkdirSync(path.join(rRepo, '.taskflow', 'rh-c-20260101'), { recursive: true });
+    fs.writeFileSync(path.join(rRepo, '.taskflow', 'rh-c-20260101', 'task.json'), J({ id: 'rh-c-20260101', title: 'C', status: 'active', branch: 'task/rvC', baseCommit: rBase, subtasks: [] }));
+    fs.mkdirSync(path.join(rRepo, '.taskflow', 'rh-d-20260101'), { recursive: true }); // 无分支+写集相交 → V1 命中②
+    fs.writeFileSync(path.join(rRepo, '.taskflow', 'rh-d-20260101', 'task.json'), J({ id: 'rh-d-20260101', title: 'D', status: 'active', subtasks: [] }));
+    fs.writeFileSync(path.join(rRepo, '.taskflow', 'rh-d-20260101', 'spec.md'), '# Spec — D\n\n## 边界与影响面\n\n- **改动文件集合声明**：`a.ts`\n');
+    run(['revert-plan', 'rh-a-20260101'], rRepo);
+    planA = fs.readFileSync(path.join(rRepo, '.taskflow', 'rh-a-20260101', 'revert-plan.md'), 'utf8');
+    ok(planA.includes('## 受影响任务（执行回退前过目）'), 'V1 受影响任务：有在途命中时节存在');
+    ok(planA.includes('- rh-c-20260101（active，分支包含本任务合并点）'), 'V1 命中①：在途分支包含本任务合并点（isAnc 第二父）');
+    ok(planA.includes('- rh-d-20260101（active，读写集相交 a.ts）'), 'V1 命中②：声明相交（写集 matchPath）');
+
+    // V3：快照门黄路加严——仅写集声明无机读路径时免重审禁入
+    const mRepo = path.join(tmp, 'mergegate-yellow-proj');
+    fs.mkdirSync(mRepo, { recursive: true });
+    sh('git init -q -b main && git config user.email t@t && git config user.name t && echo \'.taskflow/\' >> .git/info/exclude', mRepo);
+    fs.writeFileSync(path.join(mRepo, 'w.txt'), 'w\n');
+    sh('git add -A && git commit -qm base', mRepo);
+    fs.mkdirSync(path.join(mRepo, '.taskflow', 'mg-y-20260101'), { recursive: true });
+    fs.writeFileSync(path.join(mRepo, '.taskflow', 'mg-y-20260101', 'task.json'), J({ id: 'mg-y-20260101', title: '黄路加严', status: 'active', subtasks: [] }));
+    fs.writeFileSync(path.join(mRepo, '.taskflow', 'mg-y-20260101', 'spec.md'), '# Spec — 黄路加严\n\n## 边界与影响面\n\n- **改动文件集合声明**：`w.txt`\n'); // 只有写集、无影响面地图
+    ok(run(['snapshot', 'mg-y-20260101'], mRepo).status === 0, 'V3 前置：拍快照');
+    fs.writeFileSync(path.join(mRepo, 'other.txt'), 'o\n'); // main 前移改无关文件（旧逻辑=黄路免重审）
+    sh('git add -A && git commit -qm "unrelated move"', mRepo);
+    const m1 = run(['mergegate', 'mg-y-20260101'], mRepo);
+    ok(m1.status === 1 && m1.stdout.includes('无机读路径') && m1.stdout.includes('禁免重审放行') && !m1.stdout.includes('快照门黄'), 'V3 快照门加严：仅写集声明+main 前移未命中 → 红（免重审禁入）');
+    fs.writeFileSync(path.join(mRepo, '.taskflow', 'mg-y-20260101', 'spec.md'), '# Spec — 黄路加严\n\n## 边界与影响面\n\n- **改动文件集合声明**：`w.txt`\n\n## 影响面地图\n\n| 方向 | 资产（文件/符号/机制） | 证据（grep 命中/引用处） |\n| --- | --- | --- |\n| 读 | `docs/api.md` | 下单服务引用 |\n'); // 补读集（资产列=第二视觉列，对齐模板形状；未命中变更文件）
+    const m2 = run(['mergegate', 'mg-y-20260101'], mRepo);
+    ok(m2.status === 1 && m2.stdout.includes('快照门黄'), 'V3 快照门加严：读集非空 → 黄路保留（同步合并+刷新快照免重审）');
+  }
+
   ok(run(['lock'], repo).status === 1, 'lock：缺 name → 退出码 1（边界值：空输入）');
   ok(run(['lock', 'a/b', '--session', 's'], repo).status === 1, 'lock：name 含路径分隔 → 拒绝（防越目录写）');
 

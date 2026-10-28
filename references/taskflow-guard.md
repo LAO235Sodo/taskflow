@@ -1,6 +1,6 @@
 # 宿主防护层（TASKFLOW_GUARD）
 
-> 机制定义（data.md 机制登记表 / MECH_PROSE）。本文件是细则唯一载体：功能清单（D–T 十二项）、部署墙/编辑边界/状态翻转墙档位、零干扰边界、卸载。
+> 机制定义（data.md 机制登记表 / MECH_PROSE）。本文件是细则唯一载体：功能清单（D–U 十三项）、部署墙/编辑边界/状态翻转墙档位、零干扰边界、卸载。
 > 防的事故类：taskflow 是技能，一切强制力都要经模型一次正确执行——`commit --files` 逗号坑连环踩、`deploy` 忘 `--web-only`、绕过部署入口、敞口无感知、压缩丢上下文、**派发凭记忆转述 spec、越界编辑**，全是"模型没记得/没做对"。omp extension 跑在宿主进程事件总线上，模型物理绕不过（2026-10-09 用户拍板，方案呈报 D→B→C→A 顺序；同日 F/G 拍板——split.md 纸面纪律升格宿主层）。
 
 ## 形态与安装
@@ -9,7 +9,7 @@
 - 定位 `.taskflow/` 用 `git rev-parse --git-common-dir`——worktree 内会话正确回到主仓库档案。
 - **零干扰边界**：项目无 `.taskflow/` 时全部功能静默（状态栏不显示、无拦截、无注入）——通用项目可装可不装。
 
-## 功能清单（D–T）
+## 功能清单（D–U）
 
 | # | 功能 | 事件 | 行为 |
 | --- | --- | --- | --- |
@@ -25,6 +25,7 @@
 | J | 状态翻转墙（v2.69.0） | `tool_call`（edit/write/bash） | task.json/index.json 的 status/deploy.status **手改 = 物理拦截**：edit/write 做「翻转前后」语义比对（磁盘内容字面替换模拟 edit；坏 JSON 视同违规；新建档案仅 status=active 放行），bash 重定向/tee/sed -i 触及任务档案且不含 tf.mjs 直接按档拦——翻转唯一合法写路径 = 扳机命令，档案修复唯一路径 `reconcile --fix` |
 | K | 验收期 git 提醒（v2.69.0） | `tool_call`（bash） | 在档等验收任务（isVerifying 双源且顶层非 merged）存在时 `git push`/`git merge` → additionalContext 提醒核对 conventions.md 合并时序——**只提醒不拦**（部署服务器拉取 push 属合法流量；`TF_VERIFY_WARN=off` 关） |
 | T | 技能加载埋点（v2.69.0） | `tool_call`（read） | `skill://` 显式读取计数入全局单文件（`TF_SKILL_USAGE` 或 `~/.omp/agent/skill-usage.jsonl`）——零内容仅计数（只记技能名与项目名），供 `tf.mjs skills --usage` 报表；**不受 guardOn 闸控**（全局能力地图数据），handler 整体吞错（omp hook fail-closed：抛错=阻断读取，埋点绝不能拦主流程） |
+| U | 状态引导注入（v2.84.0） | `before_provider_request`（E 同通道追加） | 每轮把状态机「下一步动作+禁令」引导行（active=改动先 checkpoint、收尾走 merge 流程；verifying=验收只经 accept --pass、禁自行合并；parked=恢复只经 unpark，原因摘要换行/竖线折叠+20 字截断）+ active 任务未完成子任务清单（status≠done；in_progress 标注（进行中）；>8 项折叠为「…共 N 项未完成」）前置进 system——治长会话指令稀释（字段住懒加载 references 从未被读，2026-10-28 审计实证；注入只放浓缩指令，禁指路型提醒）。顺序 active→verifying→parked，桶空省略、三桶全空不输出；「，本会话」标注=task.json.sessionID 与当前会话 id 相等（API 异常降级无标注）；内容逐字节稳定（cache warming byte-identical，禁每轮变化源）；`TF_STATE_INJECT=off` 关（保留实况行=回退 2.83.0 行为）；状态指纹（三桶 id→status 串）变化且同 id 两轮状态不同 → 写触发日志（gate=state-inject，每任务一行） |
 
 ## 部署墙两档模式（A）
 

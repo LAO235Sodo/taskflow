@@ -1824,6 +1824,10 @@ function mergeGateSnapshot(t, mainRoot, mainRef) {
           g.findings.push(`⛔ 快照门红：审查时 ${snap.mainRef ?? 'main'} @ ${String(snap.commit).slice(0, 7)}，现在 ${mainRef} @ ${head.slice(0, 7)}——main 在审查后前移（他人已合入），对着旧基线审的 diff 不能直接合。命中读写集：${overlap.join('、')}——重跑第 3 步审查时逐文件核对 spec 影响面地图对应行 → 回 merge.md 第 1 步：任务分支 git merge ${mainRef} 解冲突，实质变化重跑第 3 步审查，完成后 node tf.mjs snapshot ${t.id} 刷新快照再过本门`);
           g.red = true;
           g.reason = `main 前移命中读写集（${overlap.length} 文件）`;
+        } else if (!readSet.length && writeSet.length) { // v2.84.0 V3 加严：只有写集声明、无机读路径——免重审语义被破坏（无法证明未消费被变更接口），黄路禁入
+          g.findings.push('⛔ 快照门红：main 在审查后前移且 spec 只有写集声明、无机读路径（影响面地图资产列空）——无法证明未消费被变更接口，禁免重审放行；补影响面地图资产列（反引号读集）后回 merge.md 第 1 步同步合并重审');
+          g.red = true;
+          g.reason = 'main 前移且 spec 只有写集声明（无机读路径），免重审前提不成立';
         } else {
           g.findings.push(`⚠ 快照门黄：main 前移但未触碰本任务读写集——变更清单如下（过目）：${changedFiles.join('、')}——同步合并（任务分支 git merge ${mainRef}）+ node tf.mjs snapshot ${t.id} 刷新快照再过本门，免 merge.md 第 3 步重审（用户拍板 2026-10-11）`);
           g.red = true; // 黄红都计入红（exit 1）——保住「双绿才进 lock」；黄路刷新快照后幂等秒过
@@ -1996,12 +2000,13 @@ function revertPlanCmd(args = []) {
     return 1;
   }
   const { isGit, mainRoot, tasksDir } = locate();
-  const t = loadTasks(tasksDir).find((x) => x.id === id);
+  const allTasks = loadTasks(tasksDir);
+  const t = allTasks.find((x) => x.id === id);
   if (!t) { console.log(`未找到任务 ${id}（跑 ls 查看列表）`); return 1; }
   if (t.status !== 'merged') { console.log(`⚠ ${id} 状态 ${t.status}（非 merged）——补偿方案只适用于已合并任务；active/verifying 的打回走 resume.md 第 9 步`); return 1; }
   if (!isGit) { console.log('⚠ 非 git 项目无回退对象'); return 1; }
   const dir = taskDirOf(tasksDir, id);
-  const targetRef = git(['-C', mainRoot, 'rev-parse', '--verify', 'origin/main'], mainRoot, true) ? 'origin/main' : resolveMainRef(mainRoot);
+  const targetRef = resolveMainRef(mainRoot) ?? 'origin/main'; // v2.84.0 V2 修复：本地优先（与 snapshotCmd/resolveMainRef 同源纪律——origin 滞后窗口 origin 优先会把回退区间拍瞎：已合未推的 merge 检不出，产出「未检出 merge」的错误方案）
   if (!targetRef) { console.log('⚠ 主分支不可解析——无从定位合并区间'); return 1; }
   const base = t.baseCommit ?? t.mergeSnapshot?.commit ?? null;
   const branch = t.branch ?? null;
@@ -2026,6 +2031,28 @@ function revertPlanCmd(args = []) {
       note = '任务无分支记录（attached 工作流）——以上为区间内全部 merge，逐条人工核对是否本任务产出';
     }
   }
+  // v2.84.0 回退传播加固（V1/V4）：回退会抽掉其他任务的基线——方案必须带传播清单（2026-10-28 审计实证：对其他在途任务零传播）
+  const secondParent = (sha) => (git(['-C', mainRoot, 'rev-list', '--parents', '-n', '1', sha], mainRoot, true) ?? '').split(/\s+/).slice(1).filter(Boolean)[1];
+  const mySpecP = path.join(dir, 'spec.md');
+  const myWrite = parseWriteSet(fs.existsSync(mySpecP) ? fs.readFileSync(mySpecP, 'utf8') : '');
+  const others = allTasks.filter((x) => x.id !== id && (x.status === 'active' || x.status === 'verifying' || x.status === 'parked')); // 在途=受影响面
+  const downstream = allTasks.filter((x) => x.id !== id && x.status === 'merged'); // 已验收=连带回退面
+  const affected = [];
+  for (const b of others) {
+    let how = null;
+    if (b.branch && git(['-C', mainRoot, 'rev-parse', '--verify', `refs/heads/${b.branch}`], mainRoot, true)) {
+      // 命中①：B 分支包含本任务某候选 merge 的第二父（本任务工作线已进 B 分支——回退抽掉 B 的依赖基线）
+      const hit = merges.some((m) => { const p2 = secondParent(m.sha); return p2 && isAnc(mainRoot, p2, b.branch); });
+      if (hit) how = '分支包含本任务合并点';
+    }
+    if (!how) { // 命中②：B 声明集（写集∪读集）与本任务写集 matchPath 相交
+      const bspecP = path.join(taskDirOf(tasksDir, b.id), 'spec.md');
+      const brw = [...parseWriteSet(fs.existsSync(bspecP) ? fs.readFileSync(bspecP, 'utf8') : ''), ...parseReadSet(fs.existsSync(bspecP) ? fs.readFileSync(bspecP, 'utf8') : '')];
+      const inter = myWrite.filter((f) => matchPath(f, brw));
+      if (inter.length) how = `读写集相交 ${inter.slice(0, 5).join('、')}${inter.length > 5 ? ' 等' : ''}`;
+    }
+    if (how) affected.push(`- ${b.id}（${b.status}，${how}）——回退后其基线被抽：下次合并必过快照门重审；立即跑 node tf.mjs stale 全量核对`);
+  }
   const ts = new Date().toISOString();
   const short = (s) => String(s ?? '').slice(0, 7);
   const lines = [];
@@ -2043,13 +2070,28 @@ function revertPlanCmd(args = []) {
   lines.push('');
   lines.push('## 逐条补偿命令（自新向旧，每条执行前确认）');
   if (merges.length) {
-    merges.forEach((m, i) => lines.push(`${i + 1}. \`git revert -m 1 ${m.sha}\`  # ${m.subject}`));
+    lines.push('> 嵌套合并自新向旧回退：后执行的条目可能空 revert/冲突，属预期，逐条核对剩余 diff 再继续。');
+    merges.forEach((m, i) => {
+      let row = `${i + 1}. \`git revert -m 1 ${m.sha}\`  # ${m.subject}`;
+      const p2 = secondParent(m.sha); // v2.84.0 V4：候选含下游任务已验收产出 → 行尾标注（连带回退须档案注记+用户拍板）
+      const hits = p2 ? downstream.filter((x) => x.branch && git(['-C', mainRoot, 'rev-parse', '--verify', `refs/heads/${x.branch}`], mainRoot, true) && isAnc(mainRoot, p2, x.branch)) : [];
+      if (hits.length) {
+        const ids = hits.map((x) => x.id).join('、');
+        row += ` # ⚠ 含下游任务 ${ids} 的已验收产出，连带回退需 ${ids} 档案注记（unmergedAt）+用户拍板`;
+      }
+      lines.push(row);
+    });
     lines.push('');
     lines.push('撤销纪律（data.md：硬规则 1）：禁 reset --hard / force push；--no-ff 合并保证可 revert；revert 产生新提交，历史不改写。');
   } else {
     lines.push(`（${note || '未检出 merge commit，回退=删任务分支'}）`);
   }
   lines.push('');
+  if (affected.length) { // v2.84.0 V1：受影响任务节（无命中整节省略）
+    lines.push('## 受影响任务（执行回退前过目）');
+    lines.push(...affected);
+    lines.push('');
+  }
   lines.push('## 档案注记（执行回退后人工落痕）');
   lines.push(`- task.json 手记 \`unmergedAt\`（时刻）与原因一行；status 保持 merged 终态**不回退**（merged→active 是状态倒退，J 墙/状态机均拒）。`);
   lines.push('- 续迭代走 resume.md 第 10 步新任务，不复活旧档案。');
@@ -2057,6 +2099,7 @@ function revertPlanCmd(args = []) {
   lines.push('## 红线');
   lines.push('- 共享分支（他人/main）禁 `git branch -D` / force push；任务自家分支删除属用户确认后的例外（data.md 状态机表撤销列）。');
   lines.push('- 回退后线上包从 main 重建重部署（双包事故形态：旧分支包继续跑 = 滚回倒计时）。');
+  lines.push('- 执行后跑 node tf.mjs stale（全量）——在途任务的读写集若命中本任务写集，合并前逐文件重审。');
   lines.push('');
   lines.push('本方案由 tf.mjs 生成，未执行任何 git 写操作——执行需用户逐条确认');
   const planP = path.join(dir, 'revert-plan.md');
@@ -2793,7 +2836,7 @@ function mechanismsCmd() {
   const lines = src.split('\n');
   const headEnd = lines.findIndex((l) => l.startsWith('import '));
   const block = headEnd === -1 ? [] : lines.slice(0, headEnd);
-  const gateTokens = { 状态翻转墙: 'status-wall', 部署墙: 'deploy-wall', 编辑边界门: 'boundary', 牵连排查: 'impact', 数据边界: 'data-boundary', 同类排查提醒: 'class-sweep', 词表反馈沉淀: 'glossary', 渲染证据墙: 'render', 验收期提醒: 'verify-remind', 档案删除告警: 'archive-rm', 多假设排序弹脸: 'triage' };
+  const gateTokens = { 状态翻转墙: 'status-wall', 部署墙: 'deploy-wall', 编辑边界门: 'boundary', 牵连排查: 'impact', 数据边界: 'data-boundary', 同类排查提醒: 'class-sweep', 词表反馈沉淀: 'glossary', 渲染证据墙: 'render', 验收期提醒: 'verify-remind', 档案删除告警: 'archive-rm', 多假设排序弹脸: 'triage', 状态引导注入: 'state-inject' };
   const rows = [];
   for (let i = 0; i < block.length; i++) {
     if (!/^\/\/ {3}(?! {3})/.test(block[i])) continue;
