@@ -3384,6 +3384,14 @@ try {
     const cSkip = spawnSync('node', [script, 'canary'], { cwd: tmp, encoding: 'utf8', env: { ...process.env, PATH: shimEmpty }, timeout: 60000 });
     ok(cSkip.status === 0 && cSkip.stdout.includes('跳过金丝雀'), `2.87.0 canary 矩阵：PATH 无 omp → 跳过 exit 0${cSkip.status !== 0 ? `（${String(cSkip.stdout).slice(0, 100)}）` : ''}`);
   }
+  // ---- v2.88.0：项目部署形态元数据（建档初始化提问检查单 deployment 三键）锚点 ----
+  {
+    const repoRoot = path.resolve(import.meta.dirname, '..');
+    const nt88 = fs.readFileSync(path.join(repoRoot, 'references', 'new-task.md'), 'utf8');
+    for (const anchor of ['deployment', 'middleware-shared', 'self-contained', '禁默认值']) ok(nt88.includes(anchor), `2.88.0 锚点：new-task.md 含「${anchor}」`);
+    const dm88 = fs.readFileSync(path.join(repoRoot, 'references', 'data.md'), 'utf8');
+    ok(dm88.includes('`deployment` 节') && dm88.includes('未答不落盘'), '2.88.0 锚点：data.md 含 deployment 节 schema 定义');
+  }
 
   process.exitCode = failures ? 1 : 0; // 失败≠0：堵住链式调用「grep 匹配到失败文案也算成功」的放行洞
   console.log(failures ? `\n${failures} 项断言失败` : '\n全部通过');

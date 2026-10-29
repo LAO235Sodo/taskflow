@@ -3,7 +3,7 @@
 ## 首次初始化（每个项目一次，检测到 `<主仓库根>/.taskflow/` 不存在时）
 
 1. `mkdir -p` 任务目录 + `decisions/`。
-2. 写 `project.json`：
+2. 写 `project.json`。**初始化提问检查单（deployment 三键，v2.88.0）**：写盘前向用户提问项目部署形态——`tier`（middleware-shared=统一中间件外部 PG/MinIO ｜ self-contained=自带库容器小应用）、`environments`（dual=测试+正式两套 ｜ single=单环境）、`verify`（验证方式一句话，如「8082 测试套」「临时实例+克隆库」「none」）。**三键必须经用户确认后落盘：禁默认值、禁替用户选，未答不落盘**（deployment 节整体缺省合法）——形态分级是项目元数据不是实现细节，后续验证/部署方案分级（①文档配置直接合 ②共享测试套 ③临时实例+干净数据副本 ④任务级完全隔离缓做）以此为准。
 
 ```json
 {
@@ -13,7 +13,8 @@
   "remote": "<原始 remote url 或 null>",
   "git": true,
   "createdAt": "<ISO8601>",
-  "lastActiveAt": "<ISO8601>"
+  "lastActiveAt": "<ISO8601>",
+  "deployment": { "tier": "<middleware-shared|self-contained>", "environments": "<dual|single>", "verify": "<一句话，未答不落盘>" }
 }
 ```
 
