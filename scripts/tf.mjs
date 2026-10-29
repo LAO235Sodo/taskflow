@@ -564,6 +564,61 @@ function specCoreHash(specText) {
   return crypto.createHash('sha1').update(core.join('\n')).digest('hex').slice(0, 12);
 }
 
+/* ---------------- project.json schema（v2.89.0，DEPLOYMENT_PROFILE：配置单源化） ----------------
+   schema 真身=references/schemas/project.schema.json——键白名单/枚举/minLength/分级注解唯一出处。
+   校验器形态拍板=B 案（内嵌极简解释器）：只实现本 schema 用到的六关键字（type/properties/required/
+   additionalProperties/enum/minLength）的通用 walker。拒 A（vendor ajv）：零 npm 依赖分发纪律 +
+   四实体仓 git 同步背数百 KB 供应链审查面，换六关键字不值；拒 C（ajv 可选增强+降级）：双解释器双语义，
+   分歧即盲区、测试面翻倍。「单源」本质=定义单源，解释器是薄实现——枚举/键清单禁手抄进代码，
+   一律从 schema 文件读（临时副本删 schema 文件 → doctor 红，即证非内置常量）。 */
+
+function loadProjectSchema(skillRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')) {
+  try {
+    const s = JSON.parse(fs.readFileSync(path.join(skillRoot, 'references', 'schemas', 'project.schema.json'), 'utf8'));
+    return s && typeof s === 'object' && s.properties && typeof s.properties === 'object' ? s : null;
+  } catch { return null; }
+}
+
+// 极简 walker：只认六关键字，未识别关键字（description/$schema/x- 注解等）一律忽略——x- 注解由消费方按名取用
+function schemaWalk(val, sch, p = 'project.json') {
+  const errs = [];
+  if (!sch || typeof sch !== 'object') return errs;
+  if (sch.type) {
+    const want = Array.isArray(sch.type) ? sch.type : [sch.type];
+    const got = val === null ? 'null' : Array.isArray(val) ? 'array' : typeof val;
+    if (!want.includes(got)) return [`${p} 类型须为 ${want.join('|')}，实际 ${got}`];
+  }
+  if (Array.isArray(sch.enum) && !sch.enum.includes(val)) errs.push(`${p} 值「${val}」不在枚举 [${sch.enum.join('|')}]（唯一出处=references/schemas/project.schema.json）`);
+  if (typeof val === 'string' && typeof sch.minLength === 'number' && val.length < sch.minLength) errs.push(`${p} 长度 ${val.length}<minLength ${sch.minLength}（空值/占位？）`);
+  if (val && typeof val === 'object' && !Array.isArray(val)) {
+    for (const k of sch.required ?? []) if (!(k in val)) errs.push(`${p} 缺必填键「${k}」`);
+    const props = sch.properties ?? {};
+    if (sch.additionalProperties === false) for (const k of Object.keys(val)) if (!(k in props)) errs.push(`${p} 未注册节「${k}」（schema 已知节白名单外）`);
+    for (const [k, sub] of Object.entries(props)) if (k in val) errs.push(...schemaWalk(val[k], sub, `${p}.${k}`));
+  }
+  return errs;
+}
+
+// 验证分级行（消费位，纯信息不拦）：lock merge 授锁路径与 deploy 门禁共用。
+// 枚举→分级映射唯一出处=schema 文件 x-deployment-grades 注解（键=tier|environments）——代码零手抄。
+function verifyGradeRow(tasksDir, schema) {
+  const dep = readJson(path.join(tasksDir, 'project.json'))?.deployment;
+  if (!dep || typeof dep !== 'object' || Array.isArray(dep)) return 'ℹ 验证分级：deployment 未登记——下次建档补问（不拦）';
+  const errs = schemaWalk({ deployment: dep }, schema, 'deployment');
+  if (errs.length) return `ℹ 验证分级：deployment 未过 schema 校验（${errs[0]}）——跑 node tf.mjs doctor 看全列，修复后分级恢复（不拦）`;
+  const g = schema['x-deployment-grades']?.[`${dep.tier}|${dep.environments}`];
+  if (!g?.grade) return `ℹ 验证分级：组合「${dep.tier}|${dep.environments}」无分级注解（x-deployment-grades 缺行）→ 升级技能（不拦）`;
+  return `ℹ 验证分级：${g.grade}——${dep.verify}（tier=${dep.tier}，environments=${dep.environments}；${g.why}）`;
+}
+
+// guard 渲染期枚举注入（DEPLOYMENT_PROFILE 单源，guard 模板零枚举抄写）：提取 schema 的 deployment 枚举
+// + verify minLength 生成 JS 字面量；schema 缺失/形状不符 → 'null'（guard 降级「只提醒确认纪律不判值」）。
+function deploymentEnumLiteral(skillRoot) {
+  const d = loadProjectSchema(skillRoot)?.properties?.deployment?.properties;
+  if (!Array.isArray(d?.tier?.enum) || !Array.isArray(d?.environments?.enum)) return 'null';
+  return JSON.stringify({ tier: d.tier.enum, environments: d.environments.enum, verifyMinLength: d.verify?.minLength ?? 2 });
+}
+
 /* ---------------- doctor：按不变量逐条体检（级别与条件触发出处：data.md 不变量表；I7/I8/I9/I10/I13/I14 提示级或条件触发，I11/I12 红级条件触发） ---------------- */
 
 function doctor(args = []) {
@@ -666,9 +721,10 @@ function doctor(args = []) {
 
   // 采纳对账（项目级，红级，v2.29.0）：project.json.mechanisms 声明采纳的机制 ↔ 产物存在性——mech install 的账 doctor 来对。
   // v2.65.0：检测收敛到统一谓词 mechAdoptionRows（mech ls / mech check 同源），doctor 只保留消息渲染——检测逻辑禁止两份实现。
+  // v2.89.0：pj 读取提升到块外（采纳对账与下方 deployment schema 校验共用一份读取）。
+  const pjP = path.join(tasksDir, 'project.json');
+  const pj = fs.existsSync(pjP) ? readJson(pjP) : null;
   {
-    const pjP = path.join(tasksDir, 'project.json');
-    const pj = fs.existsSync(pjP) ? readJson(pjP) : null;
     if (pj && pj.mechanisms && typeof pj.mechanisms === 'object') {
       for (const r of mechAdoptionRows({ mainRoot, pj }).filter((x) => x.declared)) {
         if (r.reason === '未登记') { console.log(`⚠ 采纳漂移：${r.token} 不在技能机制登记表（技能回退/登记手误）→ 升级技能或清 project.json.mechanisms 对应项`); projDirty++; continue; }
@@ -676,6 +732,20 @@ function doctor(args = []) {
         if (r.status === '漂移') { console.log(`⚠ 采纳漂移：${r.token} 快照版本不符（登记 v${r.installedVersion} ≠ 技能 v${r.currentVersion}）→ 重跑 node tf.mjs mech install ${r.token} 刷新（将覆盖文件清单先行，--yes 确认；若系技能被回退则升级技能或清登记）`); projDirty++; continue; }
         console.log(`✓ 采纳对齐：${r.token}（产物齐全${r.installedVersion ? `，v${r.installedVersion}` : ''}）`);
       }
+    }
+  }
+
+  // deployment 档案 schema 校验（v2.89.0，DEPLOYMENT_PROFILE，红级）：键白名单/枚举/minLength 唯一出处=
+  // references/schemas/project.schema.json——未注册节红、三键出枚举红、verify 占位红；节整体缺省=ℹ 一次性提示
+  // （未答不落盘语义，可建档补问）；schema 文件缺失=校验失明大声报（升级/重装技能）。project.json 不存在（未初始化）同采纳对账静默。
+  {
+    const schema = loadProjectSchema();
+    if (pj && !schema) { console.log('⚠ 档案 schema（DEPLOYMENT_PROFILE） references/schemas/project.schema.json 缺失或不可解析 → 校验失明，升级/重装技能'); projDirty++; }
+    else if (pj && schema) {
+      const errs = schemaWalk(pj, schema);
+      if (errs.length) { for (const e of errs) console.log(`⚠ 档案 schema（DEPLOYMENT_PROFILE） ${e} → 修 project.json`); projDirty++; }
+      else if (!pj.deployment) console.log('ℹ 档案 schema（DEPLOYMENT_PROFILE） 过校验；deployment 节未登记（合法缺省）——项目部署形态可建档补问（new-task.md 提问检查单）');
+      else console.log(`✓ 档案 schema（DEPLOYMENT_PROFILE） 过校验（tier=${pj.deployment.tier}，environments=${pj.deployment.environments}）`);
     }
   }
 
@@ -1581,6 +1651,7 @@ function deployCmd(args = []) {
   if (pf.stdout?.trim()) console.log(pf.stdout.trim());
   if (pf.stderr?.trim()) console.error(pf.stderr.trim());
   if (pf.status !== 0) { console.log('⛔ 预检红——deploy 入口拒绝部署（并集优先：先 merge 线上任务分支再构建；细则 references/deploy-gate.md）'); return fin(1); }
+  { const sch = loadProjectSchema(); if (sch) console.log(verifyGradeRow(tasksDir, sch)); } // 验证分级（DEPLOYMENT_PROFILE，纯信息不拦）
   // ③ dry-run：门禁绿即止，打印将执行的命令（v2.53.0 加固：--web-only 无 webCommands 拒绝回退——旧版静默跑整条 jar 链还称「jar 沿用基线」；配置了 webCommands 且未带 --web-only 时显式提醒防半部署）
   if (webOnly && !(Array.isArray(dep.webCommands) && dep.webCommands.length)) {
     console.log('⛔ --web-only 但 project.json 未配置 webCommands——拒绝静默回退 jar 链（旧版行为=重发后端还跳过登记）；先补 deploy.webCommands 配置再跑');
@@ -1677,6 +1748,8 @@ function lockCmd(args = []) {
       return 1;
     }
     console.log(`✓ 三门现场重算全绿：${gates.map(([nm, g]) => `${nm}=${g.reason}`).join('；')}——merge 端局准入`);
+    const sch = loadProjectSchema();
+    if (sch) console.log(verifyGradeRow(tasksDir, sch)); // 验证分级（DEPLOYMENT_PROFILE，纯信息不拦）
   }
   const lockDir = path.join(tasksDir, '.locks', name);
   const tsP = path.join(lockDir, 'ts'), sesP = path.join(lockDir, 'session'), ttlP = path.join(lockDir, 'ttl');
@@ -3114,6 +3187,7 @@ function mechCmd(args = []) {
     for (const f of fs.existsSync(aDir) ? fs.readdirSync(aDir).filter((x) => x.endsWith(ext)) : []) {
       if (!renderable.has(path.normalize(path.join(outSub, f)))) continue; // 登记表产物列未收（技能内门）→ 不渲染（D1，语义见上）
       let next = fs.readFileSync(path.join(aDir, f), 'utf8').replaceAll('__ASSET_EXTS__', exts);
+      if (next.includes('__DEPLOYMENT_ENUMS__')) next = next.replaceAll('__DEPLOYMENT_ENUMS__', deploymentEnumLiteral(skillRoot)); // v2.89.0 guard 枚举注入（DEPLOYMENT_PROFILE 单源=schema 文件；注入失败='null'→guard 降级提醒模式）
       next = inlineSharedDeps(next, skillRoot); // v2.86.0：shared/{kernel,host-adapter}.mjs import 内联展开——渲染产物自包含；无该 import 形态的文件原样=幂等
       const outP = path.join(oDir, f);
       const prev = fs.existsSync(outP) ? fs.readFileSync(outP, 'utf8') : null;

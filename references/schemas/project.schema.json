@@ -1,0 +1,69 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "taskflow/project.schema.json",
+  "title": "taskflow project.json",
+  "x-token": "DEPLOYMENT_PROFILE",
+  "description": "project.json 唯一 schema 真身（v2.89.0）：已知节白名单、deployment 三键枚举、验证分级注解只住这里——doctor 校验、lock merge/deploy 验证分级行、guard 落档弹脸（mech install 渲染期注入枚举）同源消费；代码与文档禁第二份抄写枚举，改枚举只改本文件一处。",
+  "type": "object",
+  "properties": {
+    "key": { "type": "string", "description": "项目 key（remote 规范化；无 remote 用主仓库绝对路径）" },
+    "name": { "type": "string", "description": "项目目录名" },
+    "repoRoot": { "type": "string", "description": "主仓库根绝对路径" },
+    "remote": { "type": ["string", "null"], "description": "原始 remote url 或 null" },
+    "git": { "type": "boolean", "description": "false=非 git 项目（禁用 worktree/分支/commit 能力）" },
+    "createdAt": { "type": "string", "description": "ISO8601 建档时刻" },
+    "lastActiveAt": { "type": "string", "description": "ISO8601 最近活跃时刻" },
+    "assetExts": { "type": "string", "description": "竖线分隔资产扩展名（mech install 渲染注入；缺省按 git ls-files 探测 top6）" },
+    "mechanisms": {
+      "type": "object",
+      "description": "机制采纳登记 { token: { adoptedAt, version, assetExts } }——doctor 采纳对账数据源",
+      "additionalProperties": { "type": "object" }
+    },
+    "deploy": {
+      "type": "object",
+      "description": "部署唯一入口命令配置（v2.42.0 四件套①；无此配置 deploy 入口拒绝执行并打印模板）",
+      "properties": {
+        "server": { "type": "string", "description": "目标服务器（ssh 别名/主机）" },
+        "statePath": { "type": "string", "description": "服务器 live-state 路径" },
+        "jarPath": { "type": "string", "description": "服务器 jar 路径（启用 I17 实况对账）" },
+        "jarProbe": { "type": "string", "description": "容器内 md5 探针命令（自带 ssh 前缀，优先于 jarPath）" },
+        "commands": { "type": "array", "items": { "type": "string" }, "description": "部署命令序列（自带备份回滚点）" },
+        "webCommands": { "type": "array", "items": { "type": "string" }, "description": "前端部署命令序列（--web-only 时执行）" },
+        "procProbe": { "type": "string", "description": "进程/容器清点探针命令（v2.62.0，透传 preflight --proc-probe）" }
+      },
+      "required": ["server", "commands"],
+      "additionalProperties": false
+    },
+    "deployment": {
+      "type": "object",
+      "description": "项目部署形态元数据（v2.88.0）。三键必须经用户确认后落盘：禁默认值、禁替用户选、未答不落盘（节整体缺省合法——未问答的存量项目与小项目）。",
+      "properties": {
+        "tier": {
+          "type": "string",
+          "enum": ["middleware-shared", "self-contained"],
+          "description": "middleware-shared=统一中间件外部 PG/MinIO；self-contained=自带库容器小应用"
+        },
+        "environments": {
+          "type": "string",
+          "enum": ["dual", "single"],
+          "description": "dual=测试+正式两套；single=单环境"
+        },
+        "verify": {
+          "type": "string",
+          "minLength": 2,
+          "description": "验证方式一句话（如「8082 测试套」「临时实例+克隆库」「none」）；minLength 2 拦空值/单字符占位"
+        }
+      },
+      "required": ["tier", "environments", "verify"],
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "x-deployment-grades": {
+    "self-contained|dual": { "grade": "①文档配置直接合", "why": "自带库容器+有测试环境：文档配置的验证环境现成且天然隔离，按文档配置验证后直接合并" },
+    "middleware-shared|dual": { "grade": "②共享测试套", "why": "统一中间件共享但有测试环境：跑共享测试套验证，注意共享数据写放与回收" },
+    "self-contained|single": { "grade": "③临时实例+干净数据副本", "why": "自带容器单环境：临时实例起停成本低，干净数据副本验证后再合并（verify-fresh 形态）" },
+    "middleware-shared|single": { "grade": "④任务级完全隔离缓做", "why": "共享中间件且唯一环境即正式：全隔离成本高，验证方案先缓做并呈报用户拍板" }
+  },
+  "x-grade-key": "tier|environments"
+}

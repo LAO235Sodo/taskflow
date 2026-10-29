@@ -1905,6 +1905,37 @@ try {
   gprojPj.mechanisms.TASKFLOW_GUARD = { adoptedAt: now, version: 'test' };
   fs.writeFileSync(path.join(gproj, '.taskflow', 'project.json'), JSON.stringify(gprojPj));
 
+  // ---- 2.89.0 DP deployment 落档校验：mock pi 真执行（出枚举 block/占位 block/合法零干扰/降级提醒四路；
+  // 遍历全 tool_call handler 取结果——不依赖下标，防既有下标定位脆断）----
+  const dpFire = async (toolName, input) => {
+    let out;
+    for (const h of handlers['tool_call'] ?? []) { const r = await h({ toolName, input }, mkCtx()); if (r) out = r; }
+    return out;
+  };
+  const dpPjBase = JSON.parse(fs.readFileSync(path.join(gproj, '.taskflow', 'project.json'), 'utf8'));
+  const dpContent = (deployment) => JSON.stringify({ ...dpPjBase, ...(deployment === undefined ? {} : { deployment }) }, null, 2);
+  const dpProj = path.join(gproj, '.taskflow', 'project.json');
+  const dpBad = await dpFire('write', { path: dpProj, content: dpContent({ tier: 'k8s-native', environments: 'dual', verify: '集群内验证' }) });
+  ok(dpBad?.block === true && /deployment 落档校验/.test(dpBad.reason) && dpBad.reason.includes('middleware-shared|self-contained') && dpBad.reason.includes('你落的值哪来的'), '2.89.0 guard DP：tier 出枚举 → block+人话（合法值话术由渲染期注入的 schema 枚举生成——单源非手抄）');
+  const dpPh = await dpFire('edit', { path: dpProj, old_string: 'x', new_string: '"deployment": { "tier": "self-contained", "environments": "dual", "verify": "<一句话，未答不落盘>" }' });
+  ok(dpPh?.block === true && /占位/.test(dpPh.reason), '2.89.0 guard DP：verify 照抄示例占位符 → block（edit 片段括号配对提取）');
+  const dpOk = await dpFire('write', { path: dpProj, content: dpContent({ tier: 'middleware-shared', environments: 'single', verify: 'none' }) });
+  ok(dpOk === undefined, '2.89.0 guard DP：合法三键 → 零干扰放行');
+  const dpNoDep = await dpFire('write', { path: dpProj, content: dpContent(undefined) });
+  ok(dpNoDep === undefined, '2.89.0 guard DP：写 project.json 无 deployment 节 → 零干扰');
+  const dpOff = await dpFire('write', { path: path.join(gproj, 'src', 'project.json'), content: '{"deployment":{"tier":"bogus"}}' });
+  ok(dpOff?.block == null && !/deployment 落档校验/.test(String(dpOff?.additionalContext ?? dpOff?.reason ?? '')), '2.89.0 guard DP：非 .taskflow/ 的同名 project.json → 本门零干扰（命中泛名提醒属 W 牵连排查另一功能面，不判 deployment）');
+  // 降级路：模板原样（DEPLOYMENT_ENUMS 未注入=null）→ 只提醒确认纪律不判值（不 block、话术零枚举抄写）
+  const dgH = {};
+  vgMod.default({ setLabel() {}, on: (ev, fn) => { (dgH[ev] ??= []).push(fn); } });
+  let dgOut;
+  for (const h of dgH['tool_call'] ?? []) { const r = await h({ toolName: 'write', input: { path: dpProj, content: dpContent({ tier: 'k8s-native', environments: 'dual', verify: 'x' }) } }, mkCtx()); if (r) dgOut = r; }
+  ok(dgOut?.block == null && /三键（tier\/environments\/verify）必须经用户确认/.test(dgOut?.additionalContext ?? '') && !String(dgOut?.additionalContext).includes('middleware-shared'), '2.89.0 guard DP 降级：枚举未注入（模板原样）→ 只提醒不判值且话术不含枚举值（勿造第二份抄写）');
+  // 渲染契约：模板带占位符、渲染副本枚举已注入且零占位残留
+  const gTpl = fs.readFileSync(path.resolve(import.meta.dirname, '../assets/guard/taskflow-guard.js'), 'utf8');
+  const gRen = fs.readFileSync(guardPath, 'utf8');
+  ok(gTpl.includes('__DEPLOYMENT_ENUMS__') && !gRen.includes('__DEPLOYMENT_ENUMS__') && gRen.includes('"middleware-shared"') && gRen.includes('"self-contained"'), '2.89.0 guard 渲染契约：模板带占位符、渲染副本枚举已从 schema 注入且零残留');
+
   // ---- v2.48.0 F 派发门 + G 编辑边界门：mock pi 真执行（硬规则 17——校验/注入/边界三路径）----
   const fcall = async (event) => handlers['tool_call']?.[1]?.(event, mkCtx());
   const gcall = async (event) => handlers['tool_call']?.[2]?.(event, mkCtx());
@@ -3299,7 +3330,7 @@ try {
     const guardMod = await import('file://' + path.join(repoRoot, 'assets', 'guard', 'taskflow-guard.js'));
     const manifest = guardMod.GATE_MANIFEST;
     const mechRows = mech.stdout.split('\n').filter((l) => l.includes('｜开关：'));
-    ok(mech.status === 0 && Array.isArray(manifest) && manifest.length === 17, `2.85.0 T8 mechanisms：GATE_MANIFEST 注册表 17 项（实际 ${Array.isArray(manifest) ? manifest.length : '非数组'}）`);
+    ok(mech.status === 0 && Array.isArray(manifest) && manifest.length === 18, `2.85.0 T8 mechanisms：GATE_MANIFEST 注册表 18 项（实际 ${Array.isArray(manifest) ? manifest.length : '非数组'}）`);
     ok(mechRows.length === manifest.length, `2.85.0 T8 mechanisms：输出行数与 GATE_MANIFEST 一致（${mechRows.length}/${manifest.length}）`);
     ok(['状态翻转墙', '编辑边界门', '渲染证据墙', '牵连排查', '多假设排序弹脸', '状态引导注入', 'TF_STATUS', 'TF_BOUND', 'TF_V_WARN', 'TF_J01_WARN', 'TF_GUARD_LOG', 'TF_STATE_INJECT'].every((k) => mech.stdout.includes(k)), '2.85.0 T8 mechanisms：中文名与 TF_ 开关齐全');
     const gateOfRow = (l) => { const m = l.match(/gate=([^）]*)）/); return m ? m[1] : null; };
@@ -3310,10 +3341,10 @@ try {
     const docLetters = new Set([...gmTable.matchAll(/^\|\s*([A-Z]+)\s*\|/gm)].map((m) => m[1]));
     const mfLetters = new Set(manifest.map((m) => m.feature).filter((f) => f && f !== 'RENDER'));
     const letterDiff = [...mfLetters].filter((x) => !docLetters.has(x)).concat([...docLetters].filter((x) => !mfLetters.has(x)));
-    ok(letterDiff.length === 0 && mfLetters.size === 15, `2.85.0 注册表对账：feature 字母集合（除 RENDER）= taskflow-guard.md 功能清单字母集合${letterDiff.length ? `（差集：${letterDiff.join('、')}）` : ''}（${mfLetters.size} 字母）`);
+    ok(letterDiff.length === 0 && mfLetters.size === 16, `2.85.0 注册表对账：feature 字母集合（除 RENDER）= taskflow-guard.md 功能清单字母集合${letterDiff.length ? `（差集：${letterDiff.join('、')}）` : ''}（${mfLetters.size} 字母）`);
     ok(manifest.filter((m) => m.feature === 'RENDER').length === 1 && manifest.some((m) => m.feature === null), '2.85.0 注册表对账：RENDER 恰 1 条（渲染证据墙）、null feature 恰法（docs 无独立行门）');
     const mNames = manifest.map((m) => m.name);
-    ok(new Set(mNames).size === mNames.length, '2.85.0 注册表对账：17 门 name 无重复');
+    ok(new Set(mNames).size === mNames.length, '2.85.0 注册表对账：18 门 name 无重复');
     // help：注册表驱动后仍输出全部 29 命令前缀行 + 退出码行
     const hlp = run([], tmp);
     const helpCmds = ['ls', 'doctor', 'reconcile', 'scout', 'skills', 'accept', 'takeover', 'park', 'unpark', 'commit', 'req-confirm', 'testplan', 'diagnose', 'nextid', 'lock', 'snapshot', 'mergegate', 'gates', 'revert-plan', 'stale', 'overlap', 'impact', 'deploy', 'migrate', 'archive', 'svc', 'lint', 'mech', 'mechanisms', 'canary'];
@@ -3391,6 +3422,68 @@ try {
     for (const anchor of ['deployment', 'middleware-shared', 'self-contained', '禁默认值']) ok(nt88.includes(anchor), `2.88.0 锚点：new-task.md 含「${anchor}」`);
     const dm88 = fs.readFileSync(path.join(repoRoot, 'references', 'data.md'), 'utf8');
     ok(dm88.includes('`deployment` 节') && dm88.includes('未答不落盘'), '2.88.0 锚点：data.md 含 deployment 节 schema 定义');
+  }
+
+  // ---- 2.89.0：project.json schema 单源化——doctor 四态 + 分级行行为差异 + 变异负向（单源喂两端证明） ----
+  {
+    const repoRoot = path.resolve(import.meta.dirname, '..');
+    const schemaP = path.join(repoRoot, 'references', 'schemas', 'project.schema.json');
+    ok(fs.existsSync(schemaP) && fs.readFileSync(schemaP, 'utf8').includes('x-deployment-grades'), '2.89.0 锚点：schema 真身在位且带分级注解（references/schemas/project.schema.json）');
+    // ① doctor 四态（独立小项目夹具：真 git 仓 + 空 index——doctor 只跑项目级节，任务级早退）
+    const sproj = path.join(tmp, 'schema-proj');
+    fs.mkdirSync(path.join(sproj, '.taskflow'), { recursive: true });
+    sh('git init -q -b main && git config user.email t@t && git config user.name t && echo \'.taskflow/\' >> .git/info/exclude', sproj);
+    fs.writeFileSync(path.join(sproj, '.taskflow', 'index.json'), J({ tasks: [] }));
+    const writePj = (deployment) => fs.writeFileSync(path.join(sproj, '.taskflow', 'project.json'), J({ key: 'schemaproj', git: true, ...(deployment ? { deployment } : {}) }));
+    writePj(undefined);
+    const dDef = run(['doctor'], sproj);
+    ok(dDef.status === 0 && dDef.stdout.includes('deployment 节未登记') && dDef.stdout.includes('可建档补问'), '2.89.0 doctor 节缺省：ℹ 一次性提示（可建档补问），不计红');
+    writePj({ tier: 'self-contained', environments: 'dual', verify: '测试环境现成' });
+    const dOk = run(['doctor'], sproj);
+    ok(dOk.status === 0 && dOk.stdout.includes('✓ 档案 schema（DEPLOYMENT_PROFILE） 过校验'), '2.89.0 doctor 合法：过校验 ✓（DEPLOYMENT_PROFILE）');
+    writePj({ tier: 'self-contained', environments: 'triple', verify: '测试环境现成' });
+    const dEnum = run(['doctor'], sproj);
+    ok(dEnum.status === 1 && /environments 值「triple」不在枚举/.test(dEnum.stdout), '2.89.0 doctor 出枚举：红（枚举唯一出处=schema 文件）');
+    writePj({ tier: 'self-contained', environments: 'dual', verify: 'n', bogusSection: {} });
+    const dBad = run(['doctor'], sproj);
+    ok(dBad.status === 1 && /minLength 2（空值\/占位？）/.test(dBad.stdout) && /未注册节「bogusSection」/.test(dBad.stdout), '2.89.0 doctor verify 占位+未注册节：双红');
+    // ② 分级行行为差异（同任务档案，deployment 值不同 → lock merge 分级行档次不同——行为断言非锚词）
+    const repoPjP = path.join(repo, '.taskflow', 'project.json');
+    const repoPjBase = { key: 'fixture', git: true };
+    const writeRepoPj = (tier, env, verify) => fs.writeFileSync(repoPjP, J({ ...repoPjBase, deployment: { tier, environments: env, verify } }));
+    run(['snapshot', 't7-lock-20260101'], repo); // 快照刷新到当前 main——三门绿只验证本块关注的分级行
+    writeRepoPj('self-contained', 'single', '起临时库容器验');
+    const lkA = run(['lock', 'merge', '--task', 't7-lock-20260101', '--session', 'ses_89a'], repo);
+    run(['lock', 'merge', '--release', '--session', 'ses_89a'], repo);
+    writeRepoPj('middleware-shared', 'dual', '跑 8082 共享套');
+    const lkB = run(['lock', 'merge', '--task', 't7-lock-20260101', '--session', 'ses_89b'], repo);
+    run(['lock', 'merge', '--release', '--session', 'ses_89b'], repo);
+    ok(lkA.status === 0 && lkB.status === 0, '2.89.0 分级行前提：三门绿授锁成功（两档位均 exit 0）');
+    ok(lkA.stdout.includes('验证分级') && lkA.stdout.includes('③临时实例+干净数据副本') && lkA.stdout.includes('tier=self-contained，environments=single'), '2.89.0 分级行：self-contained+single → ③临时实例+干净数据副本（verify 原文+键值回显）');
+    ok(lkB.stdout.includes('验证分级') && lkB.stdout.includes('②共享测试套') && !lkB.stdout.includes('③临时实例+干净数据副本') && !lkA.stdout.includes('②共享测试套'), '2.89.0 分级行行为差异：middleware-shared+dual → ②共享测试套，与 ③ 档互斥（同档案异值异行——映射读 schema x-deployment-grades）');
+    // ③ 变异负向（副本真跑）：删 schema → doctor 红；枚举单侧收窄 → doctor 与分级行双变（单源喂两端）
+    const mutRoot = path.join(tmp, 'schema-mut-copy');
+    fs.cpSync(repoRoot, mutRoot, { recursive: true, filter: (s) => !/\/\.git(\/|$)/.test(s) });
+    const mutRun = (args, cwd) => spawnSync('node', [path.join(mutRoot, 'scripts', 'tf.mjs'), ...args], { cwd, encoding: 'utf8' });
+    const mutSchemaP = path.join(mutRoot, 'references', 'schemas', 'project.schema.json');
+    fs.rmSync(mutSchemaP);
+    writePj({ tier: 'self-contained', environments: 'dual', verify: '测试环境现成' });
+    const mDel = mutRun(['doctor'], sproj);
+    ok(mDel.status === 1 && /缺失或不可解析/.test(mDel.stdout) && /校验失明/.test(mDel.stdout), '2.89.0 变异①：删 schema 文件 → doctor 红（校验器真读文件，非内置常量）');
+    const schMut = JSON.parse(fs.readFileSync(schemaP, 'utf8'));
+    schMut.properties.deployment.properties.environments.enum = ['dual']; // 枚举单侧收窄：single 出列
+    fs.writeFileSync(mutSchemaP, JSON.stringify(schMut, null, 2));
+    writePj({ tier: 'self-contained', environments: 'single', verify: '起临时库容器验' });
+    const mEnum = mutRun(['doctor'], sproj);
+    ok(mEnum.status === 1 && /environments 值「single」不在枚举/.test(mEnum.stdout), '2.89.0 变异②：schema 枚举收窄 → doctor 出枚举红');
+    writeRepoPj('self-contained', 'single', '起临时库容器验');
+    const lkLive = run(['lock', 'merge', '--task', 't7-lock-20260101', '--session', 'ses_89c'], repo);
+    run(['lock', 'merge', '--release', '--session', 'ses_89c'], repo);
+    const lkMut = mutRun(['lock', 'merge', '--task', 't7-lock-20260101', '--session', 'ses_89d'], repo);
+    run(['lock', 'merge', '--release', '--force'], repo);
+    ok(lkLive.stdout.includes('③临时实例+干净数据副本') && lkMut.stdout.includes('未过 schema 校验') && !lkMut.stdout.includes('③临时实例'), '2.89.0 变异③：同一份 project.json——live 分级=③、变异副本（枚举收窄）分级=未过校验 → doctor 与分级行双变（单源喂两端证明）');
+    fs.rmSync(repoPjP);
+    ok(fs.existsSync(schemaP), '2.89.0 收尾：技能本体 schema 未被变异污染（变异只发生在副本）');
   }
 
   process.exitCode = failures ? 1 : 0; // 失败≠0：堵住链式调用「grep 匹配到失败文案也算成功」的放行洞

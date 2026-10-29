@@ -11,6 +11,10 @@
 //   档案删除告警（v2.71.0）：tool_call(bash)——rm 触及 .taskflow/ 任务档案 = 不可逆删除风险 → 告警档提醒
 //      （对齐状态翻转墙 off/warn/enforce 档位风格，缺省 warn；TF_RM_WARN=enforce 硬拦 / off 关闭；删除已归档任务须呈报
 //      档案不可变原则逐用户确认——任务档案是跨会话账本，rm 删了没有 undo）——触发写 .taskflow/.guard-log.jsonl（TF_GUARD_LOG=off 关）
+//   deployment 落档校验（v2.89.0，DEPLOYMENT_PROFILE）：tool_call(edit/write)——写 project.json 带 deployment 键 →
+//      值出枚举/verify 占位 = 硬拦（三键必须经用户确认：禁默认值、禁照抄示例、未答不落盘；理由话术中的合法值
+//      由 mech install 渲染期从 schema 真身注入的 DEPLOYMENT_ENUMS 生成——单源，模板零枚举抄写；注入失败降级
+//      只提醒不判值）——触发写 .taskflow/.guard-log.jsonl（TF_GUARD_LOG=off 关）
 //   牵连排查+数据边界提醒（v2.72.0；v2.76.0 检索与文案修正）：tool_call(edit/write)——普通源码文件两检查
 //      （.taskflow/ 档案走状态翻转墙/编辑边界门不归这）：①牵连排查主名整词检索（去扩展名，.vue 例外）代码文件命中数 ≥
 //      TF_IMPACT_THRESHOLD（缺省 3；文档散文提及不计、泛名不弹）→ 提醒呈报须含影响面清单（可跑 tf.mjs impact）；
@@ -45,7 +49,7 @@
 //      user 角色文本命中报障特征窄表（entry-routes.md 表一 R07 话术样例）→ 追加多假设排序提醒消息（同会话 Set 去重；
 //      TF_J01_WARN=off 关；提醒不拦）——触发写 .taskflow/.guard-log.jsonl（TF_GUARD_LOG=off 关）
 //   清单真源＝GATE_MANIFEST（下方数组）：mechanisms 读数据不再解析本注释（v2.85.0 起上方散文仅作文档，改门先改数组）。
-// ---- 门清单注册表（v2.85.0）：17 门的描述符单源——mechanisms 输出、tf.test.mjs 对账、taskflow-guard.md 功能清单对账都读这里 ----
+// ---- 门清单注册表（v2.85.0）：18 门的描述符单源——mechanisms 输出、tf.test.mjs 对账、taskflow-guard.md 功能清单对账都读这里 ----
 // 行序＝上方头注释主行序；feature 字母=docs 功能清单行号（RENDER=机制 token 同源；null=docs 无独立行）；gate=guardLog 落盘 token（null=不写日志）。
 export const GATE_MANIFEST = [
   { feature: 'D', name: '状态栏常显', events: 'session_start / turn_end', envs: [], gate: null, what: '活任务/待验收/敞口（verifying 已部署超 24h 未合并）常驻底栏——从「跑 ls 才见」变「常驻视野」' },
@@ -55,6 +59,7 @@ export const GATE_MANIFEST = [
   { feature: 'J', name: '状态翻转墙', events: 'tool_call（edit/write/bash）', envs: ['TF_STATUS'], gate: 'status-wall', what: 'task.json/index.json 的 status/deploy.status 手改=物理拦截（TF_STATUS 三档缺省 enforce；翻转唯一合法写路径=tf.mjs 各扳机命令，档案修复走 reconcile --fix）' },
   { feature: 'K', name: '验收期提醒', events: 'tool_call（bash）', envs: ['TF_VERIFY_WARN'], gate: 'verify-remind', what: 'git push/merge 时在档等验收任务 → 追加合并时序核对提醒（不拦；TF_VERIFY_WARN=off 关）' },
   { feature: 'V', name: '档案删除告警', events: 'tool_call（bash）', envs: ['TF_RM_WARN'], gate: 'archive-rm', what: 'rm 触及 .taskflow/ 任务档案=不可逆删除风险 → 告警档提醒（TF_RM_WARN=enforce 硬拦/off 关，缺省 warn；任务档案是跨会话账本，rm 删了没有 undo）' },
+  { feature: 'DP', name: 'deployment 落档校验', events: 'tool_call（edit/write）', envs: [], gate: 'deployment-profile', what: '写 project.json 带 deployment 键 → 值出枚举/verify 占位=硬拦（三键须用户确认，禁照抄示例；理由话术的合法值由 mech install 渲染期注入的 DEPLOYMENT_ENUMS 生成——单源=schema 真身，注入失败降级只提醒不判值）' },
   { feature: 'W', name: '牵连排查+数据边界提醒', events: 'tool_call（edit/write）', envs: ['TF_IMPACT_THRESHOLD', 'TF_J19_WARN', 'TF_J20_WARN'], gate: 'impact,data-boundary', what: '普通源码文件两检查：①牵连排查主名整词命中 ≥TF_IMPACT_THRESHOLD（缺省 3）→ 提醒呈报须含影响面清单（TF_J19_WARN=off 关）；②数据管道特征 → 提醒枚举真空与失真形态（TF_J20_WARN=off 关）；纯提醒不拦、无 enforce 档' },
   { feature: 'T', name: '技能加载埋点', events: 'tool_call（read）', envs: [], gate: null, what: 'skill:// 加载计数入全局 skill-usage.jsonl（不受 guardOn 闸控，零内容仅计数，供 tf.mjs skills --usage 报表；handler 整体吞错——omp hook fail-closed）' },
   { feature: 'E', name: '输出规范注入', events: 'before_provider_request', envs: [], gate: null, what: '每轮把「双层输出规范+项目词表」前置进请求（system 角色消息；Anthropic 形传输回落 payload.system）——非 taskflow 会话也有叙事体+结构化底线；词表活读（.taskflow/glossary.md），词条改写下一轮即生效' },
@@ -74,6 +79,31 @@ import os from 'node:os'; // v2.54.1：编辑边界门波浪号路径展开（�
 import { STATES, STATE_LEGAL, J20_WORD_RE, J20_CODE_RE, j20CodeLines, j20Scan, EXT_FAMILY } from '../shared/kernel.mjs';
 // v2.87.0 宿主适配层（注入落点/会话 id/本会话标注的运行时合同单点——渲染时同样内联）
 import { injectPrepend, sessIdOf, inSessionMark } from '../shared/host-adapter.mjs';
+
+// DP deployment 落档校验枚举（v2.89.0，DEPLOYMENT_PROFILE 单源）：真源=技能 references/schemas/project.schema.json，
+// mech install 渲染期把 __DEPLOYMENT_ENUMS__ 替换为 schema 枚举字面量——模板零枚举抄写。typeof 守卫使未注入的
+// 模板原样（tf.mjs 静态 import 本文件）安全求值为 null → 降级「只提醒确认纪律不判值」，绝不本地造第二份枚举。
+const DEPLOYMENT_ENUMS = typeof __DEPLOYMENT_ENUMS__ === 'object' && __DEPLOYMENT_ENUMS__ !== null ? __DEPLOYMENT_ENUMS__ : null;
+
+// deployment 节片段提取：整体 JSON 可解析则直取；edit 片段从 "deployment": { 起括号配对截取再解析
+//（解析失败返回 null → 本 handler 零干扰，fail-open 交 doctor/schema 校验兜底——弹脸是快门不是唯一防线）
+function extractDeploymentNode(txt) {
+  try {
+    const j = JSON.parse(txt);
+    return j && typeof j === 'object' && j.deployment && typeof j.deployment === 'object' && !Array.isArray(j.deployment) ? j.deployment : null;
+  } catch { /* 完整 JSON 解析失败（edit 片段）走下方括号配对 */ }
+  const m = /"deployment"\s*:\s*\{/.exec(txt);
+  if (!m) return null;
+  const open = txt.indexOf('{', m.index);
+  let depth = 0;
+  for (let i = open; i < txt.length; i++) {
+    if (txt[i] === '{') depth++;
+    else if (txt[i] === '}' && --depth === 0) {
+      try { return JSON.parse(txt.slice(m.index, i + 1).replace(/^[^{]*/, '')) ?? null; } catch { return null; }
+    }
+  }
+  return null;
+}
 
 function locateTasksDir(cwd) {
   try {
@@ -700,6 +730,39 @@ function vObligation(dir) {
       guardLog(ctx?.cwd, 'render', 'inject', `任务 ${taskId} 前端样式改动触发渲染证据义务标记`);
       return { additionalContext: `⚠ TASKFLOW_GUARD 渲染证据墙（每任务一次）：前端样式载体已改动（${path.basename(abs)}）而任务 ${taskId} 的 attachments/ 无渲染证据产物——部署与验收呈报前必须补「带数据态的真实渲染截图+采样描述」（硬规则 11：视觉变更判定不由模型自判；历史教训=几何指标全绿但字体失调 3.4:1，用户两次看图才发现）。证据落 .taskflow/${taskId}/attachments/；TF_V_WARN=off 关闭本提醒。顺带按 testing.md::使用者视角检查 过一遍本次改动触达的使用者触点（入口/文案/交互步骤/边界态），顺带易用性观察列出让用户拍板。` };
     } catch { return undefined; } // 提醒失败静默——hook fail-closed，绝不拦主流程
+  });
+
+  // DP deployment 落档校验（v2.89.0，DEPLOYMENT_PROFILE）：edit/write 写 project.json 带 deployment 键时判值——
+  // 值出枚举/占位 → block（三键必须经用户确认：禁默认值、禁照抄示例、未答不落盘——new-task.md 提问检查单的宿主兜底）。
+  // 枚举与 minLength 真源=schema 文件（渲染期注入 DEPLOYMENT_ENUMS）；注入失败（null）→ 降级只提醒、不判值。
+  // 挂 W（牵连排查）之前：既有测试按 handlers['tool_call'] 下标定位（0=bash/1=task/2=G 门/3=I 消账/4=T 埋点），W 保持末位不挪。
+  pi.on('tool_call', async (event, ctx) => {
+    try {
+      if (!guardOn(ctx?.cwd)) return undefined;
+      if (event.toolName !== 'edit' && event.toolName !== 'write') return undefined;
+      const p = String(event.input?.path ?? '');
+      if (path.basename(p) !== 'project.json' || !p.includes('.taskflow')) return undefined; // 只管 taskflow 账本那份 project.json
+      const incoming = typeof event.input?.content === 'string' ? event.input.content : typeof event.input?.new_string === 'string' ? event.input.new_string : '';
+      if (!incoming.includes('deployment')) return undefined;
+      const dep = extractDeploymentNode(incoming);
+      if (!dep) return undefined; // 未写 deployment 节（改其他键）→ 零干扰
+      if (!DEPLOYMENT_ENUMS) {
+        return { additionalContext: '⚠ TASKFLOW_GUARD deployment 提醒：正在写 project.json 的 deployment 节——三键（tier/environments/verify）必须经用户确认后落盘：禁默认值、禁照抄示例，未答就不落盘（节整体缺省合法）。' };
+      }
+      const bad = [];
+      for (const k of ['tier', 'environments']) {
+        if (dep[k] === undefined) continue; // 缺键归 doctor/schema 校验兜——此处只拦「落了但值非法」
+        if (!DEPLOYMENT_ENUMS[k].includes(dep[k])) bad.push(`${k}="${dep[k]}" 不在合法值 [${DEPLOYMENT_ENUMS[k].join('|')}]`);
+      }
+      if (dep.verify !== undefined) {
+        const v = String(dep.verify);
+        if (v.length < (DEPLOYMENT_ENUMS.verifyMinLength ?? 2) || /^<[^>]*>$/.test(v)) bad.push(`verify="${v}" 是空值/占位符（示例键不得照抄落盘）`);
+      }
+      if (!bad.length) return undefined;
+      const why = `TASKFLOW_GUARD deployment 落档校验（自动检查脚本）：${bad.join('；')}。deployment 三键必须经用户确认：tier 是 ${DEPLOYMENT_ENUMS.tier.join('|')} 二选一，environments 是 ${DEPLOYMENT_ENUMS.environments.join('|')} 二选一，verify 是验证方式一句话——你落的值哪来的？未答就不落盘（deployment 节整体缺省合法）：先向用户提问确认再落，或删掉这组键。`;
+      guardLog(ctx?.cwd, 'deployment-profile', 'enforce', `deployment 值未过确认：${bad[0]}`);
+      return { block: true, reason: why };
+    } catch { return undefined; } // hook fail-closed，绝不拦主流程
   });
 
   // 牵连排查 + 数据边界提醒（v2.72.0；v2.76.0 检索修正）：edit/write 触及普通源码文件时两检查（.taskflow/ 档案走

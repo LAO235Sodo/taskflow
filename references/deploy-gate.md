@@ -10,6 +10,10 @@
 3. **部署租约（v2.53.0 改口径：走 deploy 入口时无需也不应手动拿锁——入口自管 deploy 锁 ttl 1800，手动持锁后跑入口会撞自己的锁死等 30 分钟，2026-10-09 实证）**：手动 `lock deploy` 仅剩两个合法场景——①绕行 preflight 直跑部署命令链的应急（该链本身已被硬规则 23 禁止，锁只是减损）②非入口的长时间部署准备动作。锁的边界不变：本地 clone 的 `.taskflow/.locks/`——单机多会话有效，**跨用户/跨机器互不可见**（跨机让位人工协调，机械兜底=实况核验+血统门，数据源在服务器上跨机有效）。
 4. **验收窗口让位 + 验收即合并**：任一任务 verifying 期间，非并集/非本体的部署让位（预检机械化拦截，见第 1 条）；用户回「验收通过」= 立即 merge main + main 重建替换包 + `accept --pass`——未合并的已部署分支过夜 = 滚回倒计时；「合并后 main 重建替换包」缺位同罪。
 
+## 验证分级（v2.89.0，DEPLOYMENT_PROFILE）
+
+deploy 入口门禁（预检）绿后追加输出一行「验证分级」：读 `project.json.deployment` 三键，经 schema 真身（references/schemas/project.schema.json——枚举/分级注解唯一出处）映射本项目适用的验证档次（①文档配置直接合 ②共享测试套 ③临时实例+干净数据副本 ④任务级完全隔离缓做）+ verify 原文——**纯信息不拦**，为部署/验证清单的口径提供档案依据；deployment 未登记=ℹ「下次建档补问」（未答不落盘语义）。档次的机械兜底分别在：合并侧=merge.md 第 5 步 lock 授锁「验证分级」行，落档侧=doctor schema 校验（出枚举/占位/未注册节=红）。
+
 ## 部署分支语义（v2.66.0，merge-first——2026-10-16 误部署实证固化）
 
 - **判定**：project.json deploy.commands 含 main 检出断言（`branch --show-current … 'main'`）= 该项目部署命令**锁死从 main 构建**（镜像化/paas-ready 形态的并集语义）。deploy 入口（tf.mjs）对此机械防呆：`--branch` 传非 main 分支 → **拒绝**（构建会静默空转：checkout/tag/构建全取 main，产出与线上同内容的镜像，实物不变——2026-10-16 首次误部署实证：任务分支直接 deploy 构建了 main 同内容镜像，容器实物 md5 与部署前完全一致，靠 jarProbe 实物对账才抓出）。

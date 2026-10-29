@@ -1,6 +1,6 @@
 # 宿主防护层（TASKFLOW_GUARD）
 
-> 机制定义（data.md 机制登记表 / MECH_PROSE）。本文件是细则唯一载体：功能清单（D–W 十五项）、部署墙/编辑边界/状态翻转墙档位、零干扰边界、卸载。
+> 机制定义（data.md 机制登记表 / MECH_PROSE）。本文件是细则唯一载体：功能清单（D–W+DP 十六项）、部署墙/编辑边界/状态翻转墙档位、零干扰边界、卸载。
 > 防的事故类：taskflow 是技能，一切强制力都要经模型一次正确执行——`commit --files` 逗号坑连环踩、`deploy` 忘 `--web-only`、绕过部署入口、敞口无感知、压缩丢上下文、**派发凭记忆转述 spec、越界编辑**，全是"模型没记得/没做对"。omp extension 跑在宿主进程事件总线上，模型物理绕不过（2026-10-09 用户拍板，方案呈报 D→B→C→A 顺序；同日 F/G 拍板——split.md 纸面纪律升格宿主层）。
 
 ## 形态与安装
@@ -9,7 +9,7 @@
 - 定位 `.taskflow/` 用 `git rev-parse --git-common-dir`——worktree 内会话正确回到主仓库档案。
 - **零干扰边界**：项目无 `.taskflow/` 时全部功能静默（状态栏不显示、无拦截、无注入）——通用项目可装可不装。
 
-## 功能清单（D–W）
+## 功能清单（D–W+DP）
 
 | # | 功能 | 事件 | 行为 |
 | --- | --- | --- | --- |
@@ -27,6 +27,7 @@
 | T | 技能加载埋点（v2.69.0） | `tool_call`（read） | `skill://` 显式读取计数入全局单文件（`TF_SKILL_USAGE` 或 `~/.omp/agent/skill-usage.jsonl`）——零内容仅计数（只记技能名与项目名），供 `tf.mjs skills --usage` 报表；**不受 guardOn 闸控**（全局能力地图数据），handler 整体吞错（omp hook fail-closed：抛错=阻断读取，埋点绝不能拦主流程） |
 | U | 状态引导注入（v2.84.0） | `before_provider_request`（E 同通道追加） | 每轮把状态机「下一步动作+禁令」引导行（active=改动先 checkpoint、收尾走 merge 流程；verifying=验收只经 accept --pass、禁自行合并；parked=恢复只经 unpark，原因摘要换行/竖线折叠+20 字截断）+ active 任务未完成子任务清单（status≠done；in_progress 标注（进行中）；>8 项折叠为「…共 N 项未完成」）前置进请求（system 角色消息；Anthropic 形传输回落 payload.system；2.84.1 修复——旧 p.system 写入在真实 payload 无 system 键下被传输层丢弃=静默 no-op）——治长会话指令稀释（字段住懒加载 references 从未被读，2026-10-28 审计实证；注入只放浓缩指令，禁指路型提醒）。顺序 active→verifying→parked，桶空省略、三桶全空不输出；「，本会话」标注=task.json.sessionID 与会话文件名（去 .jsonl）整名相等或下划线后缀（uuid 段）相等——不匹配降级无标注（2.84.1 修复：旧精确相等在时间戳_uuid 文件名形态下恒不命中=标注永不亮）；内容逐字节稳定（cache warming byte-identical，禁每轮变化源）；`TF_STATE_INJECT=off` 关（保留实况行=回退 2.83.0 行为）；状态指纹（三桶 id→status 串）变化且同 id 两轮状态不同 → 写触发日志（gate=state-inject，每任务一行） |
 | V | 档案删除告警（v2.71.0） | `tool_call`（bash） | rm 触及 .taskflow/ 档案 → 告警（`TF_RM_WARN`=enforce 硬拦/off 关，缺省 warn）——档案不可逆删除风险，触发写 gate=archive-rm |
+| DP | deployment 落档校验（v2.89.0） | `tool_call`（edit/write） | 写 `project.json` 带 deployment 键 → 值出枚举/verify 占位 = **block**（三键须用户确认：禁默认值、禁照抄示例、未答不落盘；理由话术中的合法值由渲染期注入的 schema 枚举生成——单源=schema 真身，注入失败降级提醒不判值）；gate=deployment-profile |
 | W | 牵连排查+数据边界提醒（v2.72.0） | `tool_call`（edit/write） | 主名整词命中 ≥`TF_IMPACT_THRESHOLD`→影响面清单提醒（`TF_J19_WARN`）；数据管道特征→真空失真枚举提醒（`TF_J20_WARN`）；gate=impact,data-boundary |
 
 ## 部署墙两档模式（A）
