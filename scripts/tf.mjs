@@ -32,6 +32,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { STATES, validateTransition } from './taskflow-state-machine.mjs'; // 状态机唯一机器源（v2.69.0）：枚举单源 + 写侧转换合法性断言
+import { GATE_MANIFEST } from '../assets/guard/taskflow-guard.js'; // guard 门描述符单源（v2.85.0）：mechanisms 读数据不再解析头注释（guard 顶层零副作用，静态导入安全）
 
 const R = (s) => String(s ?? '').trim();
 const trunc = (s, n) => { const a = Array.from(String(s ?? '')); return a.length > n ? a.slice(0, n - 1).join('') + '…' : a.join(''); }; // 码点安全切片（攻击轮 C5：UTF-16 码元切片切裂代理对 → U+FFFD）
@@ -2826,77 +2827,63 @@ function archiveCmd(args = []) {
 
 /* ---------------- 入口 ---------------- */
 
-/* ---------------- mechanisms：guard 门清单（只读，v2.83.0 机制透明化）----------------
-   治「guard 加了很多门但用户不知道、看不懂被拦/被提醒的原因」：按行解析 guard 源码头注释 handler 主行
-   （三空格开头、含全角冒号；六空格续行与非注释行跳过）逐门输出中文名/管什么/开关 env/是否写触发日志——
-   guard 注释改了这里自动同步，无第二事实源。gate token 映射为英文机器键（guardLog 落盘用），供对照日志行。 */
+/* ---------------- mechanisms：guard 门清单（只读，v2.83.0 机制透明化；v2.85.0 起读 GATE_MANIFEST 数据）----------------
+   治「guard 加了很多门但用户不知道、看不懂被拦/被提醒的原因」：逐门输出中文名/管什么/事件面/开关 env/是否写触发日志。
+   真源=guard 模块导出的 GATE_MANIFEST 描述符数组（头注释散文仅作文档，不再解析）；导入失败=进程加载即红（fail-fast），
+   空数组 fail-closed 报错 return 1，禁静默空输出。 */
 function mechanismsCmd() {
-  const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-  let src = ''; try { src = fs.readFileSync(path.join(root, 'assets', 'guard', 'taskflow-guard.js'), 'utf8'); } catch {}
-  const lines = src.split('\n');
-  const headEnd = lines.findIndex((l) => l.startsWith('import '));
-  const block = headEnd === -1 ? [] : lines.slice(0, headEnd);
-  const gateTokens = { 状态翻转墙: 'status-wall', 部署墙: 'deploy-wall', 编辑边界门: 'boundary', 牵连排查: 'impact', 数据边界: 'data-boundary', 同类排查提醒: 'class-sweep', 词表反馈沉淀: 'glossary', 渲染证据墙: 'render', 验收期提醒: 'verify-remind', 档案删除告警: 'archive-rm', 多假设排序弹脸: 'triage', 状态引导注入: 'state-inject' };
-  const rows = [];
-  for (let i = 0; i < block.length; i++) {
-    if (!/^\/\/ {3}(?! {3})/.test(block[i])) continue;
-    const nameM = block[i].match(/^\/\/ {3}(.+?)：/);
-    if (!nameM) continue;
-    const name = nameM[1];
-    let what = block[i].slice(nameM[0].length).trim();
-    if (/[，、——]$/.test(what)) what = `${what.replace(/[，、——]+$/, '')}…`; // 主行折行截断：去断裂标点补省略号（细节看 guard 源注释）
-    let envs = [...new Set((what.match(/TF_[A-Z0-9_]+/g) ?? []).filter((e) => e !== 'TF_GUARD_LOG'))];
-    for (let j = i + 1; j < block.length && /^\/\/ {6}/.test(block[j]); j++) { // 开关 env 常在续行——扫整块
-      envs.push(...((block[j].match(/TF_[A-Z0-9_]+/g) ?? []).filter((e) => e !== 'TF_GUARD_LOG' && !envs.includes(e))));
-    }
-    const matched = Object.entries(gateTokens).filter(([cn]) => name.includes(cn)).map(([, tk]) => tk);
-    rows.push(`${name}：${what}｜开关：${envs.length ? envs.join(' ') : '无'}｜触发日志：${matched.length ? `写 .guard-log.jsonl（gate=${matched.join(',')})` : '不写'}`);
+  if (!Array.isArray(GATE_MANIFEST) || GATE_MANIFEST.length === 0) {
+    console.log('⛔ mechanisms：GATE_MANIFEST 缺失或为空（guard 源损坏？）');
+    return 1;
   }
-  console.log('# guard 机制清单（解析自 assets/guard/taskflow-guard.js 头注释——guard 注释改了这里自动同步）');
-  for (const r of rows) console.log(r);
+  console.log('# guard 机制清单（真源=GATE_MANIFEST @ assets/guard/taskflow-guard.js——改门先改数组，此处零解析）');
+  for (const m of GATE_MANIFEST) {
+    console.log(`${m.name}${m.feature ? `（${m.feature}）` : ''}：${m.what}｜事件：${m.events}｜开关：${m.envs.length ? m.envs.join(' ') : '无'}｜触发日志：${m.gate ? `写 .guard-log.jsonl（gate=${m.gate}）` : '不写'}`);
+  }
   console.log('被拦/被提醒时问「为什么」，模型按本清单大白话解释当前生效的门与触发原因，代号首现带括号白话；');
   console.log('触发日志在 .taskflow/.guard-log.jsonl（TF_GUARD_LOG=off 关）。');
   return 0;
 }
 
-const USAGE = `用法：
-  node tf.mjs ls [--all]                 盘点：登记任务表 + 游离工作（只读；--all 展开已归档；无活任务时打印可续迭代入口句）
-  node tf.mjs doctor [--all] [--self] [--data <path>] [task-id]  体检：不变量逐条检查（缺省=active/verifying + 根层死任务，--all 含 archive/ 内 merged）；--self=不变量 spec↔注册表↔实现 三源一致性（--data 指 spec 副本，测试用）（只读）
-  node tf.mjs reconcile [--fix]         对账：档案对账（I1）回写/幽灵清理/损坏报告；默认 dry-run，--fix=原子回写（唯一写命令，幂等）
-  node tf.mjs scout <关键词…> [--files]  历史检索：约定→决策库→任务档案→git 考古；命中=线索，判断归模型（只读）
-  node tf.mjs skills [领域词]           领域技能在场检测：缺哪些+怎么装；呈用户选装（不装则如实注记）（只读）；--usage=技能加载埋点报表（TF_SKILL_USAGE 单文件聚合，仅 omp 侧显式 skill:// 加载计数）
-  node tf.mjs mechanisms               guard 门清单（机制透明化，v2.83.0，只读）：逐行输出宿主防护层每个门的中文名/管什么/开关 env/是否写触发日志——被拦或被提醒时按它向用户解释原因
-  node tf.mjs accept <task-id> [--pass]  缺省=验收简报：任务是什么/部署状态/验什么/怎么验/怎么回复；--pass=机械翻转 *→merged（前置=分支已并入主分支，幂等）
-  node tf.mjs takeover <task-id> --session <本会话ID>  接管仪式：改 sessionID + 重写 .owner.json + 刷新 lease + 打印桌面清点清单（清点判断归编排层）
-  node tf.mjs park <task-id> --reason "<原因>"   搁置在途任务（active→parked，簿记写入口）——档案保留、体检（缺省）与 G 门不再盘点；等验收中（含部署态）拒
-  node tf.mjs unpark <task-id>                    恢复搁置任务（parked→active，簿记写入口）
-  node tf.mjs commit -m "…" [--files|--all] [--session <本会话ID>] [--deployed [部署注记]]  安全提交：不声明范围=拒绝；--session 乐观锁（属主不符拒写，空则回填）；--deployed 部署扳机（active→verifying+deploy 记录+index 同步）；提交后报桌上剩余；首个 commit 自动锚定 goalHash
-  node tf.mjs req-confirm <task-id> --note "<拍板记录>"  需求变更门落痕：刷新 goalHash + reqChanges 追加 + index 同步（spec 承重节变更的唯一合法写路径；--note 必填）
-  node tf.mjs testplan [task-id] [--files]  测试计划选择器：按改动集命中规则表 → 四道门计划（只读；知识层 references/testing.md）
-  node tf.mjs diagnose <task-id>          诊断证据包：提交史/改动集/测试资产/.testbed 运行/六步提示（只读）
-  node tf.mjs nextid --pattern V --path <路径> [--reserve|--versions]  共享计数器占号（扫全分支/--reserve 原子占号/--versions 版本占面）
-  node tf.mjs lock <name> [--release] [--session <本会话ID>] [--ttl <秒=120>]  排队锁：合并端局等关键窗口串行化（他人新鲜锁 → 拒绝排队；陈旧 → 强占；--release 释放/幂等）
-  node tf.mjs snapshot <task-id>            合并快照：审查呈报后拍 main HEAD（事务 ID 类比）写入 task.json.mergeSnapshot
-  node tf.mjs mergegate <task-id>           合并双门（MERGE_GATE）：①快照门（文件级分类）——main 现值≠审查快照时比对「main 变更×任务读写集」：命中=红（逐文件重审）、未触碰=黄（同步合并+刷新快照免第 3 步重审；黄红均 exit 1）；②越界门——分支 diff 超出 spec「改动文件集合声明」（matchPath 目录前缀）=红（req-confirm 补声明或收窄）
-  node tf.mjs gates <task-id>               门责任链聚合（只读）：快照/越界/已并入预检/stale/敞口（I16） 五道门一次跑完，统一「门名：过/红/黄——一句原因」表+verdict 收尾；逐门完整处置指引跑 mergegate
-  node tf.mjs revert-plan <task-id>         Saga 补偿方案生成器（只读不执行）：为 merged 任务生成逐条 git revert -m 1 方案落 <taskDir>/revert-plan.md（含档案注记与红线）；非 merged 拒（active/verifying 打回走 resume.md 第 9 步）；执行需用户逐条确认
-  node tf.mjs stale [task-id]              在途任务失效感知（STALE_CHECK，v2.59.0）：main 自任务基线 baseCommit 的改动 × 本任务读写集（写集声明∪影响面地图反引号资产）求交——命中=影响面漂移，先重验 spec 影响面地图对应行再动工；无 id 全量扫 active/verifying；无基线锚/分支已并入 main/无机读声明均 ℹ 降级（只读，不改任何状态）
-  node tf.mjs overlap <task-id>            并行派发准入预检（DISPATCH_OVERLAP，v2.59.0）：子任务 spec「## 涉及文件」反引号路径两两 matchPath 求交——重叠对=不准并行（场景① 前提=写集两两不相交：改串行/调整拆分边界/呈用户仲裁）；无子任务 ℹ exit 0（只读）
-  node tf.mjs impact [--files f1,f2,…] [--since <git-ref>]  牵连排查+数据边界机械保底（v2.72.0，只读恒 exit 0）：缺省文件集=active/verifying 任务 baseCommit..HEAD 改动（无 baseCommit 用主分支..HEAD；无在档任务=已暂存+工作区改动；--since 覆盖区间）——逐文件 basename 引用计数/清单（前 5 处）+数据管道特征（数据边界风险标注）；阈值 TF_IMPACT_THRESHOLD（缺省 3）；语义级影响面用 code-review-graph impact（如已挂载）
-  node tf.mjs deploy --branch <部署分支> [--web-only] [--dry-run] [--version V]  部署唯一入口：门禁（deploy-preflight）内嵌，红=拒绝；部署后自动 --record 登记（project.json deploy 配置命令序列；deploy.procProbe 可选=进程清点探针命令，透传 --proc-probe）
-  node tf.mjs migrate                      一次性数据搬迁：.opencode/tasks/ → .taskflow/（exclude 顶替+待改引用清单；并存拒动）
-  node tf.mjs archive [task-id]            死档案归层：merged/archived → archive/（journal 三件套归位；活任务拒动；幂等；输出可复制的续迭代入口句）
-  node tf.mjs svc ls                       服务端口租约清单：端口/服务/任务/会话/pid + 活性标注 live/pid未登记/stale（orphan 为独立后缀，复合态并列）（只读）
-  node tf.mjs svc claim <service> --port <p> [--task <id>] [--session <ses>] [--pid <pid>] [--note <注记>]  声明端口：空闲→登记；被占→拒绝+报告占用者+建议让位（绝不 kill）；同 task 重跑→补登/回收死租约（簿记写入口）
-  node tf.mjs svc release <port>           释放端口租约（停服动作归编排层；不在册拒绝；簿记写入口）
-  node tf.mjs lint                         流程文档自检：步骤引用/编号连续/兼容标注/闸门关键词/未入库引用/机制触点可达/机制fixture落痕/事实禁改写/模板中性/挂接对账（只读）
-  环境变量 TF_STATUS=<off|warn|enforce>    守门 J 状态翻转墙档位（v2.69.0；缺省 enforce——手改 task.json/index.json 的 status 物理拦截，翻转唯一写路径是扳机命令，档案修复走 reconcile --fix；off=单次豁免）
+/* ---------------- 命令表（v2.85.0 描述符注册表）：name/usage/run 单源——分发区、help（USAGE 组合）、lint 孤儿检查三处消费 ----------------
+   usage=帮助行原文（svc/mech 为三行块）；run 签名特例照旧分发区（accept/diagnose 取首参，mechanisms/migrate 无参）。 */
+const COMMANDS = [
+  { name: 'ls', usage: `  node tf.mjs ls [--all]                 盘点：登记任务表 + 游离工作（只读；--all 展开已归档；无活任务时打印可续迭代入口句）`, run: (rest) => ls(rest) },
+  { name: 'doctor', usage: `  node tf.mjs doctor [--all] [--self] [--data <path>] [task-id]  体检：不变量逐条检查（缺省=active/verifying + 根层死任务，--all 含 archive/ 内 merged）；--self=不变量 spec↔注册表↔实现 三源一致性（--data 指 spec 副本，测试用）（只读）`, run: (rest) => doctor(rest) },
+  { name: 'reconcile', usage: `  node tf.mjs reconcile [--fix]         对账：档案对账（I1）回写/幽灵清理/损坏报告；默认 dry-run，--fix=原子回写（唯一写命令，幂等）`, run: (rest) => reconcile(rest) },
+  { name: 'scout', usage: `  node tf.mjs scout <关键词…> [--files]  历史检索：约定→决策库→任务档案→git 考古；命中=线索，判断归模型（只读）`, run: (rest) => scout(rest) },
+  { name: 'skills', usage: `  node tf.mjs skills [领域词]           领域技能在场检测：缺哪些+怎么装；呈用户选装（不装则如实注记）（只读）；--usage=技能加载埋点报表（TF_SKILL_USAGE 单文件聚合，仅 omp 侧显式 skill:// 加载计数）`, run: (rest) => skillsCmd(rest) },
+  { name: 'mechanisms', usage: `  node tf.mjs mechanisms               guard 门清单（机制透明化，v2.83.0，只读）：逐行输出宿主防护层每个门的中文名/管什么/开关 env/是否写触发日志——被拦或被提醒时按它向用户解释原因`, run: () => mechanismsCmd() },
+  { name: 'accept', usage: `  node tf.mjs accept <task-id> [--pass]  缺省=验收简报：任务是什么/部署状态/验什么/怎么验/怎么回复；--pass=机械翻转 *→merged（前置=分支已并入主分支，幂等）`, run: (rest) => accept(rest[0], rest.slice(1)) },
+  { name: 'takeover', usage: `  node tf.mjs takeover <task-id> --session <本会话ID>  接管仪式：改 sessionID + 重写 .owner.json + 刷新 lease + 打印桌面清点清单（清点判断归编排层）`, run: (rest) => takeover(rest) },
+  { name: 'park', usage: `  node tf.mjs park <task-id> --reason "<原因>"   搁置在途任务（active→parked，簿记写入口）——档案保留、体检（缺省）与 G 门不再盘点；等验收中（含部署态）拒`, run: (rest) => parkCmd(rest) },
+  { name: 'unpark', usage: `  node tf.mjs unpark <task-id>                    恢复搁置任务（parked→active，簿记写入口）`, run: (rest) => unparkCmd(rest) },
+  { name: 'commit', usage: `  node tf.mjs commit -m "…" [--files|--all] [--session <本会话ID>] [--deployed [部署注记]]  安全提交：不声明范围=拒绝；--session 乐观锁（属主不符拒写，空则回填）；--deployed 部署扳机（active→verifying+deploy 记录+index 同步）；提交后报桌上剩余；首个 commit 自动锚定 goalHash`, run: (rest) => commitCmd(rest) },
+  { name: 'req-confirm', usage: `  node tf.mjs req-confirm <task-id> --note "<拍板记录>"  需求变更门落痕：刷新 goalHash + reqChanges 追加 + index 同步（spec 承重节变更的唯一合法写路径；--note 必填）`, run: (rest) => reqConfirm(rest) },
+  { name: 'testplan', usage: `  node tf.mjs testplan [task-id] [--files]  测试计划选择器：按改动集命中规则表 → 四道门计划（只读；知识层 references/testing.md）`, run: (rest) => testplan(rest) },
+  { name: 'diagnose', usage: `  node tf.mjs diagnose <task-id>          诊断证据包：提交史/改动集/测试资产/.testbed 运行/六步提示（只读）`, run: (rest) => diagnose(rest[0]) },
+  { name: 'nextid', usage: `  node tf.mjs nextid --pattern V --path <路径> [--reserve|--versions]  共享计数器占号（扫全分支/--reserve 原子占号/--versions 版本占面）`, run: (rest) => nextid(rest) },
+  { name: 'lock', usage: `  node tf.mjs lock <name> [--release] [--session <本会话ID>] [--ttl <秒=120>]  排队锁：合并端局等关键窗口串行化（他人新鲜锁 → 拒绝排队；陈旧 → 强占；--release 释放/幂等）`, run: (rest) => lockCmd(rest) },
+  { name: 'snapshot', usage: `  node tf.mjs snapshot <task-id>            合并快照：审查呈报后拍 main HEAD（事务 ID 类比）写入 task.json.mergeSnapshot`, run: (rest) => snapshotCmd(rest) },
+  { name: 'mergegate', usage: `  node tf.mjs mergegate <task-id>           合并双门（MERGE_GATE）：①快照门（文件级分类）——main 现值≠审查快照时比对「main 变更×任务读写集」：命中=红（逐文件重审）、未触碰=黄（同步合并+刷新快照免第 3 步重审；黄红均 exit 1）；②越界门——分支 diff 超出 spec「改动文件集合声明」（matchPath 目录前缀）=红（req-confirm 补声明或收窄）`, run: (rest) => mergegateCmd(rest) },
+  { name: 'gates', usage: `  node tf.mjs gates <task-id>               门责任链聚合（只读）：快照/越界/已并入预检/stale/敞口（I16） 五道门一次跑完，统一「门名：过/红/黄——一句原因」表+verdict 收尾；逐门完整处置指引跑 mergegate`, run: (rest) => gatesCmd(rest) },
+  { name: 'revert-plan', usage: `  node tf.mjs revert-plan <task-id>         Saga 补偿方案生成器（只读不执行）：为 merged 任务生成逐条 git revert -m 1 方案落 <taskDir>/revert-plan.md（含档案注记与红线）；非 merged 拒（active/verifying 打回走 resume.md 第 9 步）；执行需用户逐条确认`, run: (rest) => revertPlanCmd(rest) },
+  { name: 'stale', usage: `  node tf.mjs stale [task-id]              在途任务失效感知（STALE_CHECK，v2.59.0）：main 自任务基线 baseCommit 的改动 × 本任务读写集（写集声明∪影响面地图反引号资产）求交——命中=影响面漂移，先重验 spec 影响面地图对应行再动工；无 id 全量扫 active/verifying；无基线锚/分支已并入 main/无机读声明均 ℹ 降级（只读，不改任何状态）`, run: (rest) => staleCmd(rest) },
+  { name: 'overlap', usage: `  node tf.mjs overlap <task-id>            并行派发准入预检（DISPATCH_OVERLAP，v2.59.0）：子任务 spec「## 涉及文件」反引号路径两两 matchPath 求交——重叠对=不准并行（场景① 前提=写集两两不相交：改串行/调整拆分边界/呈用户仲裁）；无子任务 ℹ exit 0（只读）`, run: (rest) => overlapCmd(rest) },
+  { name: 'impact', usage: `  node tf.mjs impact [--files f1,f2,…] [--since <git-ref>]  牵连排查+数据边界机械保底（v2.72.0，只读恒 exit 0）：缺省文件集=active/verifying 任务 baseCommit..HEAD 改动（无 baseCommit 用主分支..HEAD；无在档任务=已暂存+工作区改动；--since 覆盖区间）——逐文件 basename 引用计数/清单（前 5 处）+数据管道特征（数据边界风险标注）；阈值 TF_IMPACT_THRESHOLD（缺省 3）；语义级影响面用 code-review-graph impact（如已挂载）`, run: (rest) => impactCmd(rest) },
+  { name: 'deploy', usage: `  node tf.mjs deploy --branch <部署分支> [--web-only] [--dry-run] [--version V]  部署唯一入口：门禁（deploy-preflight）内嵌，红=拒绝；部署后自动 --record 登记（project.json deploy 配置命令序列；deploy.procProbe 可选=进程清点探针命令，透传 --proc-probe）`, run: (rest) => deployCmd(rest) },
+  { name: 'migrate', usage: `  node tf.mjs migrate                      一次性数据搬迁：.opencode/tasks/ → .taskflow/（exclude 顶替+待改引用清单；并存拒动）`, run: () => migrateCmd() },
+  { name: 'archive', usage: `  node tf.mjs archive [task-id]            死档案归层：merged/archived → archive/（journal 三件套归位；活任务拒动；幂等；输出可复制的续迭代入口句）`, run: (rest) => archiveCmd(rest) },
+  { name: 'svc', usage: `  node tf.mjs svc ls                       服务端口租约清单：端口/服务/任务/会话/pid + 活性标注 live/pid未登记/stale（orphan 为独立后缀，复合态并列）（只读）\n  node tf.mjs svc claim <service> --port <p> [--task <id>] [--session <ses>] [--pid <pid>] [--note <注记>]  声明端口：空闲→登记；被占→拒绝+报告占用者+建议让位（绝不 kill）；同 task 重跑→补登/回收死租约（簿记写入口）\n  node tf.mjs svc release <port>           释放端口租约（停服动作归编排层；不在册拒绝；簿记写入口）`, run: (rest) => svcCmd(rest) },
+  { name: 'lint', usage: `  node tf.mjs lint                         流程文档自检：步骤引用/编号连续/兼容标注/闸门关键词/未入库引用/机制触点可达/机制fixture落痕/事实禁改写/模板中性/挂接对账（只读）`, run: (rest) => lintCmd(rest) },
+  { name: 'mech', usage: `  node tf.mjs mech ls                      机制采纳清单：token/状态（已装/可装/漂移）+ 产物（只读；真相源=机制登记表「采纳产物」列）\n  node tf.mjs mech check                   机制采纳对账：每机制 token/已装版本/当前版本/状态（一致|漂移|未装）；声明采纳者有漂移 → exit 1（统一谓词，doctor 采纳对账同源；只读）\n  node tf.mjs mech install <token> [--yes] 机制生成安装：assets/harness+design 模板渲染入项目（assetExts 注入）+ docs/CHANGELOG.md 建档锚点 + conventions/AGENTS 补记 + project.json.mechanisms 登记（簿记写入口；幂等；CI 挂点只建议不自动改——经确认门写入）。确认闸（v2.65.0）：已装版本漂移刷新或将整文件覆盖已有文件 → 拒绝落盘并打印将覆盖文件清单，显式 --yes 才执行；首装空位不拦（懒加载，首装确认归 DEP_ASK_GATE 呈报流程）`, run: (rest) => mechCmd(rest) },
+];
+const USAGE_FOOTER = `  环境变量 TF_STATUS=<off|warn|enforce>    守门 J 状态翻转墙档位（v2.69.0；缺省 enforce——手改 task.json/index.json 的 status 物理拦截，翻转唯一写路径是扳机命令，档案修复走 reconcile --fix；off=单次豁免）
   环境变量 TF_VERIFY_WARN=off              关闭守门 K 验收期提醒（v2.69.0；git push/merge 时在档等验收任务的时序核对提醒，缺省开，提醒不拦）
   环境变量 TF_IMPACT_THRESHOLD=<N 缺省 3>  basename 引用文件数阈值（impact 命令与守门牵连排查共用）；TF_J19_WARN / TF_J20_WARN=off 各自关闭守门牵连排查/数据边界提醒（v2.72.0；缺省 warn，纯提醒不拦、无 enforce 档）
-  node tf.mjs mech ls                      机制采纳清单：token/状态（已装/可装/漂移）+ 产物（只读；真相源=机制登记表「采纳产物」列）
-  node tf.mjs mech check                   机制采纳对账：每机制 token/已装版本/当前版本/状态（一致|漂移|未装）；声明采纳者有漂移 → exit 1（统一谓词，doctor 采纳对账同源；只读）
-  node tf.mjs mech install <token> [--yes] 机制生成安装：assets/harness+design 模板渲染入项目（assetExts 注入）+ docs/CHANGELOG.md 建档锚点 + conventions/AGENTS 补记 + project.json.mechanisms 登记（簿记写入口；幂等；CI 挂点只建议不自动改——经确认门写入）。确认闸（v2.65.0）：已装版本漂移刷新或将整文件覆盖已有文件 → 拒绝落盘并打印将覆盖文件清单，显式 --yes 才执行；首装空位不拦（懒加载，首装确认归 DEP_ASK_GATE 呈报流程）
+${COMMANDS.find((c) => c.name === 'mech').usage}
 退出码：0 正常/全绿/账目一致；1 有差异/有待修项/缺参数/有缺技能。不变量 spec：references/data.md；判断与叙事修复归编排层。`;
+const USAGE = '用法：\n' + COMMANDS.filter((c) => c.name !== 'mech').map((c) => c.usage).join('\n') + '\n' + USAGE_FOOTER; // mech 三行块原文位于环境变量行之后——FOOTER 引用其 usage 保持行序与单源
 
 /* ---------------- mech：机制采纳（ls/check 只读 / install 生成式安装——簿记写入口，v2.29.0；v2.65.0 --yes 确认闸 + 统一采纳对账谓词） ----------------
    治「机制定义在技能、执行体在项目、装没装无追踪」（2026-09-27 六缺陷之一）：机制本体住技能仓库 assets/，
@@ -3560,9 +3547,8 @@ function lintCmd(args = []) {
       }
     }
     try {
-      const tfSrc = fs.readFileSync(path.join(root, 'tf.mjs'), 'utf8');
       const docPool = refs.map((f) => path.join(root, '..', f)).filter((p) => fs.existsSync(p)).map((p) => fs.readFileSync(p, 'utf8')).join('\n');
-      const orphans = [...new Set([...tfSrc.matchAll(/if \(cmd === (['"])([\w-]+)\1\)/g)].map((m) => m[2]))].filter((c) => !docPool.includes(c)); // v2.71.0 A7：补双引号分发形态
+      const orphans = [...new Set(COMMANDS.map((c) => c.name))].filter((c) => !docPool.includes(c)); // v2.85.0 起命令集合读 COMMANDS 注册表（此前解析 tf.mjs 源码 if (cmd === …) 正则）
       for (const c of orphans) console.log(`⚠ lint 挂接对账：命令 ${c} 在 references/*.md 零提及（孤儿话语入口？）——纯簿记命令可无话语入口，确认后忽略（提示级不拦截）`);
     } catch { /* tf.mjs 不可读（--root 副本缺文件）→ 跳过孤儿检查 */ }
   }
@@ -3571,34 +3557,6 @@ function lintCmd(args = []) {
 }
 const rangeNums = (a, b) => Array.from({ length: b - a + 1 }, (_, i) => a + i);
 
-if (cmd === 'ls') process.exit(ls(rest));
-if (cmd === 'doctor') process.exit(doctor(rest));
-if (cmd === 'reconcile') process.exit(reconcile(rest));
-if (cmd === 'scout') process.exit(scout(rest));
-if (cmd === 'skills') process.exit(skillsCmd(rest));
-if (cmd === 'accept') process.exit(accept(rest[0], rest.slice(1)));
-if (cmd === 'takeover') process.exit(takeover(rest));
-if (cmd === 'park') process.exit(parkCmd(rest)); // PARK（v2.60.0）：搁置簿记，active→parked
-if (cmd === 'unpark') process.exit(unparkCmd(rest)); // PARK（v2.60.0）：恢复搁置，parked→active
-if (cmd === 'commit') process.exit(commitCmd(rest));
-if (cmd === 'req-confirm') process.exit(reqConfirm(rest));
-if (cmd === 'testplan') process.exit(testplan(rest));
-if (cmd === 'diagnose') process.exit(diagnose(rest[0]));
-if (cmd === 'nextid') process.exit(nextid(rest));
-if (cmd === 'lock') process.exit(lockCmd(rest));
-if (cmd === 'snapshot') process.exit(snapshotCmd(rest));
-if (cmd === 'mergegate') process.exit(mergegateCmd(rest));
-if (cmd === 'stale') process.exit(staleCmd(rest)); // STALE_CHECK（v2.59.0）：在途任务影响面漂移检查，只读
-if (cmd === 'revert-plan') process.exit(revertPlanCmd(rest)); // Saga 补偿方案生成器（v2.69.0）：merged 任务的 revert 方案，只读不执行
-if (cmd === 'mechanisms') process.exit(mechanismsCmd()); // guard 门清单（v2.83.0 机制透明化）：解析守源头注释逐门输出，只读
-if (cmd === 'gates') process.exit(gatesCmd(rest)); // 门责任链聚合（v2.69.0）：五道合并相关门一次跑完，只读
-if (cmd === 'overlap') process.exit(overlapCmd(rest)); // DISPATCH_OVERLAP（v2.59.0）：并行派发写集求交预检，只读
-if (cmd === 'impact') process.exit(impactCmd(rest)); // 牵连排查+数据边界机械保底（v2.72.0）：basename 引用面+数据管道特征，只读恒 0
-if (cmd === 'deploy') process.exit(deployCmd(rest));
-if (cmd === 'migrate') process.exit(migrateCmd());
-if (cmd === 'archive') process.exit(archiveCmd(rest));
-if (cmd === 'svc') process.exit(svcCmd(rest));
-if (cmd === 'mech') process.exit(mechCmd(rest));
-if (cmd === 'lint') process.exit(lintCmd(rest));
+for (const c of COMMANDS) if (cmd === c.name) process.exit(c.run(rest)); // v2.85.0 命令表单源分发（此前 29 行 if 逐命令分发）
 console.error(`未知命令：${cmd}\n${USAGE}`);
 process.exit(1);

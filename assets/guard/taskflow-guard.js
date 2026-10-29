@@ -44,6 +44,28 @@
 //   多假设排序弹脸（v2.83.0，报障纪律宿主化——2026-10-28 审计实证：纯散文判定点档案零命中，拍板弹脸化）：context 事件——
 //      user 角色文本命中报障特征窄表（entry-routes.md 表一 R07 话术样例）→ 追加多假设排序提醒消息（同会话 Set 去重；
 //      TF_J01_WARN=off 关；提醒不拦）——触发写 .taskflow/.guard-log.jsonl（TF_GUARD_LOG=off 关）
+//   清单真源＝GATE_MANIFEST（下方数组）：mechanisms 读数据不再解析本注释（v2.85.0 起上方散文仅作文档，改门先改数组）。
+// ---- 门清单注册表（v2.85.0）：17 门的描述符单源——mechanisms 输出、tf.test.mjs 对账、taskflow-guard.md 功能清单对账都读这里 ----
+// 行序＝上方头注释主行序；feature 字母=docs 功能清单行号（RENDER=机制 token 同源；null=docs 无独立行）；gate=guardLog 落盘 token（null=不写日志）。
+export const GATE_MANIFEST = [
+  { feature: 'D', name: '状态栏常显', events: 'session_start / turn_end', envs: [], gate: null, what: '活任务/待验收/敞口（verifying 已部署超 24h 未合并）常驻底栏——从「跑 ls 才见」变「常驻视野」' },
+  { feature: 'B', name: '簿记校验', events: 'tool_call（bash）', envs: [], gate: null, what: 'commit --files 空格分隔多文件=硬拦（逗号分隔才对，调用即红）；deploy 不带 --web-only 且项目有 webCommands=提醒（jar-only 合法不拦）' },
+  { feature: 'C', name: '压缩接力注入', events: 'session.compacting', envs: [], gate: null, what: '向压缩摘要注入 taskflow 接力线索（活任务 id/状态/分支+恢复入口）——压缩不再丢任务上下文，铁律「先存档再跑」的宿主兜底' },
+  { feature: 'A', name: '部署墙', events: 'tool_call（bash）', envs: ['TF_WALL'], gate: 'deploy-wall', what: 'rsync/scp 部署特征、ssh+systemctl restart=疑似绕过部署唯一入口（DEPLOY_ENTRY；TF_WALL=enforce 硬拦 / off 跳过，缺省警告）' },
+  { feature: 'J', name: '状态翻转墙', events: 'tool_call（edit/write/bash）', envs: ['TF_STATUS'], gate: 'status-wall', what: 'task.json/index.json 的 status/deploy.status 手改=物理拦截（TF_STATUS 三档缺省 enforce；翻转唯一合法写路径=tf.mjs 各扳机命令，档案修复走 reconcile --fix）' },
+  { feature: 'K', name: '验收期提醒', events: 'tool_call（bash）', envs: ['TF_VERIFY_WARN'], gate: 'verify-remind', what: 'git push/merge 时在档等验收任务 → 追加合并时序核对提醒（不拦；TF_VERIFY_WARN=off 关）' },
+  { feature: 'V', name: '档案删除告警', events: 'tool_call（bash）', envs: ['TF_RM_WARN'], gate: 'archive-rm', what: 'rm 触及 .taskflow/ 任务档案=不可逆删除风险 → 告警档提醒（TF_RM_WARN=enforce 硬拦/off 关，缺省 warn；任务档案是跨会话账本，rm 删了没有 undo）' },
+  { feature: 'W', name: '牵连排查+数据边界提醒', events: 'tool_call（edit/write）', envs: ['TF_IMPACT_THRESHOLD', 'TF_J19_WARN', 'TF_J20_WARN'], gate: 'impact,data-boundary', what: '普通源码文件两检查：①牵连排查主名整词命中 ≥TF_IMPACT_THRESHOLD（缺省 3）→ 提醒呈报须含影响面清单（TF_J19_WARN=off 关）；②数据管道特征 → 提醒枚举真空与失真形态（TF_J20_WARN=off 关）；纯提醒不拦、无 enforce 档' },
+  { feature: 'T', name: '技能加载埋点', events: 'tool_call（read）', envs: [], gate: null, what: 'skill:// 加载计数入全局 skill-usage.jsonl（不受 guardOn 闸控，零内容仅计数，供 tf.mjs skills --usage 报表；handler 整体吞错——omp hook fail-closed）' },
+  { feature: 'E', name: '输出规范注入', events: 'before_provider_request', envs: [], gate: null, what: '每轮把「双层输出规范+项目词表」前置进请求（system 角色消息；Anthropic 形传输回落 payload.system）——非 taskflow 会话也有叙事体+结构化底线；词表活读（.taskflow/glossary.md），词条改写下一轮即生效' },
+  { feature: 'U', name: '状态引导注入', events: 'before_provider_request', envs: ['TF_STATE_INJECT'], gate: 'state-inject', what: '每轮把状态机「下一步动作+禁令」与 active 任务未完成子任务清单前置进请求（system 角色消息；TF_STATE_INJECT=off 关）——治长会话指令稀释，规则遵循从「模型记得」降为「宿主每轮重放」' },
+  { feature: 'F', name: '派发门', events: 'tool_call（task）', envs: [], gate: null, what: '派发 prompt 引用 subtask spec 路径 → 校验必填节后把 spec 全文机械注入派发 prompt（{input} 替换）——「编排层凭记忆转述」物理失效；引用了 spec 但文件缺失/必填节空=无条件 block；未引用 spec=提醒不拦' },
+  { feature: 'G', name: '编辑边界门', events: 'tool_call（edit/write）', envs: ['TF_BOUND'], gate: 'boundary', what: '编辑路径归属任务后对照声明清单（spec「边界与影响面」+subtasks「涉及文件」），越界=默认警告 / TF_BOUND=enforce 硬拦 / off 单次跳过——单一职责与爆炸半径的机械不变量' },
+  { feature: 'H', name: '同类排查提醒', events: 'context', envs: [], gate: 'class-sweep', what: '子代理报告（task-result）命中 blocker/阻塞/blocking/卡点 → 追加三问提醒（幂等；上游/下游/同类，修复前先扩散；提醒不拦；CLASS_SWEEP_GATE 宿主轻提醒）' },
+  { feature: 'I', name: '词表反馈沉淀', events: 'context → before_provider_request → tool_call ＋ session.compacting', envs: [], gate: 'glossary', what: 'context 只数 user 角色强信号反馈（Set 去重计数），词表未改写则输出规范通道逐轮注入沉淀指令（可能猜错不拦操作），压缩时兜底一行——「反馈→沉淀」从模型自觉升级为宿主层闭环' },
+  { feature: 'RENDER', name: '渲染证据墙', events: 'tool_call（edit/write）', envs: ['TF_V_WARN'], gate: 'render', what: '前端样式载体（.vue style 段/@media/styles 目录）改动而所属任务 attachments/ 无渲染证据产物 → 注入真渲染自查提醒（每任务一次状态标防重复；TF_V_WARN=off 关；提醒不拦）' },
+  { feature: null, name: '多假设排序弹脸', events: 'context', envs: ['TF_J01_WARN'], gate: 'triage', what: 'user 角色文本命中报障特征窄表（entry-routes.md 表一 R07 话术样例）→ 追加多假设排序提醒消息（同会话 Set 去重；TF_J01_WARN=off 关；提醒不拦）' },
+];
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';

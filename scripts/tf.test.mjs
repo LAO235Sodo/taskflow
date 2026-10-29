@@ -757,13 +757,14 @@ try {
   fs.writeFileSync(path.join(frInert, 'references', 'entry-routes.md'), MIN_ER.replace(/\| JDISC-ANCHOR-X7 \|/, '| FENCE-ONLY-Z8 |'));
   const lntFence = run(['lint', '--root', frInert], repo);
   ok(lntFence.status === 1 && /纪律锚词缺失「FENCE-ONLY-Z8」/.test(lntFence.stdout), 'v2.71.0 A3 lint：锚词只在围栏代码块里 → 判缺失（不可达锚不算落锚）');
-  // A7：双引号分发形态也进孤儿提取（旧单引号正则漏检=孤儿观测只覆盖一半形态）
+  // A7（v2.85.0 改写）：孤儿提取改读 COMMANDS 注册表——不再解析副本 tf.mjs 源文本（分发行单双引号形态无关紧要），
+  // --root 副本模式下照常对账产出孤儿警告（提示级不拦）
   const frGhost = mkLintRoot('fake-ghost-dispatch');
-  fs.writeFileSync(path.join(frGhost, 'scripts', 'tf.mjs'), '// INVARIANTS\nif (cmd === "lintghost7") process.exit(0);\n');
+  fs.writeFileSync(path.join(frGhost, 'scripts', 'tf.mjs'), '// INVARIANTS\n');
   fs.writeFileSync(path.join(frGhost, 'references', 'data.md'), ['# data', '', '## 机制登记表', '', ...hdr7b, goodRow, '', '状态机（唯一事实源', '判定纪律锚行：JDISC-ANCHOR-X7', ''].join('\n'));
   fs.writeFileSync(path.join(frGhost, 'references', 'entry-routes.md'), MIN_ER);
   const lntGhost = run(['lint', '--root', frGhost], repo);
-  ok(lntGhost.status === 0 && lntGhost.stdout.includes('lintghost7'), 'v2.71.0 A7 lint：双引号分发命令进孤儿提取（⚠ 提示级不拦，旧单引号正则零输出）');
+  ok(lntGhost.status === 0 && lntGhost.stdout.includes('孤儿话语入口') && /命令 gates 在 references\/\*\.md 零提及/.test(lntGhost.stdout), 'v2.85.0 A7 改写：孤儿提取读 COMMANDS 注册表——--root 副本模式照常产出孤儿警告（提示级不拦）');
 
   // ---- v2.22.0 排队锁：merge 端局串行化（活锁防治）----
   // v2.81.0 夹具升级：lock merge 授锁前现场重算三门——t7 补 spec 声明（f7.txt）+ 先拍快照，generic 锁用例才进得去
@@ -3291,16 +3292,33 @@ try {
     ok(acc10.stdout.includes('使用者视角检查'), '2.83.0 T10 验收简报：accept 输出固定含使用者视角检查行');
   }
 
-  // ---- v2.83.0：残留断言 + mechanisms 子命令 + 锚点 grep（T4/T8/T9/T10/T11）----
+  // ---- v2.83.0：残留断言 + 锚点 grep（T4/T9/T10/T11）；T8 mechanisms v2.85.0 起对账 GATE_MANIFEST 注册表 ----
   {
     const repoRoot = path.resolve(import.meta.dirname, '..');
     const mech = run(['mechanisms'], tmp);
-    const guardSrc = fs.readFileSync(path.join(repoRoot, 'assets', 'guard', 'taskflow-guard.js'), 'utf8');
-    const gl = guardSrc.split('\n');
-    const mainRows = gl.slice(0, gl.findIndex((l) => l.startsWith('import '))).filter((l) => /^\/\/ {3}(?! {3})/.test(l));
+    const guardMod = await import('file://' + path.join(repoRoot, 'assets', 'guard', 'taskflow-guard.js'));
+    const manifest = guardMod.GATE_MANIFEST;
     const mechRows = mech.stdout.split('\n').filter((l) => l.includes('｜开关：'));
-    ok(mech.status === 0 && mechRows.length === mainRows.length, `2.83.0 T8 mechanisms：输出条数与 guard 头注释主行数一致（${mechRows.length}/${mainRows.length}）`);
-    ok(['状态翻转墙', '编辑边界门', '渲染证据墙', '牵连排查', '多假设排序弹脸', 'TF_STATUS', 'TF_BOUND', 'TF_V_WARN', 'TF_J01_WARN', 'TF_GUARD_LOG'].every((k) => mech.stdout.includes(k)), '2.83.0 T8 mechanisms：中文名与 TF_ 开关齐全');
+    ok(mech.status === 0 && Array.isArray(manifest) && manifest.length === 17, `2.85.0 T8 mechanisms：GATE_MANIFEST 注册表 17 项（实际 ${Array.isArray(manifest) ? manifest.length : '非数组'}）`);
+    ok(mechRows.length === manifest.length, `2.85.0 T8 mechanisms：输出行数与 GATE_MANIFEST 一致（${mechRows.length}/${manifest.length}）`);
+    ok(['状态翻转墙', '编辑边界门', '渲染证据墙', '牵连排查', '多假设排序弹脸', '状态引导注入', 'TF_STATUS', 'TF_BOUND', 'TF_V_WARN', 'TF_J01_WARN', 'TF_GUARD_LOG', 'TF_STATE_INJECT'].every((k) => mech.stdout.includes(k)), '2.85.0 T8 mechanisms：中文名与 TF_ 开关齐全');
+    const gateOfRow = (l) => { const m = l.match(/gate=([^）]*)）/); return m ? m[1] : null; };
+    const gateDiff = manifest.map((m, i) => [m, gateOfRow(mechRows[i])]).filter(([m, g]) => g !== (m.gate ?? null));
+    ok(gateDiff.length === 0, `2.85.0 T8 mechanisms：逐门 gate= 与 GATE_MANIFEST 一致${gateDiff.length ? `（首异：${gateDiff[0][0].name} 输出=${gateDiff[0][1]} 期望=${gateDiff[0][0].gate}）` : ''}`);
+    // 注册表对账：feature 字母集合 = taskflow-guard.md 功能清单表字母集合（RENDER 除外——拍板 docs 不另开行，与机制 token RENDER_EVIDENCE_GATE 同源）；17 门 name 无重复
+    const gmTable = (fs.readFileSync(path.join(repoRoot, 'references', 'taskflow-guard.md'), 'utf8').split('## 功能清单')[1] ?? '').split('\n## ')[0];
+    const docLetters = new Set([...gmTable.matchAll(/^\|\s*([A-Z]+)\s*\|/gm)].map((m) => m[1]));
+    const mfLetters = new Set(manifest.map((m) => m.feature).filter((f) => f && f !== 'RENDER'));
+    const letterDiff = [...mfLetters].filter((x) => !docLetters.has(x)).concat([...docLetters].filter((x) => !mfLetters.has(x)));
+    ok(letterDiff.length === 0 && mfLetters.size === 15, `2.85.0 注册表对账：feature 字母集合（除 RENDER）= taskflow-guard.md 功能清单字母集合${letterDiff.length ? `（差集：${letterDiff.join('、')}）` : ''}（${mfLetters.size} 字母）`);
+    ok(manifest.filter((m) => m.feature === 'RENDER').length === 1 && manifest.some((m) => m.feature === null), '2.85.0 注册表对账：RENDER 恰 1 条（渲染证据墙）、null feature 恰法（docs 无独立行门）');
+    const mNames = manifest.map((m) => m.name);
+    ok(new Set(mNames).size === mNames.length, '2.85.0 注册表对账：17 门 name 无重复');
+    // help：注册表驱动后仍输出全部 29 命令前缀行 + 退出码行
+    const hlp = run([], tmp);
+    const helpCmds = ['ls', 'doctor', 'reconcile', 'scout', 'skills', 'accept', 'takeover', 'park', 'unpark', 'commit', 'req-confirm', 'testplan', 'diagnose', 'nextid', 'lock', 'snapshot', 'mergegate', 'gates', 'revert-plan', 'stale', 'overlap', 'impact', 'deploy', 'migrate', 'archive', 'svc', 'lint', 'mech', 'mechanisms'];
+    const hlpMiss = helpCmds.filter((c) => !hlp.stdout.includes(`node tf.mjs ${c}`));
+    ok(hlp.status === 0 && hlpMiss.length === 0 && hlp.stdout.includes('退出码：'), `2.85.0 help：29 命令前缀行+退出码齐全${hlpMiss.length ? `（缺：${hlpMiss.join('、')}）` : ''}`);
     const jRe = /\bJ\d\d\b/;
     const jLeft = [];
     const walk = (d) => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { if (e.name.startsWith('.') || e.name === 'node_modules') continue; const fp = path.join(d, e.name); if (e.isDirectory()) walk(fp); else if (/\.(md|mjs|js)$/.test(e.name)) { const rel = path.relative(repoRoot, fp); if (rel === 'CHANGELOG.md') continue; fs.readFileSync(fp, 'utf8').split('\n').forEach((ln, i) => { if (!jRe.test(ln.replace(/TF_[A-Z0-9_]+/g, ' '))) return; if (rel === 'references/entry-routes.md' && /^\|\s*J\d\d\s*\|/.test(ln)) return; if (rel === 'references/terminology.md' && /（注册号 J\d\d/.test(ln)) return; jLeft.push(`${rel}:${i + 1}`); }); } } };
