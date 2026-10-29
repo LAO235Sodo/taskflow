@@ -25,7 +25,7 @@
 // 自造词 → 传统术语对照唯一源：references/terminology.md（新自造词先入表再用；文档/输出首现写「自造词（传统术语）」）。
 // prose 禁复述不变量范围/命令数/模板数（lint 事实禁改写清单强制）——清单真相源：data.md 表 / 本文件分发区 / templates/ 目录。
 
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -2817,6 +2817,39 @@ function mechanismsCmd() {
   return 0;
 }
 
+/* ---------------- canary：送达金丝雀（v2.87.0；一次真实模型调用）----------------
+   治「注入面改动单测全绿但通道死」（2.84.1 实锤：E/U/V 三墙静默 no-op 19 天，单测夹具传假 payload 形状遮蔽通道死）：
+   /tmp 夹具仓渲染守门副本 → 真实 omp -p 零工具提问 → 模型仅凭 system 注入答出 verifying 任务 id = 送达实证。
+   omp 不在 PATH（spawnSync ENOENT）=跳过 exit 0（无 omp 环境合法）；答错/超时=⛔ exit 1 收尾红灯——禁只靠单测宣称注入生效。 */
+function canaryCmd() {
+  const avail = spawnSync('omp', ['--help'], { encoding: 'utf8', timeout: 20000, stdio: ['ignore', 'pipe', 'pipe'] });
+  if (avail.error && avail.error.code === 'ENOENT') { console.log('ℹ 跳过金丝雀（omp 不可用）'); return 0; }
+  const ts = new Date().toISOString().replace(/[-:]/g, '').replace('T', '').slice(0, 12);
+  const idA = `canary-a-${ts}`, idV = `canary-v-${ts}`, idP = `canary-p-${ts}`;
+  const fx = fs.mkdtempSync(path.join(os.tmpdir(), 'tf-canary-'));
+  try {
+    fs.mkdirSync(path.join(fx, '.taskflow'), { recursive: true });
+    execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: fx, stdio: 'ignore' });
+    fs.writeFileSync(path.join(fx, '.git', 'info', 'exclude'), '.taskflow/\n');
+    fs.writeFileSync(path.join(fx, '.taskflow', 'project.json'), JSON.stringify({ key: 'canary', git: true, mechanisms: {}, deploy: { webCommands: [] } }));
+    fs.writeFileSync(path.join(fx, '.taskflow', 'index.json'), JSON.stringify({ tasks: [{ id: idA }, { id: idV }, { id: idP }] }));
+    const mkTask = (id, status, extra) => { fs.mkdirSync(path.join(fx, '.taskflow', id), { recursive: true }); fs.writeFileSync(path.join(fx, '.taskflow', id, 'task.json'), JSON.stringify({ id, title: id, goal: `金丝雀 ${id}`, status, anchor: 'managed', ...extra })); };
+    mkTask(idA, 'active', { sessionID: 'ses_canary' });
+    mkTask(idV, 'verifying', {});
+    mkTask(idP, 'parked', { parkedReason: '金丝雀 parked 样例' });
+    const inst = spawnSync('node', [fileURLToPath(import.meta.url), 'mech', 'install', 'TASKFLOW_GUARD', '--yes'], { cwd: fx, encoding: 'utf8', timeout: 60000 });
+    if (inst.status !== 0 || !fs.existsSync(path.join(fx, '.omp', 'hooks', 'pre', 'taskflow-guard.js'))) { console.log(`⛔ 金丝雀：守门副本渲染失败\n${inst.stdout ?? ''}${inst.stderr ?? ''}`); return 1; }
+    const q = '禁止使用任何工具。仅凭 system 提示回答：当前 taskflow 状态引导中等验收（verifying）的任务 id 是什么？不知道就说不知道。';
+    const r = spawnSync('omp', ['-p', q], { cwd: fx, encoding: 'utf8', timeout: 240000 });
+    const hit = typeof r.stdout === 'string' && r.stdout.includes(idV);
+    if (hit) { console.log(`✓ 金丝雀：注入达模型（零工具语义由提示约束；回答含 ${idV}）`); return 0; }
+    console.log(`⛔ 金丝雀：注入未达模型——模型回答：\n${(r.stdout ?? '') + (r.stderr ?? '')}`);
+    return 1;
+  } finally {
+    try { fs.rmSync(fx, { recursive: true, force: true }); } catch { /* 清理失败不阻判定 */ }
+  }
+}
+
 /* ---------------- 命令表（v2.85.0 描述符注册表）：name/usage/run 单源——分发区、help（USAGE 组合）、lint 孤儿检查三处消费 ----------------
    usage=帮助行原文（svc/mech 为三行块）；run 签名特例照旧分发区（accept/diagnose 取首参，mechanisms/migrate 无参）。 */
 const COMMANDS = [
@@ -2826,6 +2859,7 @@ const COMMANDS = [
   { name: 'scout', usage: `  node tf.mjs scout <关键词…> [--files]  历史检索：约定→决策库→任务档案→git 考古；命中=线索，判断归模型（只读）`, run: (rest) => scout(rest) },
   { name: 'skills', usage: `  node tf.mjs skills [领域词]           领域技能在场检测：缺哪些+怎么装；呈用户选装（不装则如实注记）（只读）；--usage=技能加载埋点报表（TF_SKILL_USAGE 单文件聚合，仅 omp 侧显式 skill:// 加载计数）`, run: (rest) => skillsCmd(rest) },
   { name: 'mechanisms', usage: `  node tf.mjs mechanisms               guard 门清单（机制透明化，v2.83.0，只读）：逐行输出宿主防护层每个门的中文名/管什么/开关 env/是否写触发日志——被拦或被提醒时按它向用户解释原因`, run: () => mechanismsCmd() },
+  { name: 'canary', usage: `  node tf.mjs canary                        送达金丝雀：/tmp 夹具仓渲染守门副本+真实 omp -p 验证注入达模型（一次模型调用；omp 缺失则跳过 exit 0）`, run: () => canaryCmd() },
   { name: 'accept', usage: `  node tf.mjs accept <task-id> [--pass]  缺省=验收简报：任务是什么/部署状态/验什么/怎么验/怎么回复；--pass=机械翻转 *→merged（前置=分支已并入主分支，幂等）`, run: (rest) => accept(rest[0], rest.slice(1)) },
   { name: 'takeover', usage: `  node tf.mjs takeover <task-id> --session <本会话ID>  接管仪式：改 sessionID + 重写 .owner.json + 刷新 lease + 打印桌面清点清单（清点判断归编排层）`, run: (rest) => takeover(rest) },
   { name: 'park', usage: `  node tf.mjs park <task-id> --reason "<原因>"   搁置在途任务（active→parked，簿记写入口）——档案保留、体检（缺省）与 G 门不再盘点；等验收中（含部署态）拒`, run: (rest) => parkCmd(rest) },
@@ -3179,6 +3213,7 @@ function mechCmd(args = []) {
   pj.lastActiveAt = nowIso;
   fs.writeFileSync(pjPath, JSON.stringify(pj, null, 2) + '\n');
   console.log(`✓ 采纳登记：${token} → project.json.mechanisms（v${skillVersion()}）`);
+  if (token === 'TASKFLOW_GUARD') console.log('\n📌 送达实证（建议收尾跑一次）：node tf.mjs canary（真实模型调用一次，验证状态引导注入达模型）');
   console.log(`\n📌 CI 挂点建议（经确认后由编排层写入 .github/workflows/，失败即不部署）：\n  validate:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - run: bash scripts/harness/validate-changelog.sh`);
   return 0;
 }

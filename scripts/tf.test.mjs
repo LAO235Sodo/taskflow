@@ -3316,9 +3316,9 @@ try {
     ok(new Set(mNames).size === mNames.length, '2.85.0 注册表对账：17 门 name 无重复');
     // help：注册表驱动后仍输出全部 29 命令前缀行 + 退出码行
     const hlp = run([], tmp);
-    const helpCmds = ['ls', 'doctor', 'reconcile', 'scout', 'skills', 'accept', 'takeover', 'park', 'unpark', 'commit', 'req-confirm', 'testplan', 'diagnose', 'nextid', 'lock', 'snapshot', 'mergegate', 'gates', 'revert-plan', 'stale', 'overlap', 'impact', 'deploy', 'migrate', 'archive', 'svc', 'lint', 'mech', 'mechanisms'];
+    const helpCmds = ['ls', 'doctor', 'reconcile', 'scout', 'skills', 'accept', 'takeover', 'park', 'unpark', 'commit', 'req-confirm', 'testplan', 'diagnose', 'nextid', 'lock', 'snapshot', 'mergegate', 'gates', 'revert-plan', 'stale', 'overlap', 'impact', 'deploy', 'migrate', 'archive', 'svc', 'lint', 'mech', 'mechanisms', 'canary'];
     const hlpMiss = helpCmds.filter((c) => !hlp.stdout.includes(`node tf.mjs ${c}`));
-    ok(hlp.status === 0 && hlpMiss.length === 0 && hlp.stdout.includes('退出码：'), `2.85.0 help：29 命令前缀行+退出码齐全${hlpMiss.length ? `（缺：${hlpMiss.join('、')}）` : ''}`);
+    ok(hlp.status === 0 && hlpMiss.length === 0 && hlp.stdout.includes('退出码：'), `2.87.0 help：30 命令前缀行+退出码齐全${hlpMiss.length ? `（缺：${hlpMiss.join('、')}）` : ''}`);
     const jRe = /\bJ\d\d\b/;
     const jLeft = [];
     const walk = (d) => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { if (e.name.startsWith('.') || e.name === 'node_modules') continue; const fp = path.join(d, e.name); if (e.isDirectory()) walk(fp); else if (/\.(md|mjs|js)$/.test(e.name)) { const rel = path.relative(repoRoot, fp); if (rel === 'CHANGELOG.md') continue; fs.readFileSync(fp, 'utf8').split('\n').forEach((ln, i) => { if (!jRe.test(ln.replace(/TF_[A-Z0-9_]+/g, ' '))) return; if (rel === 'references/entry-routes.md' && /^\|\s*J\d\d\s*\|/.test(ln)) return; if (rel === 'references/terminology.md' && /（注册号 J\d\d/.test(ln)) return; jLeft.push(`${rel}:${i + 1}`); }); } } };
@@ -3349,6 +3349,40 @@ try {
     const rendered = fs.readFileSync(path.join(tmp, 'guard-e1-proj', '.omp', 'hooks', 'pre', 'taskflow-guard.js'), 'utf8');
     ok(/function j20Scan\(/.test(rendered) && /const EXT_FAMILY = \{/.test(rendered) && !/from\s*['"][^'"]*shared\/(kernel|host-adapter)\.mjs['"]/.test(rendered), '2.86.0 内联自包含：渲染副本含 j20Scan/EXT_FAMILY 展开体、零 kernel/adapter import 行');
     ok(run(['mech', 'install', 'TASKFLOW_GUARD', '--yes'], path.join(tmp, 'guard-e1-proj')).stdout.includes('已安装'), '2.86.0 内联幂等：重装输出已安装（再渲染与既有副本逐字节一致=内联确定性）');
+  }
+
+  // ---- v2.87.0：宿主适配层（host-adapter 运行时合同单点）直测 + canary 金丝雀矩阵 ----
+  // 注入通道/本会话标注的「经 E handler 集成」断言已住 2.84.1 块（messages 头插形态、uuid 亮/标签不亮两例）——此处补 adapter 纯函数直测层。
+  {
+    const repoRoot = path.resolve(import.meta.dirname, '..');
+    const adapter = await import('file://' + path.join(repoRoot, 'assets', 'shared', 'host-adapter.mjs'));
+    const m1 = { model: 'x', messages: [{ role: 'system', content: 'BASE' }], stream: false };
+    const r1 = adapter.injectPrepend(m1, 'INJ');
+    ok(r1 === m1 && r1.messages.length === 2 && r1.messages[0].role === 'system' && r1.messages[0].content === 'INJ' && r1.messages[1].content === 'BASE', '2.87.0 adapter injectPrepend：messages 头插主形态（原 BASE 保留，2.84.1 通道合同）');
+    ok(adapter.injectPrepend({ system: 'BASE' }, 'INJ').system === 'INJ\n\nBASE', '2.87.0 adapter injectPrepend：Anthropic 字符串 system 前置兼容');
+    const r3 = adapter.injectPrepend({ system: [{ type: 'text', text: 'BASE' }] }, 'INJ');
+    ok(r3.system.length === 2 && r3.system[0].text === 'INJ' && r3.system[1].text === 'BASE', '2.87.0 adapter injectPrepend：Anthropic blocks system 前置兼容');
+    ok(adapter.injectPrepend({ model: 'x' }, 'INJ') === undefined, '2.87.0 adapter injectPrepend：未知传输形态 undefined 不注入不炸');
+    ok(adapter.sessIdOf('/home/x/.omp/agent/sessions/b/ses_123.jsonl') === 'ses_123' && adapter.sessIdOf('C:\\x\\ses_9.jsonl') === 'ses_9', '2.87.0 adapter sessIdOf：basename 去 .jsonl（POSIX/Windows 分隔符皆可）');
+    ok(adapter.sessIdOf(null) === null && adapter.sessIdOf(42) === null && adapter.sessIdOf('') === null, '2.87.0 adapter sessIdOf：非串/空 → null（降级无标注）');
+    ok(adapter.inSessionMark('1730000000_abcd-uuid', 'abcd-uuid') === '，本会话' && adapter.inSessionMark('abcd-uuid', 'abcd-uuid') === '，本会话', '2.87.0 adapter inSessionMark：整名相等与下划线后缀（uuid 段）皆亮');
+    ok(adapter.inSessionMark('1730000000_other-uuid', 'abcd-uuid') === '' && adapter.inSessionMark(null, 'x') === '' && adapter.inSessionMark('x', null) === '', '2.87.0 adapter inSessionMark：不匹配/缺参 → 空串（人读标签不亮=设计口径）');
+    // 渲染副本双内联：guard 产物含 adapter 展开体（injectPrepend）与 kernel 展开体
+    const rendered87 = fs.readFileSync(path.join(tmp, 'guard-e1-proj', '.omp', 'hooks', 'pre', 'taskflow-guard.js'), 'utf8');
+    ok(/function injectPrepend\(/.test(rendered87) && !/from\s*['"][^'"]*shared\/host-adapter\.mjs['"]/.test(rendered87), '2.87.0 渲染副本：adapter 内联展开（含 injectPrepend 体、零 import 行）');
+    // canary 矩阵：假 omp（shim）答 verifying id → 0；答错 → 1；PATH 无 omp → 跳过 0
+    const mkShim = (name, body) => { const d = path.join(tmp, name); fs.mkdirSync(d, { recursive: true }); fs.writeFileSync(path.join(d, 'omp'), body); fs.chmodSync(path.join(d, 'omp'), 0o755); return d; };
+    const shimHit = mkShim('canary-shim-hit', '#!/usr/bin/env bash\nfor f in .taskflow/*/task.json; do grep -q \'"status":"verifying"\' "$f" && basename "$(dirname "$f")" && exit 0; done\necho 不知道\n');
+    const cHit = spawnSync('node', [script, 'canary'], { cwd: tmp, encoding: 'utf8', env: { ...process.env, PATH: `${shimHit}:${process.env.PATH}` }, timeout: 300000 });
+    ok(cHit.status === 0 && cHit.stdout.includes('注入达模型'), `2.87.0 canary 矩阵：假 omp 答 verifying id → exit 0${cHit.status !== 0 ? `（${String(cHit.stdout).slice(0, 100)}）` : ''}`);
+    const shimMiss = mkShim('canary-shim-miss', '#!/usr/bin/env bash\necho 不知道\n');
+    const cMiss = spawnSync('node', [script, 'canary'], { cwd: tmp, encoding: 'utf8', env: { ...process.env, PATH: `${shimMiss}:${process.env.PATH}` }, timeout: 300000 });
+    ok(cMiss.status === 1 && cMiss.stdout.includes('注入未达模型'), '2.87.0 canary 矩阵：假 omp 答错 → exit 1（收尾红灯）');
+    const shimEmpty = path.join(tmp, 'canary-shim-empty');
+    fs.mkdirSync(shimEmpty, { recursive: true });
+    fs.symlinkSync(process.execPath, path.join(shimEmpty, 'node'));
+    const cSkip = spawnSync('node', [script, 'canary'], { cwd: tmp, encoding: 'utf8', env: { ...process.env, PATH: shimEmpty }, timeout: 60000 });
+    ok(cSkip.status === 0 && cSkip.stdout.includes('跳过金丝雀'), `2.87.0 canary 矩阵：PATH 无 omp → 跳过 exit 0${cSkip.status !== 0 ? `（${String(cSkip.stdout).slice(0, 100)}）` : ''}`);
   }
 
   process.exitCode = failures ? 1 : 0; // 失败≠0：堵住链式调用「grep 匹配到失败文案也算成功」的放行洞

@@ -72,6 +72,8 @@ import { execFileSync } from 'node:child_process';
 import os from 'node:os'; // v2.54.1：编辑边界门波浪号路径展开（编辑工具展开 ~ 而本层原不展开=清单内路径误报越界，另一 agent 会话 4 次误报实证）
 // v2.86.0 单源共享内核（渲染副本由 inlineSharedDeps 内联自包含——下方 import 行渲染时不保留）
 import { STATES, STATE_LEGAL, J20_WORD_RE, J20_CODE_RE, j20CodeLines, j20Scan, EXT_FAMILY } from '../shared/kernel.mjs';
+// v2.87.0 宿主适配层（注入落点/会话 id/本会话标注的运行时合同单点——渲染时同样内联）
+import { injectPrepend, sessIdOf, inSessionMark } from '../shared/host-adapter.mjs';
 
 function locateTasksDir(cwd) {
   try {
@@ -216,7 +218,7 @@ function stateGuideBlock(dir, cwd, live, sessionId) {
     stateSeen.set(dir, cur);
   } catch { /* 埋点失败静默 */ }
   const out = ['[taskflow 状态引导（TASKFLOW_GUARD；状态翻转只经脚本命令，禁手改 status）]'];
-  const inSession = (tj) => (sessionId && tj.sessionID && (tj.sessionID === sessionId || sessionId.endsWith('_' + tj.sessionID)) ? '，本会话' : ''); // 会话 id 匹配才标——stripped=会话文件 basename 去 .jsonl（形如 时间戳_uuid），task.json.sessionID 存真实会话 id（uuid）或人读标签：整名相等或下划线后缀（uuid 段）相等皆亮（旧精确相等恒不命中=2.84.0 起标注永不亮，2026-10-29 对抗审查实锤）；API 异常降级无标注
+  const inSession = (tj) => inSessionMark(sessionId, tj.sessionID); // v2.87.0 起合同住 host-adapter（整名相等或下划线后缀 uuid 段相等皆亮；旧精确相等恒不命中=2.84.0 起标注永不亮，2026-10-29 对抗审查实锤）
   for (const r of rows) {
     if (r.status === 'active') {
       out.push(`- ${r.id}（active，实现中）：改动先 checkpoint；收尾走 merge 流程${inSession(r.tj)}`);
@@ -380,18 +382,9 @@ function collectDeclaredFiles(taskDir) {
 const TF_GENERIC_BASENAMES = new Set(['index', 'main', 'app', 'utils', 'util', 'helpers', 'helper', 'types', 'type', 'constants', 'constant', 'config', 'conf', 'api', 'common', 'shared', 'global', 'misc']);
 const isDocPath = (f) => /\.(?:md|mdx|txt|rst|adoc)$/i.test(f) || /^(?:README|CHANGELOG|LICENSE|CONTRIBUTING)/i.test(path.basename(f)) || /(?:^|\/)docs?\//i.test(f);
 
-// ---- 注入落点（2.84.1 通道修复：对抗审查批 1）----
-// 实锤：真实运行时 payload 无 system 键（活体探针 {model,messages:[{role:'system',...}],stream,stream_options,tools,...}
-// ——system 住 messages 首条 role:'system'），旧「p.system = inject」兜底写入被传输层丢弃，E/U/V 三墙自 2.54.0/2.84.0
-// 起静默 no-op；同通道 A/B 实测 p.system 0/3 vs messages 头插 3/3 送达且被服从。omp 文档只合同「返回替换后的请求体」，
-// 形状随 transport——主形态=messages 头插（新数组，禁原地 mutate 共享数组）；Anthropic 形字符串/blocks system 保留兼容；
-// 无一命中（未知传输形态）返回 undefined 不注入不炸。
-function injectPrepend(p, inject) {
-  if (Array.isArray(p?.messages)) { p.messages = [{ role: 'system', content: inject }, ...p.messages]; return p; }
-  if (typeof p?.system === 'string') { p.system = `${inject}\n\n${p.system}`; return p; }
-  if (Array.isArray(p?.system)) { p.system = [{ type: 'text', text: inject }, ...p.system]; return p; }
-  return undefined;
-}
+// ---- 注入落点（2.84.1 通道修复）→ v2.87.0 收编宿主适配层 assets/shared/host-adapter.mjs（injectPrepend/sessIdOf/
+// inSessionMark 单点，渲染副本经 inlineSharedDeps 内联自包含）——运行时合同细节（payload 形状随 transport、标注匹配
+// 口径）只改 adapter 一处。 ----
 
 export default function taskflowGuard(pi) {
   pi.setLabel('Taskflow Guard');
@@ -859,8 +852,8 @@ function vObligation(dir) {
 
   pi.on('before_provider_request', async (event, ctx) => {
     if (!guardOn(ctx?.cwd)) return undefined; // v2.54.0 采纳面自检（E 输出规范同受采纳面约束——文档 20 行口径 v2.54.0 同步）
-    // 「本会话」标注源（v2.84.0 状态引导）：会话文件 basename 去 .jsonl；API 不符预期降级无标注（fail-closed 不阻注入）
-    const sessId = (() => { try { const f = ctx?.sessionManager?.getSessionFile?.(); return typeof f === 'string' && f ? path.basename(f).replace(/\.jsonl$/, '') : null; } catch { return null; } })();
+    // 「本会话」标注源（v2.84.0 状态引导）：v2.87.0 起合同住 host-adapter.sessIdOf（basename 去 .jsonl；非串/异常降级 null 不阻注入）
+    const sessId = sessIdOf((() => { try { return ctx?.sessionManager?.getSessionFile?.(); } catch { return null; } })());
     let inject = buildInject(ctx?.cwd, sessId);
     if (!inject) return undefined;
     if (sed.pending > 0) inject += `\n[词表反馈沉淀（TASKFLOW_GUARD 词表反馈沉淀——检测到你看不懂的反馈、词表还没更新）] 本会话已检测到 ${sed.pending} 条「看不懂」类反馈、项目词表尚未改写——把涉事术语的大白话改写/补录进 .taskflow/glossary.md（改完下一轮生效；这可能猜错，不拦任何操作）。`;
