@@ -33,6 +33,7 @@ import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { STATES, validateTransition } from './taskflow-state-machine.mjs'; // 状态机唯一机器源（v2.69.0）：枚举单源 + 写侧转换合法性断言
 import { GATE_MANIFEST } from '../assets/guard/taskflow-guard.js'; // guard 门描述符单源（v2.85.0）：mechanisms 读数据不再解析头注释（guard 顶层零副作用，静态导入安全）
+import { J20_WORD_RE, J20_CODE_RE, j20CodeLines, j20Scan, EXT_FAMILY } from '../assets/shared/kernel.mjs'; // v2.86.0 单源共享内核（数据边界机械件唯一源，guard 同源）
 
 const R = (s) => String(s ?? '').trim();
 const trunc = (s, n) => { const a = Array.from(String(s ?? '')); return a.length > n ? a.slice(0, n - 1).join('') + '…' : a.join(''); }; // 码点安全切片（攻击轮 C5：UTF-16 码元切片切裂代理对 → U+FFFD）
@@ -2209,41 +2210,12 @@ function overlapCmd(args = []) {
    v2.76.0（A2 审查 E1/D1/D3）：检索串去扩展名取主名（.vue 例外）+ -w 整词防子串误中；命中面分代码/文档两组——
    文档散文提及不计牵连排查阈值；同名孪生命中列歧义标注；数据边界特征扫首 500+尾 200 行、注释行剔除、词表补英文/SQL 形态。
    阈值 TF_IMPACT_THRESHOLD（缺省 3，与守门牵连排查共用）；语义级影响面归 code-review-graph impact 工具（如已挂载）。 */
-// 牵连排查/数据边界机械面（impact 命令用；guard 侧持独立副本——守门是独立渲染产物必须自包含）：
+// 牵连排查/数据边界机械面（impact 命令用；v2.86.0 起与 guard 同源 assets/shared/kernel.mjs）：
 const thresholdEnv = () => { const v = parseInt(process.env.TF_IMPACT_THRESHOLD ?? '', 10); return Number.isFinite(v) && v >= 1 ? v : 3; };
-// v2.76.0（A2 审查 D3②③/S10-8）：词表补英文管道形态（previousPeriod/last month/month over month 等，i 志大小写）；
-// 算子补 reduce/aggregate + i 志 + SQL GROUP BY 形态；注释行（//、/*、*、<!--、# 开头）剔除后再计数——
-// 注释/UI 文案里的词提及不算管道证据（真仓实测误报主源）
-const J20_WORD_RE = /环比|同比|上期|较上期|对比|排名|统计|previous[\s_-]*(?:period|month|week)|last[\s_-]*(?:period|month|week)|month[\s_-]*over[\s_-]*month|year[\s_-]*over[\s_-]*year/gi;
-const J20_CODE_RE = /\b(?:sum|count|avg|max|min|sort|reduce|aggregate)\s*\(/gi;
-// 特征探测窗口：首 500 行 + 尾 200 行（v2.76.0 D3④——固定 500 行窗口漏文件尾部管道）；注释行剔除（S10-8）
-function j20CodeLines(text) {
-  const lines = String(text ?? '').split('\n');
-  const win = lines.length > 700 ? [...lines.slice(0, 500), ...lines.slice(-200)] : lines;
-  return win.filter((l) => { const t = l.trim(); return t && !/^(?:\/\/|\/\*|\*|<!--|#)/.test(t); });
-}
-// 数据管道特征探测：词特征任一命中；代码特征须 ≥2 个不同算子（单 sort(/count( 全仓皆是无害噪音）；GROUP BY 单独记一算子
-function j20Scan(text) {
-  const body = j20CodeLines(text).join('\n');
-  const words = [...new Set(body.match(J20_WORD_RE) ?? [])];
-  const codes = new Set((body.match(J20_CODE_RE) ?? []).map((s) => s.replace(/\s+/g, '')));
-  if (/\bGROUP\s+BY\b/i.test(body)) codes.add('GROUP BY');
-  return { hit: words.length > 0 || codes.size >= 2, detail: [...words, ...codes].slice(0, 6).join('、') };
-}
+// 数据边界机械件（J20_WORD_RE/J20_CODE_RE/j20CodeLines/j20Scan/EXT_FAMILY）v2.86.0 起单源=assets/shared/kernel.mjs（顶部 import）——此前与 guard 各持逐字副本，改一处漏一处的同步成本收编。
 // basename 主名（牵连排查检索串口径，v2.76.0 E1）：.vue 保留扩展名（import 习惯带 .vue），其余去扩展名
 const impactKey = (p) => { const e = path.extname(p); return e === '.vue' ? path.basename(p) : path.basename(p, e); };
-// v2.77.1（R2 有效性攻击 F2b①）：同扩展名族映射——非 .vue 目标的 basename 检索限定同语言扩展名族
-// （share.ts 检索串「share」曾以整词命中 Java 注释/文案：dx-snap-share 实测报 80 个代码文件、真实 import 消费方 2 个，膨胀 40×）。
-// 族外扩展名（映射表未覆盖）不设限，由 F2b② 跨语言歧义标注兜底；.vue=null（检索串已带扩展名，限定 .vue 族会漏 .ts 消费方）。
-const EXT_FAMILY = {
-  '.ts': ['.ts', '.tsx', '.mts', '.cts'], '.tsx': ['.ts', '.tsx', '.mts', '.cts'], '.mts': ['.ts', '.tsx', '.mts', '.cts'], '.cts': ['.ts', '.tsx', '.mts', '.cts'],
-  '.js': ['.js', '.jsx', '.mjs', '.cjs'], '.jsx': ['.js', '.jsx', '.mjs', '.cjs'], '.mjs': ['.js', '.jsx', '.mjs', '.cjs'], '.cjs': ['.js', '.jsx', '.mjs', '.cjs'],
-  '.java': ['.java'], '.kt': ['.kt', '.kts'], '.kts': ['.kt', '.kts'], '.scala': ['.scala'], '.groovy': ['.groovy'],
-  '.py': ['.py'], '.rb': ['.rb'], '.php': ['.php'], '.go': ['.go'], '.rs': ['.rs'], '.swift': ['.swift'], '.cs': ['.cs'],
-  '.c': ['.c', '.h'], '.h': ['.c', '.h'], '.cpp': ['.cpp', '.cc', '.cxx', '.hpp'], '.cc': ['.cpp', '.cc', '.cxx', '.hpp'], '.cxx': ['.cpp', '.cc', '.cxx', '.hpp'], '.hpp': ['.cpp', '.cc', '.cxx', '.hpp'],
-  '.vue': null,
-};
-// 文档与帮助文本判定（牵连排查阈值不计这组；guard 侧持独立副本同款——两处同步改）
+// 文档与帮助文本判定（牵连排查阈值不计这组；guard 侧同款定义住 kernel 同批收编面之外的本文件）
 const isDocPath = (f) => /\.(?:md|mdx|txt|rst|adoc)$/i.test(f) || /^(?:README|CHANGELOG|LICENSE|CONTRIBUTING)/i.test(path.basename(f)) || /(?:^|\/)docs?\//i.test(f);
 function impactCmd(args = []) {
   const th = thresholdEnv();
@@ -2949,6 +2921,16 @@ function detectAssetExts(cwd) {
   const top = [...count.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6).map((e) => e[0]);
   return top.length ? top.join('|') : 'java|kt|ts|js|vue';
 }
+// v2.86.0 内联变换（单源共享内核的渲染半边）：渲染产物必须自包含——把对 assets/shared/{kernel,host-adapter}.mjs 的
+// import 行替换为该模块体（去行首 export 后整块展开）。harness/design 脚本无该 import 形态（正则限定 shared/ 路径
+// 不误伤）→ 原样返回；展开后产物不再含该 import 行 → 再跑一次逐字节一致=幂等（对账由内联确定性测试承担，
+// 不再做渲染副本 md5 双向对比）。
+function inlineSharedDeps(src, skillRoot) {
+  return src.replace(/^import\s*\{[^}]+\}\s*from\s*['"][^'"]*shared\/(kernel|host-adapter)\.mjs['"];?[ \t]*$/gm, (_m, mod) => {
+    const body = fs.readFileSync(path.join(skillRoot, 'assets', 'shared', `${mod}.mjs`), 'utf8');
+    return body.replace(/^export (?=const |function |let |class )/gm, '');
+  });
+}
 /* install 的项目侧锚点/补记原文（per-token；决策组合门条目 = 2.29.0 硬编码的逐字节迁移——输出不变）。
    convMarkers/agMarkers 含 token 备选：既有项目把规则合并进自定义小节时（含 token 字样）不重复追加。 */
 const MECH_PROSE = {
@@ -3097,7 +3079,8 @@ function mechCmd(args = []) {
     const oDir = path.join(trackedRoot, outSub);
     for (const f of fs.existsSync(aDir) ? fs.readdirSync(aDir).filter((x) => x.endsWith(ext)) : []) {
       if (!renderable.has(path.normalize(path.join(outSub, f)))) continue; // 登记表产物列未收（技能内门）→ 不渲染（D1，语义见上）
-      const next = fs.readFileSync(path.join(aDir, f), 'utf8').replaceAll('__ASSET_EXTS__', exts);
+      let next = fs.readFileSync(path.join(aDir, f), 'utf8').replaceAll('__ASSET_EXTS__', exts);
+      next = inlineSharedDeps(next, skillRoot); // v2.86.0：shared/{kernel,host-adapter}.mjs import 内联展开——渲染产物自包含；无该 import 形态的文件原样=幂等
       const outP = path.join(oDir, f);
       const prev = fs.existsSync(outP) ? fs.readFileSync(outP, 'utf8') : null;
       if (prev === next) continue;

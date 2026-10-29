@@ -3334,6 +3334,23 @@ try {
     ok(v10.includes('渲染证据墙') && v10.includes('使用者视角'), '2.83.0 T10 宿主提醒：渲染证据墙提醒含使用者视角扩句');
   }
 
+  // ---- v2.86.0：单源共享内核（kernel.mjs 收编 guard/tf.mjs 逐字副本）——TRANSITIONS 对账 + 单源唯一 + 内联自包含 ----
+  {
+    const repoRoot = path.resolve(import.meta.dirname, '..');
+    const kernel = await import('file://' + path.join(repoRoot, 'assets', 'shared', 'kernel.mjs'));
+    const sm = await import('file://' + path.join(repoRoot, 'scripts', 'taskflow-state-machine.mjs'));
+    const illegal = sm.TRANSITIONS.filter((r) => r.to !== 'archive/').filter((r) => !kernel.STATE_LEGAL.some(([f, t]) => f === r.from && t === r.to));
+    ok(illegal.length === 0 && sm.STATES === kernel.STATES, `2.86.0 内核对账：TRANSITIONS（除 archive/ 物理归层）∈ kernel.STATE_LEGAL 且 STATES 同源${illegal.length ? `（首违：${illegal[0].from}→${illegal[0].to}）` : ''}`);
+    const guardSrc2 = fs.readFileSync(path.join(repoRoot, 'assets', 'guard', 'taskflow-guard.js'), 'utf8');
+    const tfSrc2 = fs.readFileSync(path.join(repoRoot, 'scripts', 'tf.mjs'), 'utf8');
+    const dupDef = ['J20_WORD_RE', 'J20_CODE_RE', 'EXT_FAMILY', 'j20Scan', 'j20CodeLines'].filter((k) => new RegExp(`(const|function) ${k}\\b`).test(guardSrc2) || new RegExp(`(const|function) ${k}\\b`).test(tfSrc2));
+    ok(dupDef.length === 0, `2.86.0 单源唯一：kernel 外零本地定义${dupDef.length ? `（残留：${dupDef.join('、')}）` : ''}`);
+    // 内联自包含：真渲染产物（2.76.0 夹具 gp 已装 TASKFLOW_GUARD，本轮新 tf.mjs 渲染）含展开体、零 kernel import 行
+    const rendered = fs.readFileSync(path.join(tmp, 'guard-e1-proj', '.omp', 'hooks', 'pre', 'taskflow-guard.js'), 'utf8');
+    ok(/function j20Scan\(/.test(rendered) && /const EXT_FAMILY = \{/.test(rendered) && !/from\s*['"][^'"]*shared\/(kernel|host-adapter)\.mjs['"]/.test(rendered), '2.86.0 内联自包含：渲染副本含 j20Scan/EXT_FAMILY 展开体、零 kernel/adapter import 行');
+    ok(run(['mech', 'install', 'TASKFLOW_GUARD', '--yes'], path.join(tmp, 'guard-e1-proj')).stdout.includes('已安装'), '2.86.0 内联幂等：重装输出已安装（再渲染与既有副本逐字节一致=内联确定性）');
+  }
+
   process.exitCode = failures ? 1 : 0; // 失败≠0：堵住链式调用「grep 匹配到失败文案也算成功」的放行洞
   console.log(failures ? `\n${failures} 项断言失败` : '\n全部通过');
 } finally {

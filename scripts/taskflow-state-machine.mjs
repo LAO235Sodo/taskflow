@@ -5,8 +5,10 @@
 // 状态翻转唯一写路径 = 各转换行的 cmd；手改 task.json/index.json 的 status = 违规（data.md:98），
 // 宿主侧由守门 J 墙（TF_STATUS）物理兜底，档案修复唯一路径 node tf.mjs reconcile --fix。
 
-export const STATES = ['active', 'verifying', 'parked', 'merged', 'archived'];
-// archived：兼容保留枚举，脚本从不写入（data.md:80——生命周期不再使用，仅 adopt 标记备份类分支）
+// v2.86.0 起枚举单源=assets/shared/kernel.mjs（本模块 re-export 保持既有 import 面不变；TRANSITIONS 富领域行仍住此处，
+// 与 kernel.STATE_LEGAL 对账由 tf.test.mjs 强制）。
+import { STATES } from '../assets/shared/kernel.mjs';
+export { STATES };
 
 // 7 行转换，逐行对齐 data.md 状态机表（from=null 表示建档前；archive 行 to='archive/' 为物理归层，status 保持 merged 无翻转）
 export const TRANSITIONS = [

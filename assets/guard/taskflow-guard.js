@@ -70,6 +70,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import os from 'node:os'; // v2.54.1：编辑边界门波浪号路径展开（编辑工具展开 ~ 而本层原不展开=清单内路径误报越界，另一 agent 会话 4 次误报实证）
+// v2.86.0 单源共享内核（渲染副本由 inlineSharedDeps 内联自包含——下方 import 行渲染时不保留）
+import { STATES, STATE_LEGAL, J20_WORD_RE, J20_CODE_RE, j20CodeLines, j20Scan, EXT_FAMILY } from '../shared/kernel.mjs';
 
 function locateTasksDir(cwd) {
   try {
@@ -99,15 +101,9 @@ function guardLog(cwd, gate, action, detail) {
 const realPath = (p) => { let cur = p; const suffix = []; for (;;) { try { return path.join(fs.realpathSync(cur), ...suffix); } catch { /* 该层不存在，上爬 */ } suffix.unshift(path.basename(cur)); const parent = path.dirname(cur); if (parent === cur) return p; cur = parent; } }; // 递归归一到最深层存在祖先（新文件连目录都可能不存在——/var→/private/var、/tmp→/private/tmp 两环境实证）
 
 // ---- 状态翻转墙机器快照（v2.69.0）----
-// 与 scripts/taskflow-state-machine.mjs 的 TRANSITIONS、references/data.md 状态机表同源——
-// 改状态机必同步此处与该模块；版本漂移由 mech check 兜底。
-const STATE_SNAPSHOT = {
-  states: ['active', 'verifying', 'parked', 'merged', 'archived'],
-  legal: [ // [from, to] 白名单（from null=建档前）；archive 是物理归层无 status 翻转，不入本表
-    [null, 'active'], ['active', 'verifying'], ['active', 'merged'],
-    ['active', 'parked'], ['parked', 'active'], ['verifying', 'merged'],
-  ],
-};
+// 单源=assets/shared/kernel.mjs（v2.86.0 收编本地副本，与 scripts/taskflow-state-machine.mjs、data.md 状态机表对账）；
+// 此处保留快照形状，下游引用零改动。
+const STATE_SNAPSHOT = { states: STATES, legal: STATE_LEGAL };
 // 状态翻转墙核心判定：对 edit/write 落在 task.json/index.json 的写入做「翻转前后」语义比对。
 // 返回 null=放行；否则返回违规原因串。旧文件不存在（新建档案）仅 status=active 放行；
 // 新内容解析失败视同违规（坏档案）；顶层 status 或 deploy.status 任一变化即翻转。
@@ -378,37 +374,11 @@ function collectDeclaredFiles(taskDir) {
   for (const d of subs) addFromSection(readSafe(path.join(subRoot, d.name, 'spec.md')), /^涉及文件(\s|$|（)/);
   return [...out];
 }
-// ---- 牵连排查/数据边界机械件独立副本（v2.72.0 起；v2.76.0 检索修正——与 scripts/tf.mjs impact 命令同款逻辑，
-// 守门是独立渲染产物必须自包含，两处改动须同步+跑 tf.test.mjs 对账）----
+// ---- 牵连排查/数据边界机械件（v2.72.0 起；v2.76.0 检索修正；v2.86.0 起单源=assets/shared/kernel.mjs——
+// EXT_FAMILY/J20_WORD_RE/J20_CODE_RE/j20CodeLines/j20Scan 由顶部 import 提供，渲染副本经 inlineSharedDeps 内联自包含）----
 // E1/D1/S10-8：牵连排查泛名清单（主名命中即不弹——全仓高频且引用语义不可辨，防噪音疲劳）；文档/帮助文本判定（不计牵连排查阈值）
 const TF_GENERIC_BASENAMES = new Set(['index', 'main', 'app', 'utils', 'util', 'helpers', 'helper', 'types', 'type', 'constants', 'constant', 'config', 'conf', 'api', 'common', 'shared', 'global', 'misc']);
 const isDocPath = (f) => /\.(?:md|mdx|txt|rst|adoc)$/i.test(f) || /^(?:README|CHANGELOG|LICENSE|CONTRIBUTING)/i.test(path.basename(f)) || /(?:^|\/)docs?\//i.test(f);
-// v2.77.1（R2 F2b①，与 scripts/tf.mjs impact EXT_FAMILY 同款映射——守门是独立渲染产物必须自包含，两处改动须同步+跑 tf.test.mjs 对账）：
-// 同扩展名族映射；族外扩展名不设限由「异扩展名命中过半」跨语言歧义注记兜底（F2b②）；.vue=null（检索串带扩展名，限定 .vue 族会漏 .ts 消费方）
-const EXT_FAMILY = {
-  '.ts': ['.ts', '.tsx', '.mts', '.cts'], '.tsx': ['.ts', '.tsx', '.mts', '.cts'], '.mts': ['.ts', '.tsx', '.mts', '.cts'], '.cts': ['.ts', '.tsx', '.mts', '.cts'],
-  '.js': ['.js', '.jsx', '.mjs', '.cjs'], '.jsx': ['.js', '.jsx', '.mjs', '.cjs'], '.mjs': ['.js', '.jsx', '.mjs', '.cjs'], '.cjs': ['.js', '.jsx', '.mjs', '.cjs'],
-  '.java': ['.java'], '.kt': ['.kt', '.kts'], '.kts': ['.kt', '.kts'], '.scala': ['.scala'], '.groovy': ['.groovy'],
-  '.py': ['.py'], '.rb': ['.rb'], '.php': ['.php'], '.go': ['.go'], '.rs': ['.rs'], '.swift': ['.swift'], '.cs': ['.cs'],
-  '.c': ['.c', '.h'], '.h': ['.c', '.h'], '.cpp': ['.cpp', '.cc', '.cxx', '.hpp'], '.cc': ['.cpp', '.cc', '.cxx', '.hpp'], '.cxx': ['.cpp', '.cc', '.cxx', '.hpp'], '.hpp': ['.cpp', '.cc', '.cxx', '.hpp'],
-  '.vue': null,
-};
-// D3②③/S10-8：数据边界词表补英文管道形态（i 志大小写）；算子补 reduce/aggregate + i 志 + SQL GROUP BY 形态；
-// 注释行（//、/*、*、<!--、# 开头）剔除后再计数——注释/UI 文案里的词提及不算管道证据（真仓实测误报主源）
-const J20_WORD_RE = /环比|同比|上期|较上期|对比|排名|统计|previous[\s_-]*(?:period|month|week)|last[\s_-]*(?:period|month|week)|month[\s_-]*over[\s_-]*month|year[\s_-]*over[\s_-]*year/gi;
-const J20_CODE_RE = /\b(?:sum|count|avg|max|min|sort|reduce|aggregate)\s*\(/gi;
-function j20CodeLines(text) { // D3④：首 500+尾 200 行窗口（固定 500 行窗口漏文件尾部管道）；注释行剔除
-  const lines = String(text ?? '').split('\n');
-  const win = lines.length > 700 ? [...lines.slice(0, 500), ...lines.slice(-200)] : lines;
-  return win.filter((l) => { const t = l.trim(); return t && !/^(?:\/\/|\/\*|\*|<!--|#)/.test(t); });
-}
-function j20Scan(text) { // 词特征任一命中；代码特征须 ≥2 个不同算子（单 sort(/count( 全仓皆是无害噪音）；GROUP BY 单独记一算子
-  const body = j20CodeLines(text).join('\n');
-  const words = [...new Set(body.match(J20_WORD_RE) ?? [])];
-  const codes = new Set((body.match(J20_CODE_RE) ?? []).map((s) => s.replace(/\s+/g, '')));
-  if (/\bGROUP\s+BY\b/i.test(body)) codes.add('GROUP BY');
-  return { hit: words.length > 0 || codes.size >= 2, detail: [...words, ...codes].slice(0, 6).join('、') };
-}
 
 // ---- 注入落点（2.84.1 通道修复：对抗审查批 1）----
 // 实锤：真实运行时 payload 无 system 键（活体探针 {model,messages:[{role:'system',...}],stream,stream_options,tools,...}
