@@ -2923,6 +2923,240 @@ function canaryCmd() {
   }
 }
 
+/* ---------------- release：发版十步链（RELEASE_CHAIN，v2.90.0）——managed-skills/taskflow-release-sync 配方固化 ----------------
+   用法：node tf.mjs release <version> [--canary] [--dry-run] [--root <技能仓根，测试用>]
+   前置（fail-fast，两模式同跑，全只读）：main 分支 / 无未跟踪文件（新文件须先显式 git add）/ 无冲突 /
+     CHANGELOG 顶条目=目标版本（条目人工先写，release 不代写）；tracked 改动=发布载荷（commit 步 git add -u 入库）。
+   链：①版本双点（frontmatter+description 版本串自动改，lint #9/#10 锁一致性）→②lint→③回归→④commit feat(v<版>):顶条目标题→
+     ⑤push（败重试一次；成功后 ls-remote 远端哈希确认）→⑥六路径同步（WSL 实体仓 fetch 源仓+ff-only；Windows 两仓 bundle 配方——
+     9P pull 超时/ghproxy 认证/ff-only 拒三死路唯 bundle 通，脏副本 numstat>0 跳过不重置）→⑦HEAD 对账（六路径哈希+版本唯一）→
+     ⑧项目侧机制刷新（project.json.mechanisms 清单逐个 mech install --yes（非硬编码）+doctor 采纳漂移=0）→⑨审计/重启提示→
+     [--canary]⑩送达金丝雀。审计矩阵（release-audit 六步）属人肉审计，链内只提示不代跑。
+   幂等：每步先自检是否已达成（双点已改/HEAD 已是该 feat 提交/origin/main==HEAD/实体仓 HEAD 相同→跳过），断点续跑安全。
+   --dry-run：前置+打印计划与关键参数，零执行——测试主通道（TF_RELEASE_PROJECT 可指夹具项目验机制清单读取）。 */
+const RELEASE_WIN_USER = '/mnt/c/Users/260607';
+const RELEASE_WSL_REPO = () => path.join(os.homedir(), '.agents', 'skills', 'taskflow');
+const RELEASE_WIN_REPOS = [`${RELEASE_WIN_USER}/.omp/agent/skills/taskflow`, `${RELEASE_WIN_USER}/.claude/skills/taskflow`];
+const RELEASE_PROJECT = () => process.env.TF_RELEASE_PROJECT || '/home/ljh/projects/dx-snap-share';
+const wslToWin = (p) => p.replace(/^\/mnt\/([a-z])\//i, (_, d) => `${d.toUpperCase()}:\\`).replace(/\//g, '\\');
+const releaseTokensOf = () => { const pj = readJson(path.join(RELEASE_PROJECT(), '.taskflow', 'project.json')); return pj && pj.mechanisms && Object.keys(pj.mechanisms).length ? Object.keys(pj.mechanisms) : null; };
+function syncWslEntity(repo, srcRoot, headShort) {
+  const at = (a) => { try { return R(execFileSync('git', ['-C', repo, ...a], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })); } catch { return null; } };
+  const local = at(['rev-parse', '--short=7', 'HEAD']);
+  if (at(['status', '--porcelain'])) return { line: `✗ ${repo}：有本地改动——不自动同步（人工确认后清理）`, err: `${repo} 工作区不干净` };
+  if (local === headShort) return { line: `⏭ ${repo}（已达成 ${local}）` };
+  const f = spawnSync('bash', ['-c', `git fetch '${srcRoot}' main && git merge --ff-only FETCH_HEAD`], { cwd: repo, encoding: 'utf8', timeout: 60000, stdio: ['ignore', 'pipe', 'pipe'] });
+  if (f.status !== 0) return { line: `✗ ${repo}：fetch+ff-only 失败（diverged 或源不可达）`, err: `${repo} 无法 ff-only：${trunc(R((f.stdout ?? '') + (f.stderr ?? '')), 120)}` };
+  const now = at(['rev-parse', '--short=7', 'HEAD']);
+  return now === headShort ? { line: `✓ ${repo}（${local} → ${now}）` } : { line: `✗ ${repo}：同步后 ${now} ≠ 源 ${headShort}`, err: `${repo} 同步后不齐` };
+}
+function syncWindowsBundle(srcRoot, targetVer) {
+  const errs = []; const lines = [];
+  const ts = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14);
+  const bundle = `${RELEASE_WIN_USER}/AppData/Local/Temp/tf-release-${ts}.bundle`;
+  const ps1 = `${RELEASE_WIN_USER}/AppData/Local/Temp/tf-release-${ts}.ps1`;
+  try {
+    const mk = spawnSync('git', ['-C', srcRoot, 'bundle', 'create', bundle, 'main'], { encoding: 'utf8', timeout: 60000, stdio: ['ignore', 'pipe', 'pipe'] });
+    if (mk.status !== 0) return { lines, errs: [`bundle create 失败：${trunc(R(mk.stderr ?? ''), 120)}`] };
+    const repos = RELEASE_WIN_REPOS.map((r) => `'${wslToWin(r)}'`).join(',');
+    fs.writeFileSync(ps1, [
+      `$ErrorActionPreference = 'Stop'`,
+      `foreach ($repo in @(${repos})) {`,
+      `  try {`,
+      `    $lock = Join-Path $repo '.git\\index.lock'`,
+      `    if (Test-Path $lock) { Remove-Item $lock -Force }`,
+      `    git -C $repo config core.filemode false | Out-Null`,
+      `    git -C $repo config core.autocrlf false | Out-Null`,
+      `    $dn = (git -C $repo -c core.filemode=false diff --numstat | Measure-Object).Count`,
+      `    if ($dn -gt 0) { Write-Output ("DIRTY " + $repo); continue }`,
+      `    git -C $repo fetch '${wslToWin(bundle)}' main | Out-Null`,
+      `    git -C $repo reset --hard FETCH_HEAD | Out-Null`,
+      `    $h = (git -C $repo rev-parse '--short=7' HEAD)`,
+      `    $m = Select-String -Path (Join-Path $repo 'SKILL.md') -Pattern '^version:\\s*(\\S+)'`,
+      `    Write-Output ("OK " + $repo + " " + $h + " " + $m.Matches[0].Groups[1].Value)`,
+      `  } catch { Write-Output ("FAIL " + $repo + " " + $_.Exception.Message) }`,
+      `}`,
+    ].join('\n'));
+    const run = spawnSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', wslToWin(ps1)], { encoding: 'utf8', timeout: 180000, stdio: ['ignore', 'pipe', 'pipe'] });
+    for (const l of R(run.stdout ?? '').split('\n').map((s) => s.trim()).filter(Boolean)) {
+      if (l.startsWith('OK ')) { const [, rp, h, v] = l.split(' '); const okW = h && v === targetVer; lines.push(`${okW ? '✓' : '✗'} ${rp}（${h || '?'}，v${v || '?'}）`); if (!okW) errs.push(`${rp} 同步后不齐（${h}，v${v}）`); }
+      else if (l.startsWith('DIRTY ')) { lines.push(`✗ ${l.slice(6)}：有本地内容改动——未重置（人工确认）`); errs.push(`${l.slice(6)} 工作区不干净`); }
+      else if (l.startsWith('FAIL ')) { lines.push(`✗ ${l.slice(5)}`); errs.push(l.slice(5)); }
+    }
+    if (run.status !== 0 && !errs.length) errs.push(`powershell exit ${run.status}：${trunc(R(run.stderr ?? ''), 160)}`);
+    if (!lines.length && !errs.length) errs.push('powershell 无输出——配方未按预期执行');
+  } finally { try { fs.rmSync(bundle, { force: true }); fs.rmSync(ps1, { force: true }); } catch { /* 清理失败不阻判定 */ } }
+  return { lines, errs };
+}
+function releaseCmd(args = []) {
+  const dry = args.includes('--dry-run');
+  const withCanary = args.includes('--canary');
+  const rootO = args.includes('--root') ? path.resolve(String(args[args.indexOf('--root') + 1] ?? '')) : null;
+  const root = rootO ?? path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+  const ver = args.length && !args[0].startsWith('--') ? R(args[0]) : '';
+  const usageMsg = '用法：node tf.mjs release <version> [--canary] [--dry-run]\n发版十步链（RELEASE_CHAIN）：改完代码+手写 CHANGELOG 顶条目后一条命令收口；--dry-run 打印计划零执行；幂等重跑自动跳过已达成步骤。';
+  if (!/^\d+\.\d+\.\d+$/.test(ver)) { console.log(usageMsg); return 1; }
+  const scriptPath = fileURLToPath(import.meta.url);
+  const gin = (a, mayFail = true) => { try { return R(execFileSync('git', ['-C', root, ...a], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })); } catch { if (mayFail) return ''; throw new Error(`git ${a[0]} 失败`); } };
+  const lastLines = (s, n = 3) => R(s).split('\n').slice(-n).join('\n');
+  // ---- 前置检查（fail-fast；--dry-run 同跑，全只读） ----
+  if (gin(['rev-parse', '--is-inside-work-tree']) !== 'true') { console.log(`⛔ release：${root} 不是 git 仓库`); return 1; }
+  const branch = gin(['branch', '--show-current']);
+  if (branch !== 'main') { console.log(`⛔ release：当前分支 ${branch || '（detached）'} ≠ main——发版只从 main 走`); return 1; }
+  const porRaw = (() => { try { return execFileSync('git', ['-C', root, 'status', '--porcelain'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }); } catch { return ''; } })(); // 原始不 trim——R() 整体 trim 会吃掉首行「XY 」状态前缀（首行文件名丢首字符实证）
+  const por = porRaw.split('\n').filter(Boolean);
+  const untracked = por.filter((l) => l.startsWith('??')).map((l) => l.slice(3));
+  const conflicted = por.filter((l) => /^(UU|AA|DD|AU|UA|DU|UD)/.test(l));
+  const payload = por.filter((l) => !l.startsWith('??') && !/^(UU|AA|DD|AU|UA|DU|UD)/.test(l)).map((l) => l.slice(3));
+  if (untracked.length) { console.log(`⛔ release：存在未跟踪文件（commit 步只 add -u 已跟踪改动，新文件必须先显式 git add——lint 未入库引用检查同拦）：\n  ${untracked.join('\n  ')}`); return 1; }
+  if (conflicted.length) { console.log(`⛔ release：存在未解决冲突：${conflicted.join('、')}`); return 1; }
+  const clP = path.join(root, 'CHANGELOG.md');
+  const clTxt = fs.existsSync(clP) ? fs.readFileSync(clP, 'utf8') : '';
+  const top = clTxt.match(/^##\s+(\S+)\s+—\s+(.+)$/m);
+  if (!top || top[1] !== ver) { console.log(`⛔ release：CHANGELOG.md 顶条目（${top ? top[1] : '无'}）≠ 目标版本 ${ver}——先手写条目再发版（release 不代写 changelog）`); return 1; }
+  const clTitle = R(top[2].split('—').pop()); // `## 版本 — 日期 — 标题` 取标题段（标题内勿再用 — ）
+  const skillP = path.join(root, 'SKILL.md');
+  const skillTxt = fs.readFileSync(skillP, 'utf8');
+  const curVer = R((skillTxt.match(/^version:\s*(\S+)/m) ?? [])[1]);
+  if (!curVer) { console.log('⛔ release：SKILL.md 缺 frontmatter version 行'); return 1; }
+  console.log(`发版链（RELEASE_CHAIN）${dry ? '——dry-run 零执行' : ''}：${curVer === ver ? '版本双点已达成' : `版本双点 ${curVer} → ${ver}`}｜载荷 ${payload.length} 文件｜CHANGELOG 顶条目 ${top[1]}：「${clTitle}」`);
+  if (dry) {
+    const toks = releaseTokensOf();
+    console.log(`\n计划（将执行 ${withCanary ? 10 : 9} 步）：`);
+    console.log(`  ① 版本双点：SKILL.md frontmatter version + description 版本串（${curVer === ver ? '已达成，将跳过' : `${curVer} → ${ver}`}）`);
+    console.log('  ② lint：node tf.mjs lint（红=中止）');
+    console.log('  ③ 回归：node scripts/tf.test.mjs（约 40s，红=中止）');
+    console.log(`  ④ commit：git add -u（${payload.length} 载荷文件${payload.length ? `：${payload.join('、')}` : ''}）→ feat(v${ver}): ${clTitle}`);
+    console.log('  ⑤ push：git push origin main（败重试一次；成功后 ls-remote 远端哈希确认）');
+    console.log(`  ⑥ 六路径同步：${RELEASE_WSL_REPO()}（fetch 源仓+ff-only）｜${RELEASE_WIN_REPOS.join('、')}（bundle 配方：bundle create→powershell reset --hard FETCH_HEAD，脏副本跳过不重置）`);
+    console.log(`  ⑦ HEAD 对账：六路径 rev-parse --short 唯一 + SKILL.md 版本=${ver}`);
+    console.log(`  ⑧ 机制刷新：${RELEASE_PROJECT()} mechanisms ${toks ? `${toks.length} 个（${toks.join('、')}）逐个 mech install --yes` : '清单缺失/空——真跑将红'} → doctor 采纳漂移=0`);
+    console.log('  ⑨ 提示：审计矩阵（managed-skills/taskflow-release-audit 六步，人肉不代跑）+ 重启 omp 生效');
+    console.log(`  ⑩ canary：${withCanary ? '启用（真实 omp 约 65s）' : '未启用（--canary 开）'}`);
+    console.log('\n（--dry-run 零执行；去掉即真跑，断点重跑幂等跳过已达成步骤）');
+    return 0;
+  }
+  // ---- 链执行（每步先自检是否已达成；任一步失败=中止并呈报已完成/剩余） ----
+  const steps = [];
+  const step = (name, fn) => steps.push({ name, fn });
+  step('① 版本双点（SKILL.md frontmatter+description 版本串）', () => {
+    if (curVer === ver) return 'skip';
+    if (!/^version:\s*\S+/m.test(skillTxt)) return 'SKILL.md version 行缺失';
+    const descRe = new RegExp(`版本\\s*${curVer.replace(/\./g, '\\.')}。`);
+    if (!descRe.test(skillTxt)) return `description 未找到「版本 ${curVer}。」——双点第二处缺失，禁盲改`;
+    fs.writeFileSync(skillP, skillTxt.replace(new RegExp('^version:\\s*\\S+', 'm'), `version: ${ver}`).replace(descRe, `版本 ${ver}。`));
+    return true;
+  });
+  step('② lint（全绿门）', () => {
+    const r = spawnSync('node', [scriptPath, 'lint', ...(rootO ? ['--root', root] : [])], { encoding: 'utf8', timeout: 120000, stdio: ['ignore', 'pipe', 'pipe'] });
+    const tail = lastLines((r.stdout ?? '') + (r.stderr ?? ''), 2);
+    console.log(`  ${tail.split('\n').pop()}`);
+    if (r.status !== 0) return `lint 红——${trunc(tail, 200)}`;
+    return true;
+  });
+  step('③ 回归（tf.test.mjs 全量，约 40s）', () => {
+    const testP = path.join(root, 'scripts', 'tf.test.mjs');
+    if (!fs.existsSync(testP)) return '缺 scripts/tf.test.mjs';
+    const r = spawnSync('node', [testP], { encoding: 'utf8', timeout: 300000, stdio: ['ignore', 'pipe', 'pipe'] });
+    console.log(trunc(lastLines((r.stdout ?? '') + (r.stderr ?? ''), 3), 400));
+    if (r.status !== 0) return '回归红';
+    return true;
+  });
+  step('④ commit（feat(v<版>): CHANGELOG 顶条目标题）', () => {
+    if (gin(['log', '-1', '--format=%s']) === `feat(v${ver}): ${clTitle}`) return 'skip';
+    gin(['add', '-u']);
+    if (!gin(['diff', '--cached', '--name-only'])) return '无暂存内容——载荷为空且版本双点无改动';
+    gin(['commit', '-m', `feat(v${ver}): ${clTitle}`]);
+    console.log(`  ${gin(['log', '-1', '--format=%h %s'])}`);
+    return true;
+  });
+  step('⑤ push origin main（败重试一次+远端哈希确认）', () => {
+    const head = gin(['rev-parse', 'HEAD']);
+    if (gin(['rev-parse', 'origin/main']) === head) console.log('  origin/main 已是 HEAD（跳过推送）');
+    else {
+      const shp = () => spawnSync('bash', ['-c', 'git push origin main'], { cwd: root, encoding: 'utf8', timeout: 120000, stdio: ['ignore', 'pipe', 'pipe'] });
+      let pr = shp();
+      if (pr.status !== 0) { console.log('  推送失败，重试一次…'); pr = shp(); }
+      if (pr.status !== 0) return `push 两次失败——${trunc(lastLines((pr.stdout ?? '') + (pr.stderr ?? ''), 2), 160)}`;
+    }
+    const lsr = () => spawnSync('bash', ['-c', 'git ls-remote origin -h refs/heads/main'], { cwd: root, encoding: 'utf8', timeout: 60000, stdio: ['ignore', 'pipe', 'pipe'] });
+    let lr = lsr(); if (lr.status !== 0) { console.log('  ls-remote 失败，重试一次…'); lr = lsr(); }
+    const remote = R((lr.stdout ?? '').match(/^(\S+)\s+refs\/heads\/main/m)?.[1] ?? '');
+    if (!remote) return '远端哈希未确认（ls-remote 两次失败）——网络抖动时稍后重跑本命令（已推送部分幂等跳过）';
+    if (remote.slice(0, 7) !== head.slice(0, 7)) return `远端 main ${remote.slice(0, 7)} ≠ 本地 ${head.slice(0, 7)}`;
+    console.log(`  远端 main = ${remote.slice(0, 7)} ✓`);
+    return true;
+  });
+  step('⑥ 六路径同步（WSL fetch+ff-only｜Windows bundle 配方）', () => {
+    const headShort = gin(['rev-parse', '--short=7', 'HEAD']);
+    const errs = []; const lines = [];
+    const wslRepo = RELEASE_WSL_REPO();
+    if (fs.existsSync(path.join(wslRepo, '.git'))) { const w = syncWslEntity(wslRepo, root, headShort); lines.push(w.line); if (w.err) errs.push(w.err); }
+    else errs.push(`WSL 实体仓缺失：${wslRepo}`);
+    const win = syncWindowsBundle(root, ver);
+    lines.push(...win.lines); errs.push(...win.errs);
+    lines.forEach((l) => console.log('  ' + l));
+    return errs.length ? errs.join('；') : true;
+  });
+  step('⑦ HEAD 对账（六路径哈希+版本唯一）', () => {
+    const headShort = gin(['rev-parse', '--short=7', 'HEAD']);
+    const six = [root, RELEASE_WSL_REPO(), ...RELEASE_WIN_REPOS, path.join(os.homedir(), '.pi', 'agent', 'skills', 'taskflow'), path.join(os.homedir(), '.claude', 'skills', 'taskflow')];
+    const bad = [];
+    for (const p of six) {
+      let h = '', v = '';
+      try { h = R(execFileSync('git', ['-C', p, 'rev-parse', '--short=7', 'HEAD'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })); } catch { }
+      try { v = R((fs.readFileSync(path.join(p, 'SKILL.md'), 'utf8').match(/^version:\s*(\S+)/m) ?? [])[1]); } catch { }
+      const ok7 = h === headShort && v === ver;
+      console.log(`  ${ok7 ? '✓' : '✗'} ${p}（${h || '读不到'}，v${v || '?'}）`);
+      if (!ok7) bad.push(p);
+    }
+    return bad.length ? `六路径对账不齐：${bad.join('、')}` : true;
+  });
+  step('⑧ 机制刷新（mech install --yes ×project.json.mechanisms 清单 + doctor 漂移=0）', () => {
+    const toks = releaseTokensOf();
+    if (!toks) return `${RELEASE_PROJECT()} project.json.mechanisms 清单缺失/空——机制清单按登记读（非硬编码），缺失即红`;
+    console.log(`  机制 ${toks.length} 个：${toks.join('、')}`);
+    const failTk = [];
+    for (const tk of toks) {
+      const r = spawnSync('node', [scriptPath, 'mech', 'install', tk, '--yes'], { cwd: RELEASE_PROJECT(), encoding: 'utf8', timeout: 120000, stdio: ['ignore', 'pipe', 'pipe'] });
+      console.log(`  ${r.status === 0 ? '✓' : '✗'} mech install ${tk}`);
+      if (r.status !== 0) { failTk.push(tk); console.log(trunc(lastLines((r.stdout ?? '') + (r.stderr ?? ''), 2), 300)); }
+    }
+    if (failTk.length) return `mech install 失败：${failTk.join('、')}`;
+    const d = spawnSync('node', [scriptPath, 'doctor'], { cwd: RELEASE_PROJECT(), encoding: 'utf8', timeout: 120000, stdio: ['ignore', 'pipe', 'pipe'] });
+    const drift = R(d.stdout ?? '').split('\n').filter((l) => l.includes('采纳漂移'));
+    console.log(`  doctor：${drift.length ? drift.map((l) => R(l)).join('｜') : '采纳漂移 0 ✓'}`);
+    if (d.status !== 0 || drift.length) return 'doctor 有漂移/红——按提示逐项处置后重跑';
+    return true;
+  });
+  step('⑨ 收尾提示（审计矩阵+重启生效）', () => {
+    console.log('  审计：读 managed-skills/taskflow-release-audit 走六步（六副本矩阵/registry 条目数/守门运行时副本/新技能分布/行为抽测/悬空复扫）——人肉审计，链内不代跑');
+    console.log('  提示：omp/Claude Code/pi 技能启动时发现——已开会话持旧版，重启后新会话才生效（守门渲染产物重装即生效）');
+    return true;
+  });
+  if (withCanary) step('⑩ canary（真实 omp 送达金丝雀，约 65s）', () => {
+    const r = spawnSync('node', [scriptPath, 'canary'], { encoding: 'utf8', timeout: 300000, stdio: ['ignore', 'pipe', 'pipe'] });
+    console.log(trunc(lastLines((r.stdout ?? '') + (r.stderr ?? ''), 3), 300));
+    return r.status === 0 ? true : 'canary 红——注入未达模型';
+  });
+  const done = [];
+  for (let i = 0; i < steps.length; i++) {
+    const s = steps[i];
+    let r; try { r = s.fn(); } catch (e) { r = String(e?.message ?? e); }
+    if (r === true) done.push(s.name);
+    else if (r === 'skip') done.push(`${s.name}（已达成，跳过）`);
+    else {
+      console.log(`✗ ${s.name}：${r}`);
+      const left = steps.slice(i + 1).map((x) => x.name).join('；');
+      console.log(`\n⛔ 发版链中止于「${s.name}」。\n已完成：${done.length ? done.join('；') : '无'}\n剩余：${left || '无'}\n修复后重跑 node tf.mjs release ${ver}${withCanary ? ' --canary' : ''}——幂等：已达成步骤自动跳过。`);
+      return 1;
+    }
+    console.log(`✓ ${done[done.length - 1]}`);
+  }
+  console.log(`\n发版 ${ver} 收口 ✓（${done.length} 步全过）`);
+  return 0;
+}
+
 /* ---------------- 命令表（v2.85.0 描述符注册表）：name/usage/run 单源——分发区、help（USAGE 组合）、lint 孤儿检查三处消费 ----------------
    usage=帮助行原文（svc/mech 为三行块）；run 签名特例照旧分发区（accept/diagnose 取首参，mechanisms/migrate 无参）。 */
 const COMMANDS = [
@@ -2933,6 +3167,7 @@ const COMMANDS = [
   { name: 'skills', usage: `  node tf.mjs skills [领域词]           领域技能在场检测：缺哪些+怎么装；呈用户选装（不装则如实注记）（只读）；--usage=技能加载埋点报表（TF_SKILL_USAGE 单文件聚合，仅 omp 侧显式 skill:// 加载计数）`, run: (rest) => skillsCmd(rest) },
   { name: 'mechanisms', usage: `  node tf.mjs mechanisms               guard 门清单（机制透明化，v2.83.0，只读）：逐行输出宿主防护层每个门的中文名/管什么/开关 env/是否写触发日志——被拦或被提醒时按它向用户解释原因`, run: () => mechanismsCmd() },
   { name: 'canary', usage: `  node tf.mjs canary                        送达金丝雀：/tmp 夹具仓渲染守门副本+真实 omp -p 验证注入达模型（一次模型调用；omp 缺失则跳过 exit 0）`, run: () => canaryCmd() },
+  { name: 'release', usage: `  node tf.mjs release <version> [--canary] [--dry-run]  发版十步链（RELEASE_CHAIN）：版本双点自动改→lint→回归→commit(feat(v<版>):CHANGELOG顶条目标题)→push(败重试一次+远端哈希确认)→六路径同步（WSL实体 fetch+ff-only｜Windows侧 bundle 配方）→HEAD六路径对账→机制刷新（mech install --yes×project.json.mechanisms+doctor 漂移=0）→审计/重启提示；--dry-run 打印计划零执行；幂等重跑跳过已达成步骤；前置红=顶条目非目标版本/未跟踪文件未add/非 main`, run: (rest) => releaseCmd(rest) },
   { name: 'accept', usage: `  node tf.mjs accept <task-id> [--pass]  缺省=验收简报：任务是什么/部署状态/验什么/怎么验/怎么回复；--pass=机械翻转 *→merged（前置=分支已并入主分支，幂等）`, run: (rest) => accept(rest[0], rest.slice(1)) },
   { name: 'takeover', usage: `  node tf.mjs takeover <task-id> --session <本会话ID>  接管仪式：改 sessionID + 重写 .owner.json + 刷新 lease + 打印桌面清点清单（清点判断归编排层）`, run: (rest) => takeover(rest) },
   { name: 'park', usage: `  node tf.mjs park <task-id> --reason "<原因>"   搁置在途任务（active→parked，簿记写入口）——档案保留、体检（缺省）与 G 门不再盘点；等验收中（含部署态）拒`, run: (rest) => parkCmd(rest) },

@@ -217,6 +217,8 @@ taskflow/
 
 版本号唯一事实源为 SKILL.md（frontmatter `version` + 简介尾部版本串，lint 机械锁定一致）；逐版变更史 CHANGELOG.md 自 2.67.1 起仅本地维护，不随仓库分发。
 
+**发版必经 release 命令（RELEASE_CHAIN）**：改完代码+手写 CHANGELOG 顶条目后，`node scripts/tf.mjs release <version>` 一条链收口——版本双点自动改 → lint → 回归 → `feat(v<版>):` 提交 → push（重试一次+远端哈希确认）→ 六路径同步（WSL 实体仓 fetch+ff-only；Windows 侧 bundle 配方）→ HEAD 对账 → 项目侧机制刷新（mech install --yes × project.json.mechanisms + doctor）→ 审计/重启提示。`--dry-run` 打印计划零执行；幂等重跑自动跳过已达成步骤；发版后审计矩阵读 managed-skills/taskflow-release-audit 走六步。
+
 ## License
 
 [MIT](LICENSE)

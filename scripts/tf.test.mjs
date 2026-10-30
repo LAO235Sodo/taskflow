@@ -3347,9 +3347,10 @@ try {
     ok(new Set(mNames).size === mNames.length, '2.85.0 注册表对账：18 门 name 无重复');
     // help：注册表驱动后仍输出全部 29 命令前缀行 + 退出码行
     const hlp = run([], tmp);
-    const helpCmds = ['ls', 'doctor', 'reconcile', 'scout', 'skills', 'accept', 'takeover', 'park', 'unpark', 'commit', 'req-confirm', 'testplan', 'diagnose', 'nextid', 'lock', 'snapshot', 'mergegate', 'gates', 'revert-plan', 'stale', 'overlap', 'impact', 'deploy', 'migrate', 'archive', 'svc', 'lint', 'mech', 'mechanisms', 'canary'];
+    const helpCmds = ['ls', 'doctor', 'reconcile', 'scout', 'skills', 'accept', 'takeover', 'park', 'unpark', 'commit', 'req-confirm', 'testplan', 'diagnose', 'nextid', 'lock', 'snapshot', 'mergegate', 'gates', 'revert-plan', 'stale', 'overlap', 'impact', 'deploy', 'migrate', 'archive', 'svc', 'lint', 'mech', 'mechanisms', 'canary', 'release'];
     const hlpMiss = helpCmds.filter((c) => !hlp.stdout.includes(`node tf.mjs ${c}`));
-    ok(hlp.status === 0 && hlpMiss.length === 0 && hlp.stdout.includes('退出码：'), `2.87.0 help：30 命令前缀行+退出码齐全${hlpMiss.length ? `（缺：${hlpMiss.join('、')}）` : ''}`);
+    ok(hlp.status === 0 && hlpMiss.length === 0 && hlp.stdout.includes('退出码：'), `2.87.0 help：31 命令前缀行+退出码齐全${hlpMiss.length ? `（缺：${hlpMiss.join('、')}）` : ''}`);
+    ok(helpCmds.length === 31, `2.90.0 COMMANDS 注册表 31 项（描述符单源，当前 ${helpCmds.length}）`);
     const jRe = /\bJ\d\d\b/;
     const jLeft = [];
     const walk = (d) => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { if (e.name.startsWith('.') || e.name === 'node_modules') continue; const fp = path.join(d, e.name); if (e.isDirectory()) walk(fp); else if (/\.(md|mjs|js)$/.test(e.name)) { const rel = path.relative(repoRoot, fp); if (rel === 'CHANGELOG.md') continue; fs.readFileSync(fp, 'utf8').split('\n').forEach((ln, i) => { if (!jRe.test(ln.replace(/TF_[A-Z0-9_]+/g, ' '))) return; if (rel === 'references/entry-routes.md' && /^\|\s*J\d\d\s*\|/.test(ln)) return; if (rel === 'references/terminology.md' && /（注册号 J\d\d/.test(ln)) return; jLeft.push(`${rel}:${i + 1}`); }); } } };
@@ -3484,6 +3485,35 @@ try {
     ok(lkLive.stdout.includes('③临时实例+干净数据副本') && lkMut.stdout.includes('未过 schema 校验') && !lkMut.stdout.includes('③临时实例'), '2.89.0 变异③：同一份 project.json——live 分级=③、变异副本（枚举收窄）分级=未过校验 → doctor 与分级行双变（单源喂两端证明）');
     fs.rmSync(repoPjP);
     ok(fs.existsSync(schemaP), '2.89.0 收尾：技能本体 schema 未被变异污染（变异只发生在副本）');
+  }
+
+  // ---- 2.90.0 release 命令（RELEASE_CHAIN 发版十步链）：dry-run 主通道 + 前置红两路（真跑链=真仓活体，不进夹具） ----
+  {
+    const rls = path.join(tmp, 'rel-skill');
+    fs.mkdirSync(path.join(rls, 'scripts'), { recursive: true });
+    fs.writeFileSync(path.join(rls, 'SKILL.md'), '---\nname: taskflow\nversion: 2.89.0\ndescription: "版本 2.89.0。测试简介。"\n---\n\n# t\n');
+    fs.writeFileSync(path.join(rls, 'CHANGELOG.md'), '## 2.90.0 — 2026-10-30 — 发版链收口\n\n- **为什么**：夹具。\n');
+    fs.writeFileSync(path.join(rls, 'README.md'), '# t\n');
+    sh('git init -q -b main && git config user.email t@t && git config user.name t && git add -A && git commit -qm init', rls);
+    fs.writeFileSync(path.join(rls, 'README.md'), '# t\n载荷改动\n'); // tracked 改动=发布载荷（前置允许）
+    const rlsProj = path.join(tmp, 'rel-proj');
+    fs.mkdirSync(path.join(rlsProj, '.taskflow'), { recursive: true });
+    fs.writeFileSync(path.join(rlsProj, '.taskflow', 'project.json'), JSON.stringify({ key: 'relproj', git: false, mechanisms: { TEST_MECH_X: { version: '1.0.0' }, 测试机制Y: { version: '1.0.0' } } }));
+    const envP = { ...process.env, TF_RELEASE_PROJECT: rlsProj };
+    const dr = spawnSync('node', [script, 'release', '2.90.0', '--dry-run', '--root', rls], { cwd: rls, encoding: 'utf8', env: envP });
+    const planKeys = ['① 版本双点', '② lint', '③ 回归', '④ commit', '⑤ push', '⑥ 六路径同步', '⑦ HEAD 对账', '⑧ 机制刷新', '⑨ 提示'];
+    ok(dr.status === 0 && planKeys.every((k) => dr.stdout.includes(k)), `2.90.0 release dry-run：九步计划名齐全+退出 0（缺：${planKeys.filter((k) => !dr.stdout.includes(k)).join('、') || '无'}，exit=${dr.status}）`);
+    ok(dr.stdout.includes('TEST_MECH_X') && dr.stdout.includes('测试机制Y'), '2.90.0 release dry-run：机制清单读 project.json.mechanisms（夹具注入名，非硬编码）');
+    ok(dr.stdout.includes('feat(v2.90.0): 发版链收口'), '2.90.0 release dry-run：commit 消息取 CHANGELOG 顶条目标题');
+    ok((fs.readFileSync(path.join(rls, 'SKILL.md'), 'utf8').match(/^version: (.+)$/m) ?? [])[1] === '2.89.0', '2.90.0 release dry-run：零执行——SKILL.md 版本未被 bump');
+    const dr2 = spawnSync('node', [script, 'release', '2.91.0', '--dry-run', '--root', rls], { cwd: rls, encoding: 'utf8', env: envP });
+    ok(dr2.status === 1 && dr2.stdout.includes('2.91.0') && dr2.stdout.includes('顶条目'), '2.90.0 release 前置红①：CHANGELOG 顶条目≠目标版本 → 拒绝');
+    fs.writeFileSync(path.join(rls, 'stray.txt'), 'x\n');
+    const dr3 = spawnSync('node', [script, 'release', '2.90.0', '--dry-run', '--root', rls], { cwd: rls, encoding: 'utf8', env: envP });
+    ok(dr3.status === 1 && dr3.stdout.includes('未跟踪'), '2.90.0 release 前置红②：未跟踪文件未 git add → 拒绝');
+    fs.rmSync(path.join(rls, 'stray.txt'));
+    const porc = spawnSync('bash', ['-c', 'git status --porcelain'], { cwd: rls, encoding: 'utf8' }).stdout ?? '';
+    ok((fs.readFileSync(path.join(rls, 'SKILL.md'), 'utf8').match(/^version: (.+)$/m) ?? [])[1] === '2.89.0' && !porc.split('\n').some((l) => l.startsWith('??')), '2.90.0 release 收尾：夹具零污染（版本未动+无残留未跟踪文件）');
   }
 
   process.exitCode = failures ? 1 : 0; // 失败≠0：堵住链式调用「grep 匹配到失败文案也算成功」的放行洞
