@@ -3058,16 +3058,19 @@ function releaseCmd(args = []) {
     const testP = path.join(root, 'scripts', 'tf.test.mjs');
     if (!fs.existsSync(testP)) return '缺 scripts/tf.test.mjs';
     const r = spawnSync('node', [testP], { encoding: 'utf8', timeout: 300000, stdio: ['ignore', 'pipe', 'pipe'] });
-    console.log(trunc(lastLines((r.stdout ?? '') + (r.stderr ?? ''), 3), 400));
-    if (r.status !== 0) return '回归红';
+    console.log(trunc(lastLines(r.stdout ?? '', 3), 400)); // 只打 stdout 尾（stderr 含负路夹具的 git 噪音会顶掉「全部通过」）
+    if (r.status !== 0) return `回归红——${trunc(lastLines(r.stderr ?? '', 2), 200)}`;
     return true;
   });
   step('④ commit（feat(v<版>): CHANGELOG 顶条目标题）', () => {
-    if (gin(['log', '-1', '--format=%s']) === `feat(v${ver}): ${clTitle}`) return 'skip';
+    const subjMatch = gin(['log', '-1', '--format=%s']) === `feat(v${ver}): ${clTitle}`;
     gin(['add', '-u']);
-    if (!gin(['diff', '--cached', '--name-only'])) return '无暂存内容——载荷为空且版本双点无改动';
-    gin(['commit', '-m', `feat(v${ver}): ${clTitle}`]);
-    console.log(`  ${gin(['log', '-1', '--format=%h %s'])}`);
+    if (!gin(['diff', '--cached', '--name-only'])) {
+      if (subjMatch) return 'skip';
+      return '无暂存内容——载荷为空且版本双点无改动';
+    }
+    gin(['commit', '-m', `feat(v${ver}): ${clTitle}`]); // 同版重跑带新载荷=发版补丁并入同版本（版本由 SKILL.md/CHANGELOG 定义，不锁单提交）
+    console.log(`  ${subjMatch ? '发版补丁并入同版本——' : ''}${gin(['log', '-1', '--format=%h %s'])}`);
     return true;
   });
   step('⑤ push origin main（败重试一次+远端哈希确认）', () => {
@@ -3093,8 +3096,10 @@ function releaseCmd(args = []) {
     const wslRepo = RELEASE_WSL_REPO();
     if (fs.existsSync(path.join(wslRepo, '.git'))) { const w = syncWslEntity(wslRepo, root, headShort); lines.push(w.line); if (w.err) errs.push(w.err); }
     else errs.push(`WSL 实体仓缺失：${wslRepo}`);
-    const win = syncWindowsBundle(root, ver);
-    lines.push(...win.lines); errs.push(...win.errs);
+    const winAt = (p) => { try { return R(execFileSync('git', ['-C', p, 'rev-parse', '--short=7', 'HEAD'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })); } catch { return '?'; } };
+    const winDone = RELEASE_WIN_REPOS.every((p) => winAt(p) === headShort && R((fs.readFileSync(path.join(p, 'SKILL.md'), 'utf8').match(/^version:\s*(\S+)/m) ?? [])[1]) === ver);
+    if (winDone) lines.push(`⏭ Windows×2（已达成 ${headShort}，免 bundle）`);
+    else { const win = syncWindowsBundle(root, ver); lines.push(...win.lines); errs.push(...win.errs); }
     lines.forEach((l) => console.log('  ' + l));
     return errs.length ? errs.join('；') : true;
   });
@@ -3126,7 +3131,8 @@ function releaseCmd(args = []) {
     const d = spawnSync('node', [scriptPath, 'doctor'], { cwd: RELEASE_PROJECT(), encoding: 'utf8', timeout: 120000, stdio: ['ignore', 'pipe', 'pipe'] });
     const drift = R(d.stdout ?? '').split('\n').filter((l) => l.includes('采纳漂移'));
     console.log(`  doctor：${drift.length ? drift.map((l) => R(l)).join('｜') : '采纳漂移 0 ✓'}`);
-    if (d.status !== 0 || drift.length) return 'doctor 有漂移/红——按提示逐项处置后重跑';
+    if (drift.length) return 'doctor 采纳漂移非零——按提示逐项处置后重跑';
+    if (d.status !== 0) console.log('  ℹ doctor 整体非零（任务级体检/schema 等项目侧发现，非采纳对账）——不阻发版链，按 doctor 提示另行处置');
     return true;
   });
   step('⑨ 收尾提示（审计矩阵+重启生效）', () => {
