@@ -1576,8 +1576,8 @@ try {
     // 门夹具：sql / 实体注解 kt / 服务内联 DDL kt / 纯逻辑 kt
     fs.mkdirSync(path.join(repo2, 'backend/database'), { recursive: true });
     fs.mkdirSync(path.join(repo2, 'src/main/java/demo'), { recursive: true });
-    fs.writeFileSync(path.join(repo2, 'backend/database/schema.sql'), 'CREATE TABLE agent_session (\n  id BIGINT NOT NULL\n);\n');
-    fs.writeFileSync(path.join(repo2, 'src/main/java/demo/Entity.kt'), 'package d\nimport com.baomidou.mybatisplus.annotation.TableName\n@TableName("agent_session")\ndata class AgentSession(\n  var id: Long? = null\n)\n');
+    fs.writeFileSync(path.join(repo2, 'backend/database/schema.sql'), 'CREATE TABLE sample_session (\n  id BIGINT NOT NULL\n);\n');
+    fs.writeFileSync(path.join(repo2, 'src/main/java/demo/Entity.kt'), 'package d\nimport com.baomidou.mybatisplus.annotation.TableName\n@TableName("sample_session")\ndata class SampleSession(\n  var id: Long? = null\n)\n');
     fs.writeFileSync(path.join(repo2, 'src/main/java/demo/Svc.kt'), 'package s\nclass Service {\n  val DDL = """CREATE TABLE android_x (id BIGINT)"""\n}\n');
     fs.writeFileSync(path.join(repo2, 'src/main/java/demo/Logic.kt'), 'class L { val x = 1 }\n');
     const dmAnchor = '\n\n## 2026-01-04 — 数据模型门落地\n\n- 锚点\n';
@@ -1640,10 +1640,10 @@ try {
     fs.writeFileSync(dmSpec, '# Spec\n\n数据模型分诊：不涉及——纯前端文案改动\n');
     dm = dmSpecRun();
     ok(dm.status === 0, 'data-model-gate --spec 绿⑩b：分诊不涉及（有理由）→ exit 0');
-    fs.writeFileSync(dmSpec, '# Spec\n\n数据模型分诊：涉及——改 agent_session 加列\n\n## 边界\n\n- `backend/database/schema.sql`\n');
+    fs.writeFileSync(dmSpec, '# Spec\n\n数据模型分诊：涉及——改 sample_session 加列\n\n## 边界\n\n- `backend/database/schema.sql`\n');
     dm = dmSpecRun();
     ok(dm.status === 1 && /对照表/.test(dm.stdout + dm.stderr), 'data-model-gate --spec 红⑩c：分诊涉及但无「数据模型对照表」节 → exit 1');
-    fs.writeFileSync(dmSpec, '# Spec\n\n数据模型分诊：涉及——改 agent_session 加列\n\n## 数据模型对照表\n\n| 表或实体 | 字段 | 现状 | 变更后 | 消费方 | 迁移/兼容 | 拍板 |\n| --- | --- | --- | --- | --- | --- | --- |\n| agent_session | title | `backend/database/schema.sql:1` 无 title 列 | VARCHAR(64) NULL | 列表页 | 迁移脚本 V2 | 已拍板：加列 |\n');
+    fs.writeFileSync(dmSpec, '# Spec\n\n数据模型分诊：涉及——改 sample_session 加列\n\n## 数据模型对照表\n\n| 表或实体 | 字段 | 现状 | 变更后 | 消费方 | 迁移/兼容 | 拍板 |\n| --- | --- | --- | --- | --- | --- | --- |\n| sample_session | title | `backend/database/schema.sql:1` 无 title 列 | VARCHAR(64) NULL | 列表页 | 迁移脚本 V2 | 已拍板：加列 |\n');
     dm = dmSpecRun();
     ok(dm.status === 0, 'data-model-gate --spec 绿⑩d：对照表节+证据锚+拍板 → exit 0');
     fs.writeFileSync(dmSpec, '# Spec\n\n数据模型分诊：不涉及——纯文案\n\n## 边界\n\n- `backend/database/schema.sql`\n');

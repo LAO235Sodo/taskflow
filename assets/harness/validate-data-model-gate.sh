@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # validate-data-model-gate.sh — 数据模型对照门（taskflow 硬规则 28 / 机制 DATA_MODEL_GATE 的机械执行体）
 # 由 `node tf.mjs mech install DATA_MODEL_GATE` 生成（模板住技能仓库 assets/harness/——勿手改，重装覆盖）。
-# 防的事故类：数据口径返工只靠事后 decisions/ 沉淀（七星第 7 位第 7 轮才落档；本仓 agent_workflow_run 一族
+# 防的事故类：数据口径返工只靠事后 decisions/ 沉淀（同一字段口径第 7 轮返工才落档；主工作流表一族
 # DDL 双源漂移实证），设计侧既无产物步骤也无拍板门。本脚本把「动没动数据模型」从 agent 记性变成机械检查：
 # 全任务分诊留痕（spec 一行）+ 涉者对照表拍板 + 收尾同步行（含 DDL 多源处置 + 真源刷新）。
 # 双模式：

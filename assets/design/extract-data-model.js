@@ -210,7 +210,7 @@ for (const k of fkDeps) {
 function tableOf(name) { const t = tables.get(lower(name)); return t ? t.name : null; }
 const tableNames = new Map([...tables.keys()].map((k) => [k, tables.get(k).name]));
 /* 三级确定性命中：①直接同名（单/复数）②后缀 _<候选> 唯一 ③同模块前缀（from 与候选共享首 _ 段、排除自身）唯一；
-   多义仍不猜——进 unresolved（agent_workflow_run ← agent_step_run.run_id 走③，rule_executions.scheme_id 双候选走 unresolved） */
+   多义仍不猜——进 unresolved（子表 run_id 同模块前缀消歧走③；双候选两表命中走 unresolved） */
 function depTarget(base, fromName) {
   const cands = [...new Set([base, base + 's', base + 'es', base.endsWith('s') ? base.slice(0, -1) : base])];
   for (const c of cands) if (tableNames.has(c)) return { table: tableNames.get(c) };
