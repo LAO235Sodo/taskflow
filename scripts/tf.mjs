@@ -3362,6 +3362,16 @@ const MECH_PROSE = {
     agMarkers: ['## 需求基线对照门（taskflow mech install'],
     agText: () => `\n## 需求基线对照门（taskflow mech install 生成）\n\n- 每条验收标准行尾挂 PRD 条目锚（基线：F-XX-NN）；挂不上=PRD 静默区，登记「基线外条目草案」经用户确认后动工，收尾强制升格 PRD；merge 阶段一跑 validate-baseline-anchor-gate.sh --spec（红=阻塞项）；收尾必跑 validate-changelog.sh（文档同步行条目 ID 必须真实存在、引 PRD 路径落条目粒度）；「见方案稿/原型/见上/待补」不是合法锚（REQ_ANCHOR_GATE）\n`,
   },
+  DATA_MODEL_GATE: {
+    anchor: '数据模型门落地',
+    newFile: (d) => `# CHANGELOG\n\n## ${d} — 数据模型门落地\n\n- 本条为门锚点：之上为受管区（新条目插这里），之下历史条目祖父豁免\n- 条目格式：做了什么 / 涉及文件 / commits；反引号资产命中数据资产（.sql／迁移目录／实体目录代码文件路径层，或文件内容含 @TableName/@Entity/@Table/CREATE·ALTER TABLE 内容层）→ 须含「数据模型：」行（三段格式：\`数据模型：<对照表/提取 JSON 路径>；同步：<≥1 项同步动作>；真源：已刷新\`；涉 DDL 追加「DDL：<其余定义处处置+迁移>」子段；或「数据模型：不适用——理由」）\n- 每个任务 spec 必答分诊行：\`数据模型分诊：涉及|不涉及——理由\`（全员必填，缺=merge --spec 红）\n`,
+    insertBody: '- 门锚点（mech install 补写）：之上为受管区，之下历史条目祖父豁免\n',
+    convMarkers: ['## 机制：数据模型门（mech install'], // v2.54.0 教训：裸 token 会被模板占位行自抑制——用生成标题形态
+    convText: (d) => `\n## 机制：数据模型门（mech install 生成 ${d}）\n\n- **全任务分诊（DATA_MODEL_GATE，硬规则 28）**：每个任务立项必答「动不动数据模型（实体/契约/存量字段口径）」——spec 落 \`数据模型分诊：涉及|不涉及——理由\` 行；不涉一行免全流程，涉 → 立项跑 \`scripts/design/extract-data-model.js --root <扫描根> --out docs/data-model\` 刷新真源 + spec「数据模型对照表」拍板（现状列只认提取产物+源码锚，禁凭记忆转述；拍板列未填禁动工）\n- **真源纪律**：\`docs/data-model/\`（data-model-extract.json 机器真源 + data-model-extract.md 人读渲染，同一提取器同次产出）是 lock-file——只能提取器再生，手工编辑=违规；DDL/实体变更收尾必须刷新；拍板日志 DATA_MODEL_DECISIONS.md 只增不改；同名表多处定义（duplicates）现状列列全全部源、收尾 DDL 段逐处交代处置\n- **收尾条目必含「数据模型：」行**（命中数据资产时）：\`数据模型：<路径>；同步：<迁移/契约/消费方/DDL 其余定义处>；真源：已刷新\`——涉 DDL 加「DDL：」子段；merge 阶段三涉数据任务跑 \`scripts/harness/validate-data-model-gate.sh --spec <spec.md>\`\n- 验证清单新增（收尾必跑）：\`bash scripts/harness/validate-changelog.sh\`（内含数据模型门）\n`,
+    convLog: '✓ conventions.md 补记（数据模型分诊+真源纪律+收尾行）',
+    agMarkers: ['## 数据模型门（taskflow mech install'],
+    agText: () => `\n## 数据模型门（taskflow mech install 生成）\n\n- 每个任务 spec 必答数据模型分诊行（涉及|不涉及——理由）；涉实体/契约/存量字段口径 → 刷新 docs/data-model 真源（extract-data-model.js 再生，禁手改）+ 对照表拍板（拍板未填禁动工）；收尾条目必含「数据模型：」行（同步：/DDL：/真源：已刷新）；跑 scripts/harness/validate-changelog.sh（DATA_MODEL_GATE）\n`,
+  },
 };
 function mechCmd(args = []) {
   const yes = args.includes('--yes'); // v2.65.0 确认闸旗标（任意参数位）

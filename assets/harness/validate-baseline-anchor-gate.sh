@@ -93,7 +93,7 @@ if [ -z "$SPEC_ARG" ]; then
     c_ids="$(printf '%s\n' "$doc_line" | grep -oE "${ID_RE}" | sort -u || true)"
     for id in $c_ids; do
       if ! prd_has_id "$id"; then
-        echo "⛔ [baseline-gate] $title — 「文档同步：」行列出的条目 ID 查无 PRD 条目：$id（C1——条目 ID 必须真实存在）" >&2
+        echo "⛔ [baseline-gate] $title — 「文档同步：」行列出的条目 ID 查无 PRD 条目：${id}（C1——条目 ID 必须真实存在）" >&2
         exit 1
       fi
     done
@@ -170,7 +170,7 @@ while IFS= read -r row; do
   if printf '%s\n' "$DIFF_PATCH" | grep '^+' | grep -qF "$t_id"; then
     :
   else
-    red "草案 $d_id 未升格（B3）——分支 diff 新增行无预填条目 $t_id（补 PRD 正式条目含出处 iter-comment，或用户拍板豁免留痕）"
+    red "草案 $d_id 未升格（B3）——分支 diff 新增行无预填条目 ${t_id}（补 PRD 正式条目含出处 iter-comment，或用户拍板豁免留痕）"
   fi
 done <<< "$DRAFT_SECTION"
 
@@ -196,7 +196,7 @@ while IFS= read -r line; do
       for id in $ids; do
         ANCHORED_IDS="$ANCHORED_IDS$id "
         if ! prd_has_id "$id"; then
-          red "锚 ID 查无 PRD 条目（B1）：$id——行：$line"
+          red "锚 ID 查无 PRD 条目（B1）：${id}——行：$line"
         fi
       done
     elif printf '%s' "$anchor_tail" | grep -q '豁免'; then
@@ -277,7 +277,7 @@ if [ -f "$TASKJSON" ] && grep -q '"goalHash"' "$TASKJSON"; then
   if [ -n "$NORM" ]; then
     NOW_HASH="$(printf '%s' "$NORM" | sha1_12)"
     if [ "$NOW_HASH" != "$GH" ]; then
-      red "goalHash 不一致（B5）——spec 承重节被改未经需求变更门：现算 $NOW_HASH ≠ 档案 $GH（跑 tf.mjs req-confirm 补确认或回退 spec）"
+      red "goalHash 不一致（B5）——spec 承重节被改未经需求变更门：现算 $NOW_HASH ≠ 档案 ${GH}（跑 tf.mjs req-confirm 补确认或回退 spec）"
     fi
   fi
 fi

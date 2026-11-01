@@ -44,7 +44,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --spec) SPEC_ARG="${2:?--spec 需要路径}"; shift 2 ;;
     --repo) REPO="$(cd "${2:?--repo 需要路径}" && pwd)"; shift 2 ;;
-    *) fail "未知参数 $1（用法见脚本头注释）" ;;
+    *) fail "未知参数 ${1}（用法见脚本头注释）" ;;
   esac
 done
 

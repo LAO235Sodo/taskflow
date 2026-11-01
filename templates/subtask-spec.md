@@ -45,6 +45,15 @@
 - 基线 JSON（App 现状结构树 + token 解析值）：`.taskflow/<task-id>/design/baseline/baseline-<page>.json`
 - 基线截图（before 对照）：`.taskflow/<task-id>/design/baseline/baseline-<page>.png`
 
+## 数据模型（涉数据子任务；DATA_MODEL_GATE）
+
+<!-- 首行继承主 spec 分诊结论（分诊不涉及 = 本节写「（不适用——<同主 spec 理由>）」）。
+     涉及 = 只引用主 spec「数据模型对照表」对应行（现状/变更后/消费方/拍板照抄主 spec，子代理不改拍板）；
+     现状以主 spec 对照表 + docs/data-model/ 真源为准——编排层/子代理凭记忆转述现状 = 违规（硬规则 28②，同 :43 硬规则 21 注释模式）。 -->
+
+- 数据模型分诊：<同主 spec——涉及|不涉及>——<理由>
+- 引用主 spec 对照表行：<表或实体/字段——主 spec「数据模型对照表」节第 n 行>
+
 ## 约束与禁止
 
 - 只做本子任务范围内的事，不顺手改其他代码

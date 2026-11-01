@@ -1565,6 +1565,120 @@ try {
     const clTxt = fs.readFileSync(clD, 'utf8');
     ok(abRe.status === 0 && /^## [^\n]*现状基线门落地\n\n- 门锚点[^\n]*\n\n?## 2026-01-06 — 既有条目\n\n- 做了什么/.test(clTxt), 'mechCmd 锚点插入 hotfix：## 开头无 h1 的 CHANGELOG → 锚点顶置在首条目之前（旧正则把锚点插进首条目内部）');
   }
+  // ---- 2.91.0 DATA_MODEL_GATE：数据模型门（mech install + 门真执行红绿矩阵 + 提取器 fixture，硬规则 17/28）----
+  {
+    const dmInst = run(['mech', 'install', 'DATA_MODEL_GATE', '--yes'], repo2); // --yes：validate-changelog.sh 模板变更属整文件覆盖
+    const dmGate = path.join(repo2, 'scripts/harness/validate-data-model-gate.sh');
+    ok(dmInst.status === 0 && fs.existsSync(dmGate) && fs.existsSync(path.join(repo2, 'scripts/design/extract-data-model.js')), 'DATA_MODEL_GATE install：门脚本 + 提取器 extract-data-model.js 落位');
+    ok(fs.readFileSync(clD, 'utf8').includes('数据模型门落地'), 'DATA_MODEL_GATE install：CHANGELOG 补锚点「数据模型门落地」');
+    const pjDM = JSON.parse(fs.readFileSync(path.join(td2, 'project.json'), 'utf8'));
+    ok(pjDM.mechanisms && pjDM.mechanisms.DATA_MODEL_GATE, 'DATA_MODEL_GATE install：project.json mechanisms 采纳登记');
+    // 门夹具：sql / 实体注解 kt / 服务内联 DDL kt / 纯逻辑 kt
+    fs.mkdirSync(path.join(repo2, 'backend/database'), { recursive: true });
+    fs.mkdirSync(path.join(repo2, 'src/main/java/demo'), { recursive: true });
+    fs.writeFileSync(path.join(repo2, 'backend/database/schema.sql'), 'CREATE TABLE agent_session (\n  id BIGINT NOT NULL\n);\n');
+    fs.writeFileSync(path.join(repo2, 'src/main/java/demo/Entity.kt'), 'package d\nimport com.baomidou.mybatisplus.annotation.TableName\n@TableName("agent_session")\ndata class AgentSession(\n  var id: Long? = null\n)\n');
+    fs.writeFileSync(path.join(repo2, 'src/main/java/demo/Svc.kt'), 'package s\nclass Service {\n  val DDL = """CREATE TABLE android_x (id BIGINT)"""\n}\n');
+    fs.writeFileSync(path.join(repo2, 'src/main/java/demo/Logic.kt'), 'class L { val x = 1 }\n');
+    const dmAnchor = '\n\n## 2026-01-04 — 数据模型门落地\n\n- 锚点\n';
+    const dmCl = (files, line) => `# CHANGELOG\n\n## 2026-01-05 — 改表\n\n- 做了什么：改表加列\n- 涉及文件：${files}\n- commits：abc\n${line}${dmAnchor}`;
+    const dmRunGate = () => spawnSync('bash', [dmGate], { cwd: repo2, encoding: 'utf8' });
+    // ① .sql 条目缺「数据模型：」行 → exit 1
+    fs.writeFileSync(clD, dmCl('`backend/database/schema.sql`', ''));
+    let dm = dmRunGate();
+    ok(dm.status === 1 && /数据模型/.test(dm.stdout + dm.stderr), 'data-model-gate 红①：.sql 条目缺「数据模型：」行 → exit 1');
+    // ② 廉价通道：不适用——理由 → 0
+    fs.writeFileSync(clD, dmCl('`backend/database/schema.sql`', '- 数据模型：不适用——新增表无存量数据'));
+    dm = dmRunGate();
+    ok(dm.status === 0, 'data-model-gate 绿②：「数据模型：不适用——理由」廉价通道 → exit 0');
+    // ④ 挂链 JSON 缺 schema 头 → 1
+    fs.mkdirSync(path.join(repo2, 'docs/data-model'), { recursive: true });
+    fs.writeFileSync(path.join(repo2, 'docs/data-model/bad.json'), '{"x":1}');
+    fs.writeFileSync(clD, dmCl('`backend/database/schema.sql`', '- 数据模型：`docs/data-model/bad.json`；同步：迁移脚本 X；真源：已刷新'));
+    dm = dmRunGate();
+    ok(dm.status === 1 && /schema/.test(dm.stdout + dm.stderr), 'data-model-gate 红④：挂链 JSON 缺 schema 头 → exit 1');
+    // ③ 全绿（含 DDL 段 + 真源在档）
+    fs.writeFileSync(path.join(repo2, 'docs/data-model/good.json'), '{"schema": "data-model-extract/1","tables":[]}');
+    fs.writeFileSync(path.join(repo2, 'docs/data-model/data-model-extract.json'), '{"schema": "data-model-extract/1","tables":[]}');
+    fs.writeFileSync(clD, dmCl('`backend/database/schema.sql`', '- 数据模型：`docs/data-model/good.json`；同步：迁移脚本 X/消费方 Y；DDL：其余 1 处已同步；无迁移；真源：已刷新'));
+    dm = dmRunGate();
+    ok(dm.status === 0, 'data-model-gate 绿③：路径+同步+DDL 段+真源已刷新 → exit 0');
+    // ⑤ 同步空 → 1
+    fs.writeFileSync(clD, dmCl('`backend/database/schema.sql`', '- 数据模型：`docs/data-model/good.json`；同步：；DDL：x；真源：已刷新'));
+    dm = dmRunGate();
+    ok(dm.status === 1 && /同步/.test(dm.stdout + dm.stderr), 'data-model-gate 红⑤：「同步：」空 → exit 1');
+    // ⑥ 纯逻辑文件条目不触发 → 0
+    fs.writeFileSync(clD, dmCl('`src/main/java/demo/Logic.kt`', ''));
+    dm = dmRunGate();
+    ok(dm.status === 0, 'data-model-gate 绿⑥：纯逻辑条目不触发 → exit 0');
+    // ⑦ 内容层触发：实体注解 kt / 服务内联 DDL kt 缺行 → 1
+    fs.writeFileSync(clD, dmCl('`src/main/java/demo/Entity.kt`', ''));
+    dm = dmRunGate();
+    ok(dm.status === 1, 'data-model-gate 红⑦a：@TableName 实体条目缺「数据模型：」行 → exit 1（内容层）');
+    fs.writeFileSync(clD, dmCl('`src/main/java/demo/Svc.kt`', ''));
+    dm = dmRunGate();
+    ok(dm.status === 1, 'data-model-gate 红⑦b：服务内联 CREATE TABLE 条目缺行 → exit 1（内容层抓漏网）');
+    // ⑧ .sql 条目有数据模型+同步+真源但缺「DDL：」段 → 1；补 → 0
+    fs.writeFileSync(clD, dmCl('`backend/database/schema.sql`', '- 数据模型：`docs/data-model/good.json`；同步：迁移脚本 X；真源：已刷新'));
+    dm = dmRunGate();
+    ok(dm.status === 1 && /DDL/.test(dm.stdout + dm.stderr), 'data-model-gate 红⑧：涉 DDL 缺「DDL：」子段 → exit 1');
+    fs.writeFileSync(clD, dmCl('`backend/database/schema.sql`', '- 数据模型：`docs/data-model/good.json`；同步：迁移脚本 X；DDL：其余 1 处已同步；无迁移；真源：已刷新'));
+    dm = dmRunGate();
+    ok(dm.status === 0, 'data-model-gate 绿⑧b：补 DDL 段 → exit 0');
+    // ⑨ 「真源：已刷新」但 docs/data-model 真源缺 → 1
+    fs.rmSync(path.join(repo2, 'docs/data-model/data-model-extract.json'));
+    fs.writeFileSync(clD, dmCl('`backend/database/schema.sql`', '- 数据模型：`docs/data-model/good.json`；同步：迁移脚本 X；DDL：其余 1 处已同步；真源：已刷新'));
+    dm = dmRunGate();
+    ok(dm.status === 1 && /真源/.test(dm.stdout + dm.stderr), 'data-model-gate 红⑨：声称真源已刷新但 docs/data-model JSON 缺 → exit 1');
+    fs.writeFileSync(path.join(repo2, 'docs/data-model/data-model-extract.json'), '{"schema": "data-model-extract/1","tables":[]}');
+    // ⑩ --spec 模式矩阵
+    const dmSpec = path.join(tmp, 'dm-spec.md');
+    const dmSpecRun = () => spawnSync('bash', [dmGate, '--spec', dmSpec], { cwd: repo2, encoding: 'utf8' });
+    fs.writeFileSync(dmSpec, '# Spec\n');
+    dm = dmSpecRun();
+    ok(dm.status === 1 && /分诊/.test(dm.stdout + dm.stderr), 'data-model-gate --spec 红⑩a：spec 缺「数据模型分诊：」行 → exit 1（全员强制）');
+    fs.writeFileSync(dmSpec, '# Spec\n\n数据模型分诊：不涉及——纯前端文案改动\n');
+    dm = dmSpecRun();
+    ok(dm.status === 0, 'data-model-gate --spec 绿⑩b：分诊不涉及（有理由）→ exit 0');
+    fs.writeFileSync(dmSpec, '# Spec\n\n数据模型分诊：涉及——改 agent_session 加列\n\n## 边界\n\n- `backend/database/schema.sql`\n');
+    dm = dmSpecRun();
+    ok(dm.status === 1 && /对照表/.test(dm.stdout + dm.stderr), 'data-model-gate --spec 红⑩c：分诊涉及但无「数据模型对照表」节 → exit 1');
+    fs.writeFileSync(dmSpec, '# Spec\n\n数据模型分诊：涉及——改 agent_session 加列\n\n## 数据模型对照表\n\n| 表或实体 | 字段 | 现状 | 变更后 | 消费方 | 迁移/兼容 | 拍板 |\n| --- | --- | --- | --- | --- | --- | --- |\n| agent_session | title | `backend/database/schema.sql:1` 无 title 列 | VARCHAR(64) NULL | 列表页 | 迁移脚本 V2 | 已拍板：加列 |\n');
+    dm = dmSpecRun();
+    ok(dm.status === 0, 'data-model-gate --spec 绿⑩d：对照表节+证据锚+拍板 → exit 0');
+    fs.writeFileSync(dmSpec, '# Spec\n\n数据模型分诊：不涉及——纯文案\n\n## 边界\n\n- `backend/database/schema.sql`\n');
+    dm = dmSpecRun();
+    ok(dm.status === 1, 'data-model-gate --spec 红⑩g：分诊不涉但反引号路径命中数据资产 → exit 1（漏判兜底）');
+    // 提取器 fixture 真跑：多源 DDL + 实体映射 + 依赖 + duplicates + unresolved
+    const dmFix = path.join(tmp, 'dmfix');
+    fs.mkdirSync(dmFix, { recursive: true });
+    fs.writeFileSync(path.join(dmFix, 'a.sql'),
+      "CREATE TABLE parent (\n  id BIGINT NOT NULL AUTO_INCREMENT,\n  name VARCHAR(64) NOT NULL COMMENT '名称',\n  extra_col VARCHAR(10) DEFAULT NULL COMMENT '实体没有的列',\n  widget_id BIGINT DEFAULT NULL COMMENT '关联widget',\n  PRIMARY KEY (id)\n) COMMENT='父表';\n\nCREATE TABLE child (\n  id BIGINT NOT NULL AUTO_INCREMENT,\n  parent_id BIGINT NOT NULL COMMENT '关联parent',\n  widget_id BIGINT DEFAULT NULL,\n  foo_id BIGINT DEFAULT NULL,\n  CONSTRAINT fk_child_parent FOREIGN KEY (parent_id) REFERENCES parent (id)\n);\n\nCREATE TABLE widget (\n  id BIGINT NOT NULL,\n  title VARCHAR(32) COMMENT '标题'\n);\n");
+    fs.writeFileSync(path.join(dmFix, 'b.sql'), 'CREATE TABLE parent (\n  id BIGINT NOT NULL,\n  name VARCHAR(64)\n);\n');
+    fs.writeFileSync(path.join(dmFix, 'SampleEntity.kt'),
+      'package demo\n\n/**\n * 父表实体\n */\n@TableName("parent")\ndata class SampleEntity(\n    /** 主键 */\n    @TableId\n    var id: Long = 0,\n    @TableField("name")\n    var displayName: String = "",\n    /** SQL 里没有的属性 */\n    var ghost: String = ""\n)\n');
+    const dmEx = spawnSync('node', [path.join(repo2, 'scripts/design/extract-data-model.js'), '--root', dmFix, '--out', path.join(dmFix, 'out')], { encoding: 'utf8' });
+    ok(dmEx.status === 0, 'extract-data-model：真跑 exit 0（' + (dmEx.stderr || dmEx.stdout || '').slice(0, 120) + '）');
+    const dmj = JSON.parse(fs.readFileSync(path.join(dmFix, 'out', 'data-model-extract.json'), 'utf8'));
+    ok(dmj.schema === 'data-model-extract/1', 'extract-data-model：schema 头 data-model-extract/1');
+    const dmParent = dmj.tables.find((t) => t.name === 'parent');
+    ok(dmParent && dmParent.columns.some((c) => c.name === 'name' && c.comment === '名称') && dmParent.columns.some((c) => c.name === 'extra_col'), 'extract-data-model：表/列/COMMENT 解析');
+    ok(dmj.duplicates.some((d) => d.table === 'parent' && d.sources.filter((s) => s.file === 'a.sql' || s.file === 'b.sql').length === 2), 'extract-data-model：duplicates 含 parent 双源（a.sql + b.sql）');
+    ok(dmj.dependencies.some((d) => d.from === 'child' && d.to === 'parent' && d.via === 'parent_id' && d.kind === 'fk'), 'extract-data-model：显式 FK 依赖 child→parent via parent_id');
+    ok(dmj.dependencies.some((d) => d.from === 'child' && d.to === 'widget' && d.via === 'widget_id' && d.kind === 'implicit-id'), 'extract-data-model：启发式依赖 child→widget via widget_id（两种 kind 各一命中）');
+    const dmMap = dmj.mappings.find((m) => m.cls === 'SampleEntity' && m.table === 'parent');
+    ok(dmMap && dmMap.entityOnlyColumns.includes('ghost') && dmMap.ddlOnlyColumns.includes('extra_col'), 'extract-data-model：mappings SampleEntity↔parent 命中 entity-only: ghost 与 ddl-only: extra_col');
+    const dmd = fs.readFileSync(path.join(dmFix, 'out', 'data-model-extract.md'), 'utf8');
+    ok(/实体↔DDL 一致性/.test(dmd) && /依赖关系/.test(dmd) && /重复定义表/.test(dmd) && /unresolved/.test(dmd), 'extract-data-model：.md 五节齐（表清单/一致性/重复/依赖/unresolved）');
+    ok(/graph LR/.test(dmd), 'extract-data-model：.md 含 mermaid 依赖图');
+    ok(/- \*\*parent\*\*[\s\S]*?依赖谁[\s\S]*?widget[\s\S]*?被谁依赖[\s\S]*?child/.test(dmd), 'extract-data-model：.md parent 双向索引（出边 widget + 入边 child）');
+    ok(dmj.unresolved.some((u) => /foo_id/.test(u.reason)), 'extract-data-model：无候选目标的 foo_id 进 unresolved 注记（禁静默丢）');
+    // validate-changelog 串接传播（数据模型门入收尾链）
+    fs.writeFileSync(clD, dmCl('`backend/database/schema.sql`', '- 数据模型：`docs/data-model/good.json`；同步：迁移脚本 X；DDL：其余 1 处已同步；真源：已刷新'));
+    const cDm = spawnSync('bash', [path.join(repo2, 'scripts/harness/validate-changelog.sh')], { cwd: repo2, encoding: 'utf8' });
+    ok(cDm.status === 0 && cDm.stdout.includes('数据模型门'), 'validate-changelog 串接：data-model-gate 收尾链通过');
+  }
+
 
   // ---- DEPLOY_GATE：preflight 真跑（--state-file 本地基线，不依赖 ssh）----
   const dpScript = new URL('../assets/harness/deploy-preflight.mjs', import.meta.url).pathname;

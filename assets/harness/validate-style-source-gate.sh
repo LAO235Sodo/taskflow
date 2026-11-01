@@ -63,7 +63,7 @@ CHANGELOG="docs/CHANGELOG.md"
 
 ANCHOR_LINE="$(grep -n "^## .*$GATE_ANCHOR" "$CHANGELOG" | tail -1 | cut -d: -f1 || true)"
 if [ -z "$ANCHOR_LINE" ]; then
-  warn "CHANGELOG 无「$GATE_ANCHOR」锚点（门未启用，历史祖父豁免）→ 降级通过"
+  warn "CHANGELOG 无「${GATE_ANCHOR}」锚点（门未启用，历史祖父豁免）→ 降级通过"
   exit 0
 fi
 
