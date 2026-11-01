@@ -6,7 +6,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 # --repo <path>（v2.77.2）：验证目标检出——worktree 任务传任务 worktree 路径，缺省=脚本所在主仓库。
-# 实证：恒读 $ROOT/docs/CHANGELOG.md 使 worktree 任务条目不可见（2026-10-24 dept-unread-window 临时副本法绕过）。
+# 实证：恒读 $ROOT/docs/CHANGELOG.md 使 worktree 任务条目不可见（2026-10-24 某任务临时副本法绕过实证）。
 REPO="$ROOT"
 fail() { echo "⛔ [changelog] $*" >&2; exit 1; }
 warn() { echo "⚠ [changelog] $*" >&2; }
@@ -33,7 +33,7 @@ grep -q 'commits' "$CHANGELOG" || MISSING="$MISSING commits"
 # ①锚点祖父豁免：与同链组合门同口径，锚点「决策组合门落地」之下历史条目不检（全文件扫描会误红历史=逼人回改祖父区）；
 # ②标题行入块：触发词写在 ## 标题（conventional 风格 ## Bug Fixes）不再免检；③词表十三式小写匹配（修复的bug/修复 bug/
 # 修复了/缺陷修复/修复缺陷/修 bug/bug 修复/bugfix/bug-fix/fix(es)?|fixed 与 bug|缺陷|问题|issue 同句窗口搭配（16 字内，
-# 裸 fix/Fix 高频词不单列防误报，「masse2e 缺陷修复并集」活体零触发实证））。
+# 裸 fix/Fix 高频词不单列防误报，「某缺陷修复并集」活体条目零触发实证））。
 # 块语义（2026-10-13 审查收口）：触发词匹配扫整块含标题行（标题触发检查），「同类排查：」等行级满足检查只扫正文
 # （body 变量，标题行不入）——标题里写样板字不算满足，对齐 validate-decision-combo-gate.sh tail -n +2 先例口径。
 # 已知边界（复验残留，记边界不修）：代码围栏内行首 ## 会切块产生幽灵块（误报方向，与组合门同款暴露）；

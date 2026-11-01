@@ -24,7 +24,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 # --repo <path>（v2.77.2）：验证目标检出——worktree 任务传任务 worktree 路径，缺省=脚本所在主仓库。
-# 实证：--spec 模式曾恒 cd 回主仓库，worktree 任务的 git diff 恒空 → B3 草案升格必红（2026-10-24 dept-unread-window）。
+# 实证：--spec 模式曾恒 cd 回主仓库，worktree 任务的 git diff 恒空 → B3 草案升格必红（2026-10-24 某任务实证）。
 # 分工：CONV 簿记（.taskflow/ 恒主仓库）走 ROOT；CHANGELOG/PRD/git diff 走 REPO。
 REPO="$ROOT"
 cd "$REPO"

@@ -1,5 +1,5 @@
 {
-  "_comment": "taskflow 领域技能注册表（数据文件，随时可补）。install 字段=安装命令；本机 npx skills add 安装不留 remote，缺地址时统一走 find-skills 技能（npx skills find <名>）查证后再下载填入（2026-10-21 用户拍板），仍查不到的标「待补」——用户提供仓库地址后填入即永久生效。检测命令：node …/scripts/tf.mjs skills [领域词]。**流程编排器（superdx 等）不纳入本注册表**（2026-09-22 用户拍板：只参考不集成，双编排器抢路由）；其他工具的 worktree 噪音走 adopt-ignore 前缀模式。",
+  "_comment": "taskflow 领域技能注册表（数据文件，随时可补）。install 字段=安装命令；本机 npx skills add 安装不留 remote，缺地址时统一走 find-skills 技能（npx skills find <名>）查证后再下载填入（2026-10-21 用户拍板），仍查不到的标「待补」——用户提供仓库地址后填入即永久生效。检测命令：node …/scripts/tf.mjs skills [领域词]。**流程编排器类工具不纳入本注册表**（2026-09-22 用户拍板：只参考不集成，双编排器抢路由）；其他工具的 worktree 噪音走 adopt-ignore 前缀模式。",
   "skills": [
     {
       "id": "ui-ux-pro-max",

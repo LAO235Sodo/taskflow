@@ -1555,7 +1555,7 @@ try {
     ab = spawnSync('bash', [abGate], { cwd: repo2, encoding: 'utf8' });
     ok(ab.status === 0, 'baseline-gate 真跑：web 腿基线（design-spec-extract/1 schema）过门（审查 P2）');
     ok(cAb.status === 0 && cAb.stdout.includes('现状基线门'), 'validate-changelog 串接：baseline-gate 收尾链通过');
-    // mechCmd 锚点插入 hotfix 回归（pl5android2 实证）：无 `# CHANGELOG` 头、`##` 条目开头的 CHANGELOG——锚点顶置，不得插进首条目内部
+    // mechCmd 锚点插入 hotfix 回归（某项目实证）：无 `# CHANGELOG` 头、`##` 条目开头的 CHANGELOG——锚点顶置，不得插进首条目内部
     fs.writeFileSync(clD, '## 2026-01-06 — 既有条目\n\n- 做了什么：x\n- commits：abc1234\n');
     const pjP2 = path.join(td2, 'project.json');
     const pj2b = JSON.parse(fs.readFileSync(pjP2, 'utf8'));
@@ -2563,14 +2563,14 @@ try {
   const psInst = run(['mech', 'install', 'PLAIN_SPEECH_GATE'], gproj2);
   ok(psInst.status === 0 && psInst.stdout.includes('无项目侧产物定义'), 'mech 渲染过滤（D1）：技能内门自身 install 早退（纯编排层提示，零渲染）');
   // ② changelog 门（标题行算数收口 + 触发词十三式）：「同类排查：」样板字写标题不再算满足（body 与触发词匹配面分离，
-  //    对齐 decision-combo 门 tail -n +2 先例）；「缺陷修复」语序（L110 masse2e 活体零检出形态）入检
+  //    对齐 decision-combo 门 tail -n +2 先例）；「缺陷修复」语序（某项目活体零检出形态）入检
   fs.writeFileSync(cl2, `# CHANGELOG\n\n## 2026-01-01 — 修 bug：同类排查：唯一实例（样板字只在标题）\n\n- 涉及文件：\`src/a.ts\`\n- 做了什么：修复了崩溃演示\n- commits：aaa1111\n\n## 2026-09-16 — 决策组合门落地\n\n- 锚点\n`);
   const cTitleSamp = spawnSync('bash', [path.join(repo2, 'scripts/harness/validate-changelog.sh')], { cwd: repo2, encoding: 'utf8' });
   ok(cTitleSamp.status === 1 && /样板字只在标题/.test(cTitleSamp.stdout + cTitleSamp.stderr), 'CLASS_SWEEP_GATE 标题算数收口：触发词条目标题带「同类排查：」样板字、正文缺行 → 红点名（旧版匹配面含标题=假绿绕过）');
-  fs.writeFileSync(cl2, `# CHANGELOG\n\n## 2026-01-01 — masse2e 缺陷修复并集\n\n- 涉及文件：\`src/a.ts\`\n- 做了什么：四处并集修完\n- commits：aaa1111\n\n## 2026-09-16 — 决策组合门落地\n\n- 锚点\n`);
+  fs.writeFileSync(cl2, `# CHANGELOG\n\n## 2026-01-01 — fixture-merge 缺陷修复并集\n\n- 涉及文件：\`src/a.ts\`\n- 做了什么：四处并集修完\n- commits：aaa1111\n\n## 2026-09-16 — 决策组合门落地\n\n- 锚点\n`);
   const cNewWord = spawnSync('bash', [path.join(repo2, 'scripts/harness/validate-changelog.sh')], { cwd: repo2, encoding: 'utf8' });
-  ok(cNewWord.status === 1 && /缺陷修复并集/.test(cNewWord.stdout + cNewWord.stderr), 'CLASS_SWEEP_GATE 触发词十三式：「缺陷修复」语序（L110 masse2e 活体形态，旧词表零检出）→ 红点名');
-  fs.writeFileSync(cl2, `# CHANGELOG\n\n## 2026-01-01 — masse2e 缺陷修复并集\n\n- 涉及文件：\`src/a.ts\`\n- 做了什么：四处并集修完\n- commits：aaa1111\n- 同类排查：唯一实例（并集语义一处修四处受益）\n- 出现次数：1\n\n## 2026-09-16 — 决策组合门落地\n\n- 锚点\n`);
+  ok(cNewWord.status === 1 && /缺陷修复并集/.test(cNewWord.stdout + cNewWord.stderr), 'CLASS_SWEEP_GATE 触发词十三式：「缺陷修复」语序（某项目活体形态，旧词表零检出）→ 红点名');
+  fs.writeFileSync(cl2, `# CHANGELOG\n\n## 2026-01-01 — fixture-merge 缺陷修复并集\n\n- 涉及文件：\`src/a.ts\`\n- 做了什么：四处并集修完\n- commits：aaa1111\n- 同类排查：唯一实例（并集语义一处修四处受益）\n- 出现次数：1\n\n## 2026-09-16 — 决策组合门落地\n\n- 锚点\n`);
   const cNewWordOk = spawnSync('bash', [path.join(repo2, 'scripts/harness/validate-changelog.sh')], { cwd: repo2, encoding: 'utf8' });
   ok(cNewWordOk.status === 0, 'CLASS_SWEEP_GATE 十三式不误伤：新触发词条目正文补齐双行 → 绿（成行才算满足）');
   // ③ plain-speech 门：80 字窗改真扫描（解释括号不再要求紧邻代号首字符）+ 编号列表（1. 形态）入列表项约束
@@ -2969,7 +2969,7 @@ try {
     // skills --usage 报表
     const usgFile = path.join(tmp, 'usage-fix.jsonl');
     fs.writeFileSync(usgFile, [
-      JSON.stringify({ ts: new Date().toISOString(), skill: 'taskflow', project: 'dx-snap-share' }),
+      JSON.stringify({ ts: new Date().toISOString(), skill: 'taskflow', project: 'release-refresh-fixture' }),
       JSON.stringify({ ts: new Date().toISOString(), skill: 'taskflow', project: 'ev-repo' }),
       JSON.stringify({ ts: '2026-09-01T00:00:00Z', skill: 'code-review', project: 'old' }),
     ].join('\n'));

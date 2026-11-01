@@ -31,7 +31,7 @@ export function j20Scan(text) { // 数据管道特征探测：词特征任一命
 }
 
 // 同扩展名族映射（v2.77.1 F2b①）：非 .vue 目标的 basename 检索限定同语言扩展名族
-// （share.ts 检索串「share」曾以整词命中 Java 注释/文案：dx-snap-share 实测报 80 个代码文件、真实 import 消费方 2 个，膨胀 40×）。
+// （share.ts 检索串「share」曾以整词命中 Java 注释/文案：某项目实测报 80 个代码文件、真实 import 消费方 2 个，膨胀 40×）。
 // 族外扩展名（映射表未覆盖）不设限，由 F2b② 跨语言歧义标注兜底；.vue=null（检索串带扩展名，限定 .vue 族会漏 .ts 消费方）
 export const EXT_FAMILY = {
   '.ts': ['.ts', '.tsx', '.mts', '.cts'], '.tsx': ['.ts', '.tsx', '.mts', '.cts'], '.mts': ['.ts', '.tsx', '.mts', '.cts'], '.cts': ['.ts', '.tsx', '.mts', '.cts'],

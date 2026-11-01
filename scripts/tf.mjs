@@ -960,7 +960,7 @@ function doctor(args = []) {
         else console.log(`ℹ 会话租约（I9） lease 已过期（${Number.isFinite(ageMin) ? ageMin : '?'} 分钟）→ 可接管，接管时刷新 activeLease`);
       }
     }
-    // I10 worktree 属主三态（提示级）：.owner.json + pid 活性×started_at 双判据（superdx 借鉴；NEVER 删 foreign 是编排层纪律）
+    // I10 worktree 属主三态（提示级）：.owner.json + pid 活性×started_at 双判据（前代工具借鉴；NEVER 删 foreign 是编排层纪律）
     if ((t.status === 'active' || t.status === 'verifying') && t.worktree && fs.existsSync(t.worktree)) {
       const ownerP = path.join(t.worktree, '.owner.json');
       if (!fs.existsSync(ownerP)) console.log('ℹ 属主凭证（I10） worktree 无主（缺 .owner.json）→ 属主会话原子补写 {sessionID,pid,started_at}（conventions 三态：owned 可清/foreign 永不删/unowned 问用户）');
@@ -2380,7 +2380,7 @@ function impactCmd(args = []) {
       }
       // v2.77.1（R2 有效性攻击 F2a）：孪生两路并集——①命中清单路（旧路：孪生文件自身内容命中才算）②独立来源路：
       // git ls-files 按主名直查仓内同名文件（排除自身）。同名 SFC 从不 import 自己的同名兄弟 → 孪生自身永不入命中
-      // 清单，旧路系统性漏报（dx-snap-share SummaryCard.vue 实测：3 消费方中 2 个实为 dashboard 孪生的，歧义标注未出现）。
+      // 清单，旧路系统性漏报（某项目实测：3 消费方中 2 个实为同名孪生组件的，歧义标注未出现）。
       const hitTwins = [...codeByFile.keys(), ...docByFile.keys()].filter((h) => impactKey(h) === key && (path.extname(h) !== ext || path.basename(h) === path.basename(f)));
       const indepTwins = repoFiles().filter((h) => h !== rel && path.basename(h, path.extname(h)) === path.basename(f, path.extname(f)));
       const twins = [...new Set([...hitTwins, ...indepTwins])];
@@ -2432,7 +2432,7 @@ function commitCmd(args = []) {
   }
   if (!msg) { console.error('用法：node tf.mjs commit -m "说明" [--files f1,f2 | --all] [--session <本会话ID>] [--deployed [部署注记]]\n不指定范围 = 拒绝提交（防 add -A 卷入他会在途工作）；--session = 乐观锁（属主不符拒写）；--deployed = 部署扳机（active→verifying + deploy 记录 + index 同步）'); return 1; }
   const cwd = process.cwd();
-  // 乐观锁（--session 可选，向后兼容）：task.json.sessionID = 属主凭证，防接管后旧会话再写（superdx 乐观锁的 taskflow 落法）
+  // 乐观锁（--session 可选，向后兼容）：task.json.sessionID = 属主凭证，防接管后旧会话再写（前代工具乐观锁的 taskflow 落法）
   if (session) {
     const { tasksDir } = locate();
     const br = git(['symbolic-ref', '--short', 'HEAD'], cwd, true); // 未出生分支（仓库首个提交前）也能解析，rev-parse 会失败致锁静默解除
@@ -2934,10 +2934,10 @@ function canaryCmd() {
      [--canary]⑩送达金丝雀。审计矩阵（release-audit 六步）属人肉审计，链内只提示不代跑。
    幂等：每步先自检是否已达成（双点已改/HEAD 已是该 feat 提交/origin/main==HEAD/实体仓 HEAD 相同→跳过），断点续跑安全。
    --dry-run：前置+打印计划与关键参数，零执行——测试主通道（TF_RELEASE_PROJECT 可指夹具项目验机制清单读取）。 */
-const RELEASE_WIN_USER = '/mnt/c/Users/260607';
+const RELEASE_WIN_USER = process.env.TF_RELEASE_WIN_USER || '/mnt/c/Users/<win-user>'; // v2.91.2 脱敏：Windows 用户名移出代码——六路径同步目标由 TF_RELEASE_WIN_USER 显式提供
 const RELEASE_WSL_REPO = () => path.join(os.homedir(), '.agents', 'skills', 'taskflow');
 const RELEASE_WIN_REPOS = [`${RELEASE_WIN_USER}/.omp/agent/skills/taskflow`, `${RELEASE_WIN_USER}/.claude/skills/taskflow`];
-const RELEASE_PROJECT = () => process.env.TF_RELEASE_PROJECT || '/home/ljh/projects/dx-snap-share';
+const RELEASE_PROJECT = () => process.env.TF_RELEASE_PROJECT || ''; // v2.91.2 脱敏：默认项目路径移出代码（含用户名/项目名）——机制刷新目标由 TF_RELEASE_PROJECT 显式提供；未配置=步骤⑧红并给指引（幂等重跑）
 const wslToWin = (p) => p.replace(/^\/mnt\/([a-z])\//i, (_, d) => `${d.toUpperCase()}:\\`).replace(/\//g, '\\');
 const releaseTokensOf = () => { const pj = readJson(path.join(RELEASE_PROJECT(), '.taskflow', 'project.json')); return pj && pj.mechanisms && Object.keys(pj.mechanisms).length ? Object.keys(pj.mechanisms) : null; };
 function syncWslEntity(repo, srcRoot, headShort) {
@@ -3030,7 +3030,7 @@ function releaseCmd(args = []) {
     console.log('  ⑤ push：git push origin main（败重试一次；成功后 ls-remote 远端哈希确认）');
     console.log(`  ⑥ 六路径同步：${RELEASE_WSL_REPO()}（fetch 源仓+ff-only）｜${RELEASE_WIN_REPOS.join('、')}（bundle 配方：bundle create→powershell reset --hard FETCH_HEAD，脏副本跳过不重置）`);
     console.log(`  ⑦ HEAD 对账：六路径 rev-parse --short 唯一 + SKILL.md 版本=${ver}`);
-    console.log(`  ⑧ 机制刷新：${RELEASE_PROJECT()} mechanisms ${toks ? `${toks.length} 个（${toks.join('、')}）逐个 mech install --yes` : '清单缺失/空——真跑将红'} → doctor 采纳漂移=0`);
+    console.log(`  ⑧ 机制刷新：${RELEASE_PROJECT() || '（TF_RELEASE_PROJECT 未配置——默认路径已脱敏移除，export 后重跑）'} mechanisms ${toks ? `${toks.length} 个（${toks.join('、')}）逐个 mech install --yes` : '清单缺失/空——真跑将红'} → doctor 采纳漂移=0`);
     console.log('  ⑨ 提示：审计矩阵（managed-skills/taskflow-release-audit 六步，人肉不代跑）+ 重启 omp 生效');
     console.log(`  ⑩ canary：${withCanary ? '启用（真实 omp 约 65s）' : '未启用（--canary 开）'}`);
     console.log('\n（--dry-run 零执行；去掉即真跑，断点重跑幂等跳过已达成步骤）');
@@ -3119,6 +3119,7 @@ function releaseCmd(args = []) {
   });
   step('⑧ 机制刷新（mech install --yes ×project.json.mechanisms 清单 + doctor 漂移=0）', () => {
     const toks = releaseTokensOf();
+    if (!RELEASE_PROJECT()) return 'TF_RELEASE_PROJECT 未配置——机制刷新目标项目路径已脱敏移出代码，export TF_RELEASE_PROJECT=<项目根> 后重跑本步（幂等）';
     if (!toks) return `${RELEASE_PROJECT()} project.json.mechanisms 清单缺失/空——机制清单按登记读（非硬编码），缺失即红`;
     console.log(`  机制 ${toks.length} 个：${toks.join('、')}`);
     const failTk = [];
@@ -3482,7 +3483,7 @@ function mechCmd(args = []) {
     } else if (!new RegExp(`^## .*${prose.anchor}.*$`, 'm').test(fs.readFileSync(cl, 'utf8'))) {
       const prev = fs.readFileSync(cl, 'utf8');
       const entry = `\n## ${day} — ${prose.anchor}\n\n${prose.insertBody}`;
-      // 插入位置三 fallback：`# CHANGELOG` 头 → 真 h1 头（# 后非 #——`##` 条目头不算，pl5android2 实证锚点曾被插进首条目内部）→ 顶置（无 h1 的 CHANGELOG 也能落锚点）
+      // 插入位置三 fallback：`# CHANGELOG` 头 → 真 h1 头（# 后非 #——`##` 条目头不算，某项目实证锚点曾被插进首条目内部）→ 顶置（无 h1 的 CHANGELOG 也能落锚点）
       let next = prev.replace(/^# CHANGELOG\n/, `# CHANGELOG\n${entry}`);
       if (next === prev) {
         const h1 = prev.match(/^#(?!#)[^\n]*\n/);
@@ -3789,7 +3790,7 @@ function lintCmd(args = []) {
     });
   }
   // 8) 模板中性：templates/ 禁焊死项目专属工具标识符（snake_case）——模板依赖抽象，项目依赖具体；
-  //    项目专属工具住 conventions.md 经 init 注入。反面实证：spec.md 曾焊死 pl5android2 专属 graph 工具引用
+  //    项目专属工具住 conventions.md 经 init 注入。反面实证：spec.md 曾焊死某项目专属 graph 工具引用
   const tmplDir = path.join(root, '..', 'templates');
   if (fs.existsSync(tmplDir)) {
     for (const f of fs.readdirSync(tmplDir).filter((x) => x.endsWith('.md'))) {

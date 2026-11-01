@@ -61,7 +61,7 @@ git worktree list     # 全部 worktree
 - **来源是计划文档时**：计划内容直接转为 spec.md（目标/验收/实施计划现成），handoff 的"下一步"从计划提取；spec 头部注明 `来源：~/.opencode/plan/<原文件名>`，**原计划文档原地保留**（attached 哲学：不迁移不删除）
 - 关键 commit 回填 checkpoints[]（sha + 摘要 + files），追溯链不断
 - task.json：`anchor: "attached"`，branch 记既有分支名，worktree 记既有路径；**可辨来源时落 `"derivedFrom": "<来源任务id>"`**（该分支/worktree 从某任务派生——评审阶段的血缘证据：分支基点 `git merge-base`、计划文档指向、commit message 引用；可辨但存疑 → 标"（推断）"呈用户确认后落档）
-- index.json 登记；"忽略"的写入 .taskflow/adopt-ignore.json（旧位 .opencode/tasks/adopt-ignore.json；ref **或前缀模式**（如 `superdx--*`）+ 原因 + 时间），此后 adopt 与 resume 游离扫描都跳过
+- index.json 登记；"忽略"的写入 .taskflow/adopt-ignore.json（旧位 .opencode/tasks/adopt-ignore.json；ref **或前缀模式**（如 `ext-tool--*`）+ 原因 + 时间），此后 adopt 与 resume 游离扫描都跳过
 - 完成后汇报：收编了哪些、忽略了哪些、各自档案位置
 
 **硬规则**：评审阶段全程只读；未经用户逐个确认不落笔；推断不确定必须标"（推断）"。
