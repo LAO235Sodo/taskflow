@@ -1,0 +1,352 @@
+{
+  "_comment": "taskflow 领域技能注册表（数据文件，随时可补）。install 字段=安装命令；本机 npx skills add 安装不留 remote，缺地址时统一走 find-skills 技能（npx skills find <名>）查证后再下载填入（2026-10-21 用户拍板），仍查不到的标「待补」——用户提供仓库地址后填入即永久生效。检测命令：node …/scripts/tf.mjs skills [领域词]。**流程编排器类工具不纳入本注册表**（2026-09-22 用户拍板：只参考不集成，双编排器抢路由）；其他工具的 worktree 噪音走 adopt-ignore 前缀模式。",
+  "skills": [
+    {
+      "id": "ui-ux-pro-max",
+      "domains": [
+        "前端UI"
+      ],
+      "desc": "UI/UX 设计情报：样式/配色/字体/UX 准则/图标/图表",
+      "install": "https://github.com/nextlevelbuilder/ui-ux-pro-max-skill（真身在 .claude/skills/ui-ux-pro-max——clone 到扫描目录外后软链该子目录到 ~/.config/opencode/skills/ui-ux-pro-max）"
+    },
+    {
+      "id": "ui-flow-tester",
+      "domains": [
+        "测试",
+        "E2E"
+      ],
+      "desc": "对话流/表单类 Web 应用 E2E：像真人一样点选项",
+      "install": null
+    },
+    {
+      "id": "tdd",
+      "domains": [
+        "测试"
+      ],
+      "desc": "测试驱动开发（RED-GREEN-REFACTOR）",
+      "install": "git clone --depth 1 https://github.com/mattpocock/skills && cp -r skills/engineering/tdd <技能目录>/tdd（2026-10-11 用户提供源装毕：~/.config/opencode/skills/tdd）"
+    },
+    {
+      "id": "code-review",
+      "domains": [
+        "审查"
+      ],
+      "desc": "Standards+Spec 双轴结构化代码审查",
+      "install": "npx skills add mattpocock/skills --skill code-review --yes"
+    },
+    {
+      "id": "review-changes",
+      "domains": [
+        "审查"
+      ],
+      "desc": "变更检测+影响分析的结构化审查",
+      "install": "pip install code-review-graph && code-review-graph install（本技能由该 MCP 服务器的 install 子命令自动生成，随 PyPI 公开包分发）"
+    },
+    {
+      "id": "diagnosing-bugs",
+      "domains": [
+        "诊断"
+      ],
+      "desc": "疑难 bug/性能回归的诊断循环",
+      "install": "npx skills add mattpocock/skills --skill diagnosing-bugs --yes"
+    },
+    {
+      "id": "debug-issue",
+      "domains": [
+        "诊断"
+      ],
+      "desc": "graph 驱动的系统化调试导航",
+      "install": "pip install code-review-graph && code-review-graph install（本技能由该 MCP 服务器的 install 子命令自动生成，随 PyPI 公开包分发）"
+    },
+    {
+      "id": "explore-codebase",
+      "domains": [
+        "导航"
+      ],
+      "desc": "知识图谱代码库结构导航",
+      "install": "pip install code-review-graph && code-review-graph install（本技能由该 MCP 服务器的 install 子命令自动生成，随 PyPI 公开包分发）"
+    },
+    {
+      "id": "frontend-design",
+      "domains": [
+        "前端UI"
+      ],
+      "desc": "Anthropic 官方：前端设计方向（美学/品牌/目标驱动）",
+      "install": "npx skills add anthropics/skills --skill frontend-design --yes"
+    },
+    {
+      "id": "web-design-guidelines",
+      "domains": [
+        "前端UI",
+        "审查"
+      ],
+      "desc": "Vercel Web 界面准则合规审查（可及性/UX/设计）",
+      "install": "npx skills add vercel-labs/agent-skills --skill web-design-guidelines --yes"
+    },
+    {
+      "id": "webapp-testing",
+      "domains": [
+        "测试",
+        "E2E"
+      ],
+      "desc": "Playwright 本地 Web 应用测试工具箱（含 with_server.py；需 python playwright）",
+      "install": "npx skills add anthropics/skills --skill webapp-testing --yes"
+    },
+    {
+      "id": "api-design-principles",
+      "domains": [
+        "API"
+      ],
+      "desc": "REST/GraphQL API 设计原则（直觉性/可扩展/可维护）",
+      "install": "npx skills add wshobson/agents --skill api-design-principles --yes"
+    },
+    {
+      "id": "nodejs-backend-patterns",
+      "domains": [
+        "Node"
+      ],
+      "desc": "Node 后端模式最佳实践",
+      "install": "npx skills add wshobson/agents --skill nodejs-backend-patterns --yes"
+    },
+    {
+      "id": "python-testing-patterns",
+      "domains": [
+        "测试"
+      ],
+      "desc": "Python 测试模式（单测/集成/fixture）",
+      "install": "npx skills add wshobson/agents --skill python-testing-patterns --yes"
+    },
+    {
+      "id": "java-springboot",
+      "domains": [
+        "Java"
+      ],
+      "desc": "Spring Boot 生产级最佳实践（结构/DI/配置/Web 层/事务）",
+      "install": "npx skills add github/awesome-copilot --skill java-springboot --yes"
+    },
+    {
+      "id": "kotlin-springboot",
+      "domains": [
+        "Kotlin"
+      ],
+      "desc": "Kotlin + Spring Boot 惯用法最佳实践",
+      "install": "npx skills add github/awesome-copilot --skill kotlin-springboot --yes"
+    },
+    {
+      "id": "api-and-interface-design",
+      "domains": [
+        "API",
+        "边界"
+      ],
+      "desc": "稳定接口/边界设计（Hyrum 定律、契约思维；显式覆盖前后端边界划分）——高级开发的分工心智",
+      "install": "npx skills add addyosmani/agent-skills --skill api-and-interface-design --yes"
+    },
+    {
+      "id": "interview-me",
+      "domains": [
+        "需求澄清"
+      ],
+      "desc": "一次一问逼近 ~95% 置信——捕捉到自己在默默脑补含糊需求时使用（治「理解错了不确认」）",
+      "install": "npx skills add addyosmani/agent-skills --skill interview-me --yes"
+    },
+    {
+      "id": "doubt-driven-development",
+      "domains": [
+        "决策审查"
+      ],
+      "desc": "非平凡决策的全新上下文对抗审查（偏向证伪）——spec 定稿/高风险改动前自检",
+      "install": "npx skills add addyosmani/agent-skills --skill doubt-driven-development --yes"
+    },
+    {
+      "id": "confirming-requirements",
+      "domains": [
+        "需求澄清"
+      ],
+      "desc": "回忆/核对既有系统的业务需求、PRD 与用户故事——「实现是否符合原始需求」类问题的正主（v2.14.0 阶段轴）",
+      "install": null
+    },
+    {
+      "id": "domain-modeling",
+      "domains": [
+        "领域建模"
+      ],
+      "desc": "领域模型/术语表（CONTEXT.md）/ADR 沉淀——硬规则 10「多义对口径」的技能载体",
+      "install": "npx skills add mattpocock/skills --skill domain-modeling --yes（上游新版术语表文件已从 CONTEXT.md 改名 GLOSSARY.md，本机版仍用 CONTEXT.md）"
+    },
+    {
+      "id": "to-spec",
+      "domains": [
+        "spec"
+      ],
+      "desc": "把已讨论定的方案合成为 spec 并发布到任务追踪",
+      "install": "npx skills add mattpocock/skills --skill to-spec --yes"
+    },
+    {
+      "id": "to-tickets",
+      "domains": [
+        "拆分"
+      ],
+      "desc": "方案/spec 拆成 tracer-bullet 票（每票声明阻塞边）",
+      "install": "npx skills add mattpocock/skills --skill to-tickets --yes"
+    },
+    {
+      "id": "implement",
+      "domains": [
+        "实现"
+      ],
+      "desc": "按 spec 或票集实现一块工作",
+      "install": "npx skills add mattpocock/skills --skill implement --yes"
+    },
+    {
+      "id": "implement-spec",
+      "domains": [
+        "实现"
+      ],
+      "desc": "按 spec 在代码中实现",
+      "install": "npx skills add mattpocock/skills --skill implement-spec --yes（上游描述已演进为「实现 /to-spec 与 /to-tickets 的结果」，语义同源）"
+    },
+    {
+      "id": "handoff",
+      "domains": [
+        "交接"
+      ],
+      "desc": "把当前对话压缩成交接文档交给下一个 agent——checkpoint 交接的会话压缩帮手",
+      "install": "npx skills add mattpocock/skills --skill handoff --yes"
+    },
+    {
+      "id": "resolving-merge-conflicts",
+      "domains": [
+        "合并"
+      ],
+      "desc": "进行中的 merge/rebase 冲突解决流程",
+      "install": "npx skills add mattpocock/skills --skill resolving-merge-conflicts --yes（上游 2026-09-24 已删除该技能，本机为删前版本；重装需 git clone 后 checkout 321658273c 取 skills/engineering/resolving-merge-conflicts）"
+    },
+    {
+      "id": "refactor-safely",
+      "domains": [
+        "重构"
+      ],
+      "desc": "依赖分析驱动的安全重构规划与执行",
+      "install": "pip install code-review-graph && code-review-graph install（本技能由该 MCP 服务器的 install 子命令自动生成，随 PyPI 公开包分发）"
+    },
+    {
+      "id": "codebase-design",
+      "domains": [
+        "重构",
+        "架构"
+      ],
+      "desc": "深模块设计词汇（接口/接缝/可测试性）——深度重构与模块设计时加载",
+      "install": "npx skills add mattpocock/skills --skill codebase-design --yes"
+    },
+    {
+      "id": "wayfinder",
+      "domains": [
+        "large拆解",
+        "决策",
+        "规划",
+        "拆分"
+      ],
+      "desc": "超单会话容量的大块工作=共享决策票图，跨会话逐票推进",
+      "install": "npx skills add mattpocock/skills --skill wayfinder --yes"
+    },
+    {
+      "id": "research",
+      "domains": [
+        "调研"
+      ],
+      "desc": "对高信度一手来源调研问题，结论落成仓库内 Markdown",
+      "install": "npx skills add mattpocock/skills --skill research --yes"
+    },
+    {
+      "id": "prototype",
+      "domains": [
+        "设计验证"
+      ],
+      "desc": "用一次性原型回答设计问题（状态模型/交互手感）",
+      "install": "npx skills add mattpocock/skills --skill prototype --yes"
+    },
+    {
+      "id": "install-skill",
+      "domains": [
+        "扩展"
+      ],
+      "desc": "技能安装四步 fitness check（格式/依赖/覆盖/冲突）+装后验证 OpenCode 真看得到——domain.md「扩展」节的正规装法",
+      "install": "本机自研，无公开安装源"
+    },
+    {
+      "id": "legacy-takeover",
+      "domains": [
+        "接管",
+        "交接",
+        "外包"
+      ],
+      "desc": "外包旧项目接回：四道门审计（可重建/一致性/安全/可维护）+门⑤二开就绪（版本基线/影响面图谱/特征测试）+索取清单+凭证轮换，带三个零依赖检测脚本与一个共享 ZIP 解析模块",
+      "install": "本机自维护：~/.omp/agent/skills/legacy-takeover（无远程仓，换机整目录拷贝）"
+    },
+    {
+      "id": "impact-analysis",
+      "domains": [
+        "影响面",
+        "重构",
+        "审查"
+      ],
+      "desc": "改动影响面/牵连排查：14 种引用形态清单+五步检索序列+影响面表（已核 N/未核 0），禁未排查宣称无影响——J19 牵连排查的载体技能",
+      "install": "本机自维护：~/.omp/agent/skills/impact-analysis（无远程仓，换机整目录拷贝）"
+    },
+    {
+      "id": "data-boundary",
+      "domains": [
+        "数据边界",
+        "统计"
+      ],
+      "desc": "数据管道/统计/对比/推送/导出的真空形态枚举：量/时间/值/一致性/展示五维度检查+三禁（算了不传/传空容器/没数据硬凑）+形态×行为对照表——J20 数据边界的载体技能",
+      "install": "本机自维护：~/.omp/agent/skills/data-boundary（无远程仓，换机整目录拷贝）"
+    },
+    {
+      "id": "conflict-triage",
+      "domains": [
+        "冲突",
+        "合并",
+        "分级"
+      ],
+      "desc": "合并冲突分级：5 种机械冲突白名单当场解+6 种语义冲突清单逐处呈报（禁当场选边）+灰区默认升语义+三行呈报模板——J07 合并冲突分级的载体技能；与 resolving-merge-conflicts 分工：彼管怎么解，此管怎么分级",
+      "install": "本机自维护：~/.omp/agent/skills/conflict-triage（无远程仓，换机整目录拷贝）"
+    },
+    {
+      "id": "improve-codebase-architecture",
+      "domains": [
+        "架构",
+        "重构"
+      ],
+      "desc": "扫描代码库深化机会（浅模块→深模块）出 HTML 报告再 grill 逐项过——codebase-design 词汇层的主动扫描器",
+      "install": "npx skills add mattpocock/skills --skill improve-codebase-architecture --yes"
+    },
+    {
+      "id": "to-questionnaire",
+      "domains": [
+        "问卷",
+        "决策收集"
+      ],
+      "desc": "把答不了的决策做成问卷发给能答的人（只盘发送端，问题瞄准知识差）——req-confirm 面向用户本人之外的异步收集",
+      "install": "npx skills add mattpocock/skills --skill to-questionnaire --yes"
+    },
+    {
+      "id": "page-forensics",
+      "domains": [
+        "页面取证",
+        "接口面"
+      ],
+      "desc": "页面级问题排查的接口面全量取证：运行时网络清单/代码面 API 枚举两通道建「页面↔接口」映射表+双轮证据链（网络面+视觉面）+三面合围（基线/接口面/svc），禁凭话语猜单接口开查——J25 页面取证全量抓取的载体技能",
+      "install": "本机自维护：~/.omp/agent/skills/page-forensics（无远程仓，换机整目录拷贝）"
+    },
+    {
+      "id": "scope-assessment",
+      "domains": [
+        "范围评估",
+        "改动面"
+      ],
+      "desc": "需求实现前的改动面枚举与容量评估：页面→逐页接口面→文件清单三层递进（呈报含 N 页面/M 接口/K 文件）+容量三档判定+超限处置决策树（拆分 vs wayfinder，禁硬塞）——J26 实现前范围与容量评估的载体技能",
+      "install": "本机自维护：~/.omp/agent/skills/scope-assessment（无远程仓，换机整目录拷贝）"
+    }
+  ]
+}
