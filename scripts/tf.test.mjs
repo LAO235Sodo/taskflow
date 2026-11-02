@@ -12,6 +12,7 @@ import net from 'node:net';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { hygieneScanText, releaseExtractNotes } from './release-notes-lib.mjs'; // RELEASE ⑥ 支撑纯函数（v2.93.0）——纯模块可直接 import（tf.mjs 本体尾部 exit 不可 import）
 
 const script = new URL('./tf.mjs', import.meta.url).pathname;
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'tf-test-'));
@@ -3615,8 +3616,8 @@ try {
     fs.writeFileSync(path.join(rlsProj, '.taskflow', 'project.json'), JSON.stringify({ key: 'relproj', git: false, mechanisms: { TEST_MECH_X: { version: '1.0.0' }, 测试机制Y: { version: '1.0.0' } } }));
     const envP = { ...process.env, TF_RELEASE_PROJECT: rlsProj };
     const dr = spawnSync('node', [script, 'release', '2.90.0', '--dry-run', '--root', rls], { cwd: rls, encoding: 'utf8', env: envP });
-    const planKeys = ['① 版本双点', '② lint', '③ 回归', '④ commit', '⑤ push', '⑥ 六路径同步', '⑦ HEAD 对账', '⑧ 机制刷新', '⑨ 提示'];
-    ok(dr.status === 0 && planKeys.every((k) => dr.stdout.includes(k)), `2.90.0 release dry-run：九步计划名齐全+退出 0（缺：${planKeys.filter((k) => !dr.stdout.includes(k)).join('、') || '无'}，exit=${dr.status}）`);
+    const planKeys = ['① 版本双点', '② lint', '③ 回归', '④ commit', '⑤ push', '⑥ GitHub Release', '⑦ 六路径同步', '⑧ HEAD 对账', '⑨ 机制刷新', '⑩ 提示'];
+    ok(dr.status === 0 && planKeys.every((k) => dr.stdout.includes(k)), `2.90.0 release dry-run：十步计划名齐全+退出 0（缺：${planKeys.filter((k) => !dr.stdout.includes(k)).join('、') || '无'}，exit=${dr.status}）`);
     ok(dr.stdout.includes('TEST_MECH_X') && dr.stdout.includes('测试机制Y'), '2.90.0 release dry-run：机制清单读 project.json.mechanisms（夹具注入名，非硬编码）');
     ok(dr.stdout.includes('feat(v2.90.0): 发版链收口'), '2.90.0 release dry-run：commit 消息取 CHANGELOG 顶条目标题');
     ok((fs.readFileSync(path.join(rls, 'SKILL.md'), 'utf8').match(/^version: (.+)$/m) ?? [])[1] === '2.89.0', '2.90.0 release dry-run：零执行——SKILL.md 版本未被 bump');
@@ -3650,6 +3651,30 @@ try {
     sh('git add -A', hyRepo);
     r = hyRun([]);
     ok(r.status === 0 && /豁免 1/.test(r.stdout), 'PUBLIC_HYGIENE_GATE：行级 hygiene-ok 非空理由 → 放行并计数');
+  }
+
+  // ---- RELEASE_CHAIN ⑥ GitHub Release 支撑函数（v2.93.0）：notes 提取+文本卫生扫描（纯函数夹具，不触网络/gh） ----
+  {
+    const nr = path.join(tmp, 'relnotes-repo');
+    fs.mkdirSync(nr, { recursive: true });
+    fs.writeFileSync(path.join(nr, 'CHANGELOG.md'), [
+      '## 2.93.0 — 2026-11-02 — Release 接入',
+      '',
+      '- 做了什么：发版链新增 GitHub Release 步骤。',
+      '- 组合评估：语义中性——纯新增步骤。',
+      '',
+      '## 2.92.0 — 2026-11-01 — 旧版本',
+      '',
+      '- 旧条目正文。',
+      '',
+    ].join('\n'));
+    const n1 = releaseExtractNotes(nr, '2.93.0');
+    ok(n1 && n1.title === 'Release 接入' && /GitHub Release 步骤/.test(n1.body) && !/旧条目/.test(n1.body), 'RELEASE ⑥ 支撑：CHANGELOG 条目提取 title/body 且不串条目');
+    ok(releaseExtractNotes(nr, '9.9.9') === null, 'RELEASE ⑥ 支撑：缺版本条目 → null（步骤红提示手写）');
+    const hyB = hygieneScanText(`正常行\nconst p = '${['dx', 'snap', 'share'].join('-')}';\n尾行`);
+    ok(hyB.blocks.length === 1 && hyB.blocks[0].type === '项目名', 'RELEASE ⑥ 支撑：notes 文本扫描 block 命中标识行');
+    ok(hygieneScanText('干净文本，无任何标识').blocks.length === 0, 'RELEASE ⑥ 支撑：干净 notes → 0 block');
+    ok(hygieneScanText('示例 // hygiene-ok: 词表自检').blocks.length === 0, 'RELEASE ⑥ 支撑：豁免标记行跳过');
   }
 
   process.exitCode = failures ? 1 : 0; // 失败≠0：堵住链式调用「grep 匹配到失败文案也算成功」的放行洞

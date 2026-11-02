@@ -34,6 +34,7 @@ import { fileURLToPath } from 'node:url';
 import { STATES, validateTransition } from './taskflow-state-machine.mjs'; // 状态机唯一机器源（v2.69.0）：枚举单源 + 写侧转换合法性断言
 import { GATE_MANIFEST } from '../assets/guard/taskflow-guard.js'; // guard 门描述符单源（v2.85.0）：mechanisms 读数据不再解析头注释（guard 顶层零副作用，静态导入安全）
 import { J20_WORD_RE, J20_CODE_RE, j20CodeLines, j20Scan, EXT_FAMILY } from '../assets/shared/kernel.mjs'; // v2.86.0 单源共享内核（数据边界机械件唯一源，guard 同源）
+import { hygieneLoadTerms, hygieneScanText, releaseExtractNotes } from './release-notes-lib.mjs'; // v2.93.0 RELEASE ⑥ 支撑纯函数（notes 提取+文本卫生扫描）——拆出动机=可测（本体尾部 process.exit 不可 import），先例=state-machine/kernel
 
 const R = (s) => String(s ?? '').trim();
 const trunc = (s, n) => { const a = Array.from(String(s ?? '')); return a.length > n ? a.slice(0, n - 1).join('') + '…' : a.join(''); }; // 码点安全切片（攻击轮 C5：UTF-16 码元切片切裂代理对 → U+FFFD）
@@ -2995,16 +2996,8 @@ function syncWindowsBundle(srcRoot, targetVer) {
    扫描面：git tracked 现值（ls-files）/ diff 新增行——CHANGELOG.md 与 docs/ 已 .gitignore 本地化，天然出圈。
    词表唯一黑名单源=assets/harness/hygiene-terms.json（引擎零内置词；词典文件自豁免——标识唯一合法居所）；
    豁免=行级 hygiene-ok:<非空理由>；warn 只提示不阻断。
-   已知边界（防自欺）：历史旧提交不在扫描面（治理走删库重建，细则 §事故处置）；词表漏项扫不出（登记纪律兜底）。 */
-function hygieneLoadTerms(skillRoot) {
-  const p = path.join(skillRoot, 'assets', 'harness', 'hygiene-terms.json');
-  const j = JSON.parse(fs.readFileSync(p, 'utf8'));
-  if (!Array.isArray(j.terms) || !j.terms.length) throw new Error('hygiene-terms.json 缺非空 terms 数组');
-  return j.terms.map((t) => {
-    if (!t.pattern || !t.level || !t.type) throw new Error(`hygiene-terms.json 条目缺 pattern/level/type：${trunc(JSON.stringify(t), 80)}`);
-    return { ...t, re: new RegExp(t.pattern, (t.flags || '') + 'g') };
-  });
-}
+   已知边界（防自欺）：历史旧提交不在扫描面（治理走删库重建，细则 §事故处置）；词表漏项扫不出（登记纪律兜底）。
+   hygieneLoadTerms/hygieneScanText/releaseExtractNotes 住 scripts/release-notes-lib.mjs（v2.93.0 拆出，可测性动机，见 lib 头注释）。 */
 function hygieneScan(targetRoot, { skillRoot, diff, ref } = {}) {
   const sroot = skillRoot || path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
   const terms = hygieneLoadTerms(sroot);
@@ -3065,7 +3058,7 @@ function releaseCmd(args = []) {
   const rootO = args.includes('--root') ? path.resolve(String(args[args.indexOf('--root') + 1] ?? '')) : null;
   const root = rootO ?? path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
   const ver = args.length && !args[0].startsWith('--') ? R(args[0]) : '';
-  const usageMsg = '用法：node tf.mjs release <version> [--canary] [--dry-run]\n发版十步链（RELEASE_CHAIN）：公开卫生前置→改完代码+手写 CHANGELOG 顶条目后一条命令收口；--dry-run 打印计划零执行；幂等重跑自动跳过已达成步骤。';
+  const usageMsg = '用法：node tf.mjs release <version> [--canary] [--dry-run]\n发版十一步链（RELEASE_CHAIN）：公开卫生前置→改完代码+手写 CHANGELOG 顶条目后一条命令收口（commit+push+GitHub Release+六路径同步+机制刷新）；--dry-run 打印计划零执行；幂等重跑自动跳过已达成步骤。';
   if (!/^\d+\.\d+\.\d+$/.test(ver)) { console.log(usageMsg); return 1; }
   const scriptPath = fileURLToPath(import.meta.url);
   const gin = (a, mayFail = true) => { try { return R(execFileSync('git', ['-C', root, ...a], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })); } catch { if (mayFail) return ''; throw new Error(`git ${a[0]} 失败`); } };
@@ -3101,18 +3094,19 @@ function releaseCmd(args = []) {
   console.log(`发版链（RELEASE_CHAIN）${dry ? '——dry-run 零执行' : ''}：${curVer === ver ? '版本双点已达成' : `版本双点 ${curVer} → ${ver}`}｜载荷 ${payload.length} 文件｜卫生扫描 ✓（${hy.scanned} 文件，warn ${hy.warns.length}，豁免 ${hy.exempt}）｜CHANGELOG 顶条目 ${top[1]}：「${clTitle}」`);
   if (dry) {
     const toks = releaseTokensOf();
-    console.log(`\n计划（将执行 ${withCanary ? 10 : 9} 步，前置另含公开卫生扫描）：`);
+    console.log(`\n计划（将执行 ${withCanary ? 11 : 10} 步，前置另含公开卫生扫描）：`);
     console.log('  ⓪ 公开卫生前置：全树词表扫描（block=拒绝发版；豁免 hygiene-ok:理由）——已过 ✓');
     console.log(`  ① 版本双点：SKILL.md frontmatter version + description 版本串（${curVer === ver ? '已达成，将跳过' : `${curVer} → ${ver}`}）`);
     console.log('  ② lint：node tf.mjs lint（红=中止）');
     console.log('  ③ 回归：node scripts/tf.test.mjs（约 40s，红=中止）');
     console.log(`  ④ commit：git add -u（${payload.length} 载荷文件${payload.length ? `：${payload.join('、')}` : ''}）→ feat(v${ver}): ${clTitle}`);
     console.log('  ⑤ push：git push origin main（败重试一次；成功后 ls-remote 远端哈希确认）');
-    console.log(`  ⑥ 六路径同步：${RELEASE_WSL_REPO()}（fetch 源仓+ff-only）｜${RELEASE_WIN_REPOS.join('、')}（bundle 配方：bundle create→powershell reset --hard FETCH_HEAD，脏副本跳过不重置）`);
-    console.log(`  ⑦ HEAD 对账：六路径 rev-parse --short 唯一 + SKILL.md 版本=${ver}`);
-    console.log(`  ⑧ 机制刷新：${RELEASE_PROJECT() || '（TF_RELEASE_PROJECT 未配置——默认路径已脱敏移除，export 后重跑）'} mechanisms ${toks ? `${toks.length} 个（${toks.join('、')}）逐个 mech install --yes` : '清单缺失/空——真跑将红'} → doctor 采纳漂移=0`);
-    console.log('  ⑨ 提示：审计矩阵（managed-skills/taskflow-release-audit 六步，人肉不代跑）+ 重启 omp 生效');
-    console.log(`  ⑩ canary：${withCanary ? '启用（真实 omp 约 65s）' : '未启用（--canary 开）'}`);
+    console.log(`  ⑥ GitHub Release：tag v${ver}（notes=CHANGELOG ${ver} 条目过卫生门；已存在=幂等跳过）`);
+    console.log(`  ⑦ 六路径同步：${RELEASE_WSL_REPO()}（fetch 源仓+ff-only）｜${RELEASE_WIN_REPOS.join('、')}（bundle 配方：bundle create→powershell reset --hard FETCH_HEAD，脏副本跳过不重置）`);
+    console.log(`  ⑧ HEAD 对账：六路径 rev-parse --short 唯一 + SKILL.md 版本=${ver}`);
+    console.log(`  ⑨ 机制刷新：${RELEASE_PROJECT() || '（TF_RELEASE_PROJECT 未配置——默认路径已脱敏移除，export 后重跑）'} mechanisms ${toks ? `${toks.length} 个（${toks.join('、')}）逐个 mech install --yes` : '清单缺失/空——真跑将红'} → doctor 采纳漂移=0`);
+    console.log('  ⑩ 提示：审计矩阵（managed-skills/taskflow-release-audit 六步，人肉不代跑）+ 重启 omp 生效');
+    console.log(`  ⑪ canary：${withCanary ? '启用（真实 omp 约 65s）' : '未启用（--canary 开）'}`);
     console.log('\n（--dry-run 零执行；去掉即真跑，断点重跑幂等跳过已达成步骤）');
     return 0;
   }
@@ -3170,7 +3164,31 @@ function releaseCmd(args = []) {
     console.log(`  远端 main = ${remote.slice(0, 7)} ✓`);
     return true;
   });
-  step('⑥ 六路径同步（WSL fetch+ff-only｜Windows bundle 配方）', () => {
+  step('⑥ GitHub Release（tag v<版> + notes=CHANGELOG 条目过卫生门）', () => {
+    const tag = `v${ver}`;
+    const originUrl = gin(['remote', 'get-url', 'origin']);
+    const ghRepo = (originUrl.match(/([-\w.]+)\/([-\w.]+)\.git\/?$/) || []).slice(1).join('/');
+    if (!ghRepo) return `origin URL 不含 owner/repo（${trunc(originUrl, 80)}）——无法定位 GitHub Release`;
+    const ghv = () => spawnSync('gh', ['release', 'view', tag, '-R', ghRepo], { encoding: 'utf8', timeout: 60000, stdio: ['ignore', 'pipe', 'pipe'] });
+    let v = ghv(); if (v.status !== 0) v = ghv();
+    if (v.error && v.error.code === 'ENOENT') return 'gh CLI 不可用——GitHub Release 步骤依赖 gh（安装并 gh auth login 后重跑，幂等）';
+    if (v.status === 0) { console.log(`  ${tag} 已存在（跳过）`); return 'skip'; }
+    const notes = releaseExtractNotes(root, ver);
+    if (!notes) return `CHANGELOG 缺 ${ver} 条目正文——Release notes 无源（手写条目后重跑，幂等）`;
+    const hyT = hygieneScanText(notes.body);
+    if (hyT.blocks.length) return `notes 卫生扫描 block ${hyT.blocks.length} 项——标识不进公开 Release，改写 CHANGELOG ${ver} 条目后重跑：` + hyT.blocks.slice(0, 3).map((b) => `${b.type}「${b.matched}」`).join('、');
+    if (hyT.warns.length) console.log(`  ⚠ notes warn ${hyT.warns.length} 项人工确认（${hyT.warns.slice(0, 3).map((b) => b.type).join('、')}）`);
+    const nf = path.join(os.tmpdir(), `tf-relnotes-${Date.now()}.md`);
+    fs.writeFileSync(nf, `# ${tag} ${notes.title}\n\n${notes.body}\n`);
+    const ghc = () => spawnSync('gh', ['release', 'create', tag, '--target', 'main', '-R', ghRepo, '--title', `${tag} ${notes.title}`, '--notes-file', nf], { encoding: 'utf8', timeout: 120000, stdio: ['ignore', 'pipe', 'pipe'] });
+    let r = ghc();
+    if (r.status !== 0) { console.log('  Release 创建失败，重试一次…'); r = ghc(); }
+    try { fs.rmSync(nf, { force: true }); } catch { /* 清理失败不阻判定 */ }
+    if (r.status !== 0) return `gh release create 两次失败——${trunc(lastLines((r.stdout ?? '') + (r.stderr ?? ''), 2), 160)}`;
+    console.log(`  ${tag} 已发布（notes ${notes.body.length} 字符，卫生扫描过）`);
+    return true;
+  });
+  step('⑦ 六路径同步（WSL fetch+ff-only｜Windows bundle 配方）', () => {
     const headShort = gin(['rev-parse', '--short=7', 'HEAD']);
     const errs = []; const lines = [];
     const wslRepo = RELEASE_WSL_REPO();
@@ -3183,7 +3201,7 @@ function releaseCmd(args = []) {
     lines.forEach((l) => console.log('  ' + l));
     return errs.length ? errs.join('；') : true;
   });
-  step('⑦ HEAD 对账（六路径哈希+版本唯一）', () => {
+  step('⑧ HEAD 对账（六路径哈希+版本唯一）', () => {
     const headShort = gin(['rev-parse', '--short=7', 'HEAD']);
     const six = [root, RELEASE_WSL_REPO(), ...RELEASE_WIN_REPOS, path.join(os.homedir(), '.pi', 'agent', 'skills', 'taskflow'), path.join(os.homedir(), '.claude', 'skills', 'taskflow')];
     const bad = [];
@@ -3197,7 +3215,7 @@ function releaseCmd(args = []) {
     }
     return bad.length ? `六路径对账不齐：${bad.join('、')}` : true;
   });
-  step('⑧ 机制刷新（mech install --yes ×project.json.mechanisms 清单 + doctor 漂移=0）', () => {
+  step('⑨ 机制刷新（mech install --yes ×project.json.mechanisms 清单 + doctor 漂移=0）', () => {
     const toks = releaseTokensOf();
     if (!RELEASE_PROJECT()) return 'TF_RELEASE_PROJECT 未配置——机制刷新目标项目路径已脱敏移出代码，export TF_RELEASE_PROJECT=<项目根> 后重跑本步（幂等）';
     if (!toks) return `${RELEASE_PROJECT()} project.json.mechanisms 清单缺失/空——机制清单按登记读（非硬编码），缺失即红`;
@@ -3216,12 +3234,12 @@ function releaseCmd(args = []) {
     if (d.status !== 0) console.log('  ℹ doctor 整体非零（任务级体检/schema 等项目侧发现，非采纳对账）——不阻发版链，按 doctor 提示另行处置');
     return true;
   });
-  step('⑨ 收尾提示（审计矩阵+重启生效）', () => {
+  step('⑩ 收尾提示（审计矩阵+重启生效）', () => {
     console.log('  审计：读 managed-skills/taskflow-release-audit 走六步（六副本矩阵/registry 条目数/守门运行时副本/新技能分布/行为抽测/悬空复扫）——人肉审计，链内不代跑');
     console.log('  提示：omp/Claude Code/pi 技能启动时发现——已开会话持旧版，重启后新会话才生效（守门渲染产物重装即生效）');
     return true;
   });
-  if (withCanary) step('⑩ canary（真实 omp 送达金丝雀，约 65s）', () => {
+  if (withCanary) step('⑪ canary（真实 omp 送达金丝雀，约 65s）', () => {
     const r = spawnSync('node', [scriptPath, 'canary'], { encoding: 'utf8', timeout: 300000, stdio: ['ignore', 'pipe', 'pipe'] });
     console.log(trunc(lastLines((r.stdout ?? '') + (r.stderr ?? ''), 3), 300));
     return r.status === 0 ? true : 'canary 红——注入未达模型';
@@ -3255,7 +3273,7 @@ const COMMANDS = [
   { name: 'mechanisms', usage: `  node tf.mjs mechanisms               guard 门清单（机制透明化，v2.83.0，只读）：逐行输出宿主防护层每个门的中文名/管什么/开关 env/是否写触发日志——被拦或被提醒时按它向用户解释原因`, run: () => mechanismsCmd() },
   { name: 'canary', usage: `  node tf.mjs canary                        送达金丝雀：/tmp 夹具仓渲染守门副本+真实 omp -p 验证注入达模型（一次模型调用；omp 缺失则跳过 exit 0）`, run: () => canaryCmd() },
   { name: 'hygiene', usage: `  node tf.mjs hygiene [--diff [基线]] [--root <路径>]  公开仓卫生扫描（PUBLIC_HYGIENE_GATE）：词表扫 git tracked 全树（缺省）或 diff 新增行（--diff，缺省对比 HEAD）；block=exit 1，warn=人工确认；行级豁免 hygiene-ok:理由（只读；细则 references/public-hygiene.md）`, run: (rest) => hygieneCmd(rest) },
-  { name: 'release', usage: `  node tf.mjs release <version> [--canary] [--dry-run]  发版十步链（RELEASE_CHAIN）：公开卫生前置（hygiene 全树扫描，block=拒绝）→版本双点自动改→lint→回归→commit(feat(v<版>):CHANGELOG顶条目标题)→push(败重试一次+远端哈希确认)→六路径同步（WSL实体 fetch+ff-only｜Windows侧 bundle 配方）→HEAD六路径对账→机制刷新（mech install --yes×project.json.mechanisms+doctor 漂移=0）→审计/重启提示；--dry-run 打印计划零执行；幂等重跑跳过已达成步骤；前置红=卫生扫描block/顶条目非目标版本/未跟踪文件未add/非 main`, run: (rest) => releaseCmd(rest) },
+  { name: 'release', usage: `  node tf.mjs release <version> [--canary] [--dry-run]  发版十一步链（RELEASE_CHAIN）：公开卫生前置（hygiene 全树扫描，block=拒绝）→版本双点自动改→lint→回归→commit(feat(v<版>):CHANGELOG顶条目标题)→push(败重试一次+远端哈希确认)→GitHubRelease(tag v<版>+CHANGELOG条目notes过卫生门，已存在=幂等跳过)→六路径同步（WSL实体 fetch+ff-only｜Windows侧 bundle 配方）→HEAD六路径对账→机制刷新（mech install --yes×project.json.mechanisms+doctor 漂移=0）→审计/重启提示；--dry-run 打印计划零执行；幂等重跑跳过已达成步骤；前置红=卫生扫描block/顶条目非目标版本/未跟踪文件未add/非 main`, run: (rest) => releaseCmd(rest) },
   { name: 'accept', usage: `  node tf.mjs accept <task-id> [--pass]  缺省=验收简报：任务是什么/部署状态/验什么/怎么验/怎么回复；--pass=机械翻转 *→merged（前置=分支已并入主分支，幂等）`, run: (rest) => accept(rest[0], rest.slice(1)) },
   { name: 'takeover', usage: `  node tf.mjs takeover <task-id> --session <本会话ID>  接管仪式：改 sessionID + 重写 .owner.json + 刷新 lease + 打印桌面清点清单（清点判断归编排层）`, run: (rest) => takeover(rest) },
   { name: 'park', usage: `  node tf.mjs park <task-id> --reason "<原因>"   搁置在途任务（active→parked，簿记写入口）——档案保留、体检（缺省）与 G 门不再盘点；等验收中（含部署态）拒`, run: (rest) => parkCmd(rest) },
