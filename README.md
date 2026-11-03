@@ -217,6 +217,8 @@ taskflow/
 
 本仓库公开，git 历史不可变——commit 即发布。提交/发版守 PUBLIC_HYGIENE_GATE（公开仓卫生门）：公司/项目/系统真名、个人标识（工号/用户路径）、内网拓扑（IP/内部域名）、凭据密钥一律不入仓；词表唯一源 `assets/harness/hygiene-terms.json`（新接入的项目/系统先登记词表再写代码）；自查 `node scripts/tf.mjs hygiene`（全树 / `--diff` 增量），release 链前置强制扫描；行级豁免 `hygiene-ok: 理由`。细则与泄漏事故处置见 references/public-hygiene.md。
 
+**外部贡献走 PR**：流程、红线与仓库纪律见 [CONTRIBUTING.md](CONTRIBUTING.md)——PR 与 push to main 均自动跑卫生扫描 + lint + 全量回归（`.github/workflows/ci.yml`），红灯先自修。
+
 ## 版本
 
 版本号唯一事实源为 SKILL.md（frontmatter `version` + 简介尾部版本串，lint 机械锁定一致）；逐版变更史 CHANGELOG.md 自 2.67.1 起仅本地维护，不随仓库分发。
