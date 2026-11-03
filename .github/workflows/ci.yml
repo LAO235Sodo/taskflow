@@ -11,6 +11,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Configure git identity (test fixtures commit without global config)
+        run: |
+          git config --global user.email "ci@example.invalid"
+          git config --global user.name "ci"
+
       - uses: actions/setup-node@v4
         with:
           node-version: 24
