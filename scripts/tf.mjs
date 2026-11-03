@@ -2937,6 +2937,7 @@ function canaryCmd() {
    --dry-run：前置+打印计划与关键参数，零执行——测试主通道（TF_RELEASE_PROJECT 可指夹具项目验机制清单读取）。 */
 const RELEASE_WIN_USER = process.env.TF_RELEASE_WIN_USER || '/mnt/c/Users/<win-user>'; // v2.91.2 脱敏：Windows 用户名移出代码——六路径同步目标由 TF_RELEASE_WIN_USER 显式提供
 const RELEASE_WSL_REPO = () => path.join(os.homedir(), '.agents', 'skills', 'taskflow');
+const RELEASE_WSL_CONSUMERS = () => [path.join(os.homedir(), '.pi', 'agent', 'skills', 'taskflow'), path.join(os.homedir(), '.claude', 'skills', 'taskflow')]; // v2.94.1 步骤⑦纳入：对账六路径里的两个 WSL 消费者副本——此前⑦不覆盖，每次发版卡⑧人工补同步（2026-11-02/03 连续四次实证），违「漏步靠机器」链义
 const RELEASE_WIN_REPOS = [`${RELEASE_WIN_USER}/.omp/agent/skills/taskflow`, `${RELEASE_WIN_USER}/.claude/skills/taskflow`];
 const RELEASE_PROJECT = () => process.env.TF_RELEASE_PROJECT || ''; // v2.91.2 脱敏：默认项目路径移出代码（含用户名/项目名）——机制刷新目标由 TF_RELEASE_PROJECT 显式提供；未配置=步骤⑧红并给指引（幂等重跑）
 const wslToWin = (p) => p.replace(/^\/mnt\/([a-z])\//i, (_, d) => `${d.toUpperCase()}:\\`).replace(/\//g, '\\');
@@ -3102,7 +3103,7 @@ function releaseCmd(args = []) {
     console.log(`  ④ commit：git add -u（${payload.length} 载荷文件${payload.length ? `：${payload.join('、')}` : ''}）→ feat(v${ver}): ${clTitle}`);
     console.log('  ⑤ push：git push origin main（败重试一次；成功后 ls-remote 远端哈希确认）');
     console.log(`  ⑥ GitHub Release：tag v${ver}（notes=CHANGELOG ${ver} 条目过卫生门；已存在=幂等跳过）`);
-    console.log(`  ⑦ 六路径同步：${RELEASE_WSL_REPO()}（fetch 源仓+ff-only）｜${RELEASE_WIN_REPOS.join('、')}（bundle 配方：bundle create→powershell reset --hard FETCH_HEAD，脏副本跳过不重置）`);
+    console.log(`  ⑦ 六路径同步：${RELEASE_WSL_REPO()}（fetch 源仓+ff-only）｜WSL 消费者×2（${RELEASE_WSL_CONSUMERS().join('、')}，同配方）｜${RELEASE_WIN_REPOS.join('、')}（bundle 配方：bundle create→powershell reset --hard FETCH_HEAD，脏副本跳过不重置）`);
     console.log(`  ⑧ HEAD 对账：六路径 rev-parse --short 唯一 + SKILL.md 版本=${ver}`);
     console.log(`  ⑨ 机制刷新：${RELEASE_PROJECT() || '（TF_RELEASE_PROJECT 未配置——默认路径已脱敏移除，export 后重跑）'} mechanisms ${toks ? `${toks.length} 个（${toks.join('、')}）逐个 mech install --yes` : '清单缺失/空——真跑将红'} → doctor 采纳漂移=0`);
     console.log('  ⑩ 提示：审计矩阵（managed-skills/taskflow-release-audit 六步，人肉不代跑）+ 重启 omp 生效');
@@ -3198,6 +3199,10 @@ function releaseCmd(args = []) {
     const winDone = RELEASE_WIN_REPOS.every((p) => winAt(p) === headShort && R((fs.readFileSync(path.join(p, 'SKILL.md'), 'utf8').match(/^version:\s*(\S+)/m) ?? [])[1]) === ver);
     if (winDone) lines.push(`⏭ Windows×2（已达成 ${headShort}，免 bundle）`);
     else { const win = syncWindowsBundle(root, ver); lines.push(...win.lines); errs.push(...win.errs); }
+    for (const c of RELEASE_WSL_CONSUMERS()) {
+      if (!fs.existsSync(path.join(c, '.git'))) { lines.push(`⏭ ${c}（不存在，跳过）`); continue; }
+      const w = syncWslEntity(c, root, headShort); lines.push(w.line); if (w.err) errs.push(w.err);
+    }
     lines.forEach((l) => console.log('  ' + l));
     return errs.length ? errs.join('；') : true;
   });
