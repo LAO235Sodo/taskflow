@@ -3677,6 +3677,21 @@ try {
     ok(hygieneScanText('示例 // hygiene-ok: 词表自检').blocks.length === 0, 'RELEASE ⑥ 支撑：豁免标记行跳过');
   }
 
+  // ---- v2.95.0：验证报告模板 + 影响面→验证转化锚点 ----
+  {
+    const repoRoot = path.resolve(import.meta.dirname, '..');
+    const vr = fs.readFileSync(path.join(repoRoot, 'templates', 'verification-report.md'), 'utf8');
+    for (const anchor of ['数据链路图', '影响面地图逐行验证表', '双版本对照', '未覆盖清单', '代码零接触']) ok(vr.includes(anchor), `2.95.0 锚点：templates/verification-report.md 含「${anchor}」`);
+    const ts95 = fs.readFileSync(path.join(repoRoot, 'references', 'testing.md'), 'utf8');
+    for (const anchor of ['影响面→验证转化', '验证报告', '代码零接触']) ok(ts95.includes(anchor), `2.95.0 锚点：references/testing.md 含「${anchor}」`);
+    const sp95 = fs.readFileSync(path.join(repoRoot, 'templates', 'spec.md'), 'utf8');
+    ok(sp95.includes('下游验证转化') && sp95.includes('代码零接触'), '2.95.0 锚点：templates/spec.md 含下游验证转化引导');
+    const mg95 = fs.readFileSync(path.join(repoRoot, 'references', 'merge.md'), 'utf8');
+    ok(mg95.includes('验证报告核对'), '2.95.0 锚点：references/merge.md 含验证报告核对触点');
+    const er95 = fs.readFileSync(path.join(repoRoot, 'references', 'entry-routes.md'), 'utf8');
+    ok(/^\| J\d\d \| 影响面→验证转化 \|/m.test(er95), '2.95.0 锚点：references/entry-routes.md 表二含影响面→验证转化行');
+  }
+
   process.exitCode = failures ? 1 : 0; // 失败≠0：堵住链式调用「grep 匹配到失败文案也算成功」的放行洞
   console.log(failures ? `\n${failures} 项断言失败` : '\n全部通过');
 } finally {
