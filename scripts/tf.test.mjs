@@ -3692,6 +3692,15 @@ try {
     ok(/^\| J\d\d \| 影响面→验证转化 \|/m.test(er95), '2.95.0 锚点：references/entry-routes.md 表二含影响面→验证转化行');
   }
 
+  // ---- v2.96.0：走查/验收开工分阶段工作台锚点 ----
+  {
+    const repo96 = path.resolve(import.meta.dirname, '..');
+    const sk96 = fs.readFileSync(path.join(repo96, 'SKILL.md'), 'utf8');
+    for (const anchor of ['五个挂点', '走查/验收开工', '分阶段工作台', '准备→走查→证据与文档', '禁只报结论不留清单']) ok(sk96.includes(anchor), `2.96.0 锚点：SKILL.md 会话工作台含「${anchor}」`);
+    ok(sk96.includes('要求走查或验证页面功能'), '2.96.0 锚点：description 含走查触发词（加载面）');
+    ok(sk96.includes('version: 2.96.0'), '2.96.0 锚点：frontmatter 版本双点之一');
+  }
+
   process.exitCode = failures ? 1 : 0; // 失败≠0：堵住链式调用「grep 匹配到失败文案也算成功」的放行洞
   console.log(failures ? `\n${failures} 项断言失败` : '\n全部通过');
 } finally {
