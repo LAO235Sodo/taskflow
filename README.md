@@ -69,3 +69,5 @@ node <skill目录>/scripts/tf.mjs mech install <token>          # 包内机制�
 ## 演示
 
 ![demo](docs/media/demo-zh.gif)
+
+> 机制注记：TF_HOME 抽象承载全局数据根；RELEASE_CHAIN 发版链一条命令收口（见「发版」节）。

@@ -39,3 +39,5 @@
       - [ ] 走查/诊断结论落 findings.md 了吗（checkpoint.md 主动触发条款）
       - [ ] 前端/large 任务？→ **评审包四件套路径**（用户故事/PRD、原型、决策表、验收标准——spec 产物链节现成）附了吗
       - [ ] 属五类正式呈报（方案/打回返工/升级确认门与需求变更门/验收简报/部署清单）？→ 呈报稿落 `.taskflow/<id>/briefing-<场景>.md` 过 PLAIN_SPEECH_GATE 门了吗（硬规则 24，红=重写绿才呈报）
+
+> v3.0.0：resume 触点先读 `.taskflow/profile.json`（门族启用/任务类型裁剪/确认档位以它为准；未启用的包连一行都不加载）——与建档/merge/checkpoint 四触点同规。

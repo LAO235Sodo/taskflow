@@ -712,7 +712,7 @@ try {
   // v2.70.0：--root 夹具须自带最小入口路由注册表（挂接对账红「缺失」会淹没本节红绿语义；行指向夹具内真实文件=绿）
   // v2.71.0 D3：多假设排序 纪律锚词改专用词 JDISC-ANCHOR-X7（唯一存在理由=多假设排序 行本身；旧词「机制登记表」恰是 data.md
   //   其他检查的必需节头=自指，检查器坏多少断言都测不出来）；锚词经 mkLintCase 尾部统一落载体
-  const MIN_ER = ['## 表一：意图入口路由', '', '| 入口id | 话术样例 | 路由动作 | 指向 | 纪律形态 | 加载面 | description锚 |', '| --- | --- | --- | --- | --- | --- | --- |', '| R01 | x | x | references/data.md::状态机 | x | 否 | |', '', '## 表二：判定点纪律', '', '| 判定id | 判定点 | 纪律形态 | 载体 | 纪律锚词 |', '| --- | --- | --- | --- | --- |', '| 多假设排序 | x | x | references/data.md::状态机 | JDISC-ANCHOR-X7 |', ''].join('\n');
+  const MIN_ER = ['## 表一：意图入口路由', '', '| 入口id | 话术样例 | 路由动作 | 指向 | 纪律形态 | 加载面 | description锚 |', '| --- | --- | --- | --- | --- | --- | --- |', '| R01 | x | 需求变更分类 | references/data.md::状态机 | x | 否 | |', '', '## 表二：判定点纪律', '', '| 判定id | 判定点 | 纪律形态 | 载体 | 纪律锚词 |', '| --- | --- | --- | --- | --- |', '| 多假设排序 | x | x | references/data.md::状态机 | JDISC-ANCHOR-X7 |', ''].join('\n'); // 「需求变更」=v3 闸门关键词（SKILL 收敛后锚点住注册表）
   const mkMechJson = (rows) => JSON.stringify({ generatedAt: 'test', source: 'fixture', mechanisms: rows }, null, 2);
   const mechRow = (over = {}) => ({ token: 'GOODTOKEN', name: 'GOODTOKEN', pack: null, def: 'x', touch: ['references/resume.md'], triggers: [], products: [], fixture: '—（无脚本，理由写足长度）', plain: '一句解释', ...over });
   const mkLintCase = (name, mechRows, dataMd = '', tail = '\n状态机（唯一事实源\n判定纪律锚行：JDISC-ANCHOR-X7\n') => {
@@ -758,7 +758,7 @@ try {
   ok(dvOk.status === 0, 'lint v3 绿：description 不含版本（版本只在 frontmatter）→ 全绿');
   const dvVer = mkDescVer('fake-descver-ver', '管理长任务。版本 9.9.9。');
   ok(dvVer.status === 1 && dvVer.stdout.includes('description 含版本号'), 'lint v3 红：description 含版本字样（F11——简介可见版本号的旧拍板作废）');
-  const dvLong = mkDescVer('fake-descver-long', '管理长任务。'.repeat(20));
+  const dvLong = mkDescVer('fake-descver-long', '管理长任务。'.repeat(30));
   ok(dvLong.status === 1 && dvLong.stdout.includes('> 150'), 'lint v3 红：description >150 字符（F11 收敛）');
   const dvRRef = mkDescVer('fake-descver-rref', '管理长任务。', '路由见 R01。\n');
   ok(dvRRef.status === 1 && dvRRef.stdout.includes('入口编号引用'), 'lint v3 红：SKILL 含 R 编号引用（F10 单向对账——路由唯一载体=entry-routes）');
@@ -2198,7 +2198,7 @@ try {
   const i4b = await call('session.compacting', {});
   ok(Array.isArray(i4b?.context) && !i4b.context.some((l) => String(l).includes('词表反馈沉淀')), 'TASKFLOW_GUARD I4 消账后：压缩行消失（任务接力行保留）');
   const guardSrcI = fs.readFileSync(guardPath, 'utf8');
-  const tgDocI = fs.readFileSync(path.join(path.dirname(script), '..', 'references', 'taskflow-guard.md'), 'utf8');
+  const tgDocI = fs.readFileSync(path.join(path.dirname(script), '..', 'packs', 'host-adapters', 'taskflow-guard.md'), 'utf8');
   ok(guardSrcI.includes('词表反馈沉淀') && tgDocI.includes('词表反馈沉淀') && tfmjsSrc.includes('词表反馈沉淀'), 'TASKFLOW_GUARD I 渲染源锚×3：guard 头注释 / taskflow-guard.md / MECH_PROSE 均含 I 条目（v2.56.2 渲染源漂移防复发）');
   // ---- v2.49.1 G 活体热修回归：多活并集归属 + 解析加固 ----
   const glP = path.join(gproj, '.taskflow', 'g-live-20260101', 'task.json');
@@ -3108,9 +3108,9 @@ try {
   if (lg.status === 0) ok(/lint：全绿/.test(lg.stdout) && lg.stdout.includes('挂接对账'), 'v2.70.0 lint 挂接对账绿路：真表 → 全绿且摘要含挂接对账');
   else ok(lg.stdout.includes('挂接对账') && pendingOnly, `v3.0.0 lint 挂接对账绿路：真表零悬空零锚缺（残留红=非预期）${lg.status ? ' ← ' + hookReds.join(' | ') : ''}`);
   const mut = (re, rep) => { const p = path.join(tmp, `er-mut-${Math.random().toString(36).slice(2, 7)}.md`); fs.writeFileSync(p, fs.readFileSync(erCopy, 'utf8').replace(re, rep)); return p; };
-  const lgDangle = runEnv(['lint'], r2, { TF_ENTRY_ROUTES: mut(/references\/deploy-gate\.md::部署/, 'references/deploy-gate-nope.md::部署') });
+  const lgDangle = runEnv(['lint'], r2, { TF_ENTRY_ROUTES: mut(/packs\/deploy\/deploy-gate\.md::部署/, 'packs/deploy/deploy-gate-nope.md::部署') });
   ok(lgDangle.status === 1 && /指向\/载体文件不存在/.test(lgDangle.stdout) && lgDangle.stdout.includes('deploy-gate-nope.md'), 'v2.70.0 lint 挂接对账红路①：指向文件删除 → 悬空红 exit 1');
-  const lgDesc = runEnv(['lint'], r2, { TF_ENTRY_ROUTES: mut(/\| 是 \| 部署 \|/, '| 是 | 发版上线词 |') });
+  const lgDesc = runEnv(['lint'], r2, { TF_ENTRY_ROUTES: mut(/\| 是 \| 打回 \|/, '| 是 | 发版上线词 |') });
   ok(lgDesc.status === 1 && /description 无锚「发版上线词」/.test(lgDesc.stdout), 'v2.70.0 lint 挂接对账红路②：加载面锚词不在 description → 双面对账红');
   const lgCarrier = runEnv(['lint'], r2, { TF_ENTRY_ROUTES: mut(/\| references\/merge\.md::STUCK \| STUCK \|/, '| references/merge.md::STUCK | 绝无此词XY |') });
   ok(lgCarrier.status === 1 && /纪律锚词缺失「绝无此词XY」/.test(lgCarrier.stdout), 'v2.70.0 lint 挂接对账红路③：载体纪律锚词不可 grep → 载体红');
@@ -3125,11 +3125,11 @@ try {
   fs.writeFileSync(erZero, ['## 表一：意图入口路由', '', '| 入口id | 话术样例 | 路由动作 | 指向 | 纪律形态 | 加载面 | description锚 |', '| --- | --- | --- | --- | --- | --- | --- |', '', '## 表二：判定点纪律', '', '| 判定id | 判定点 | 纪律形态 | 载体 | 纪律锚词 |', '| --- | --- | --- | --- | --- |', ''].join('\n'));
   const lgZero = runEnv(['lint'], r2, { TF_ENTRY_ROUTES: erZero });
   ok(lgZero.status === 1 && /零有效行/.test(lgZero.stdout), 'v2.71.0 A6 lint：TF_ENTRY_ROUTES 指向文件解析出零有效行 → 红（旧版空表静默全绿）');
-  const lgRAnchor = runEnv(['lint'], r2, { TF_ENTRY_ROUTES: mut(/references\/deploy-gate\.md::部署/, 'references/deploy-gate.md::部署锚词不存在QQ') });
+  const lgRAnchor = runEnv(['lint'], r2, { TF_ENTRY_ROUTES: mut(/packs\/deploy\/deploy-gate\.md::部署/, 'packs/deploy/deploy-gate.md::部署锚词不存在QQ') });
   ok(lgRAnchor.status === 1 && /锚词缺失「部署锚词不存在QQ」/.test(lgRAnchor.stdout), 'v2.71.0 D1 lint：R 行指向锚词缺失 → reach 锚词红（单点致残分支取得失败覆盖）');
-  const lgLoadTol = runEnv(['lint'], r2, { TF_ENTRY_ROUTES: mut(/\| 是 \| 部署 \|/, '| 是（主链路） | 发版上线词 |') });
+  const lgLoadTol = runEnv(['lint'], r2, { TF_ENTRY_ROUTES: mut(/\| 是 \| 打回 \|/, '| 是（主链路） | 发版上线词 |') });
   ok(lgLoadTol.status === 1 && /description 无锚「发版上线词」/.test(lgLoadTol.stdout), 'v2.71.0 A4 lint：加载面漂移值「是（主链路）」→ 双面对账照跑（旧严格等值匹配会静默禁用）');
-  const lgLoadDrift = runEnv(['lint'], r2, { TF_ENTRY_ROUTES: mut(/\| 是 \| 部署 \|/, '| 主链路 | 部署 |') });
+  const lgLoadDrift = runEnv(['lint'], r2, { TF_ENTRY_ROUTES: mut(/\| 是 \| 打回 \|/, '| 主链路 | 打回 |') });
   ok(lgLoadDrift.status === 1 && /加载面值漂移「主链路」/.test(lgLoadDrift.stdout), 'v2.71.0 A4 lint：加载面值非 是*/否* → 值漂移红');
 
   // ---- 2.72.0 机械保底：impact 命令（牵连排查 引用面 + 数据边界 数据管道特征）+ guard 牵连排查/数据边界 提醒 ----
@@ -3427,7 +3427,7 @@ try {
     const gateDiff = manifest.map((m, i) => [m, gateOfRow(mechRows[i])]).filter(([m, g]) => g !== (m.gate ?? null));
     ok(gateDiff.length === 0, `2.85.0 T8 mechanisms：逐门 gate= 与 GATE_MANIFEST 一致${gateDiff.length ? `（首异：${gateDiff[0][0].name} 输出=${gateDiff[0][1]} 期望=${gateDiff[0][0].gate}）` : ''}`);
     // 注册表对账：feature 字母集合 = taskflow-guard.md 功能清单表字母集合（RENDER 除外——拍板 docs 不另开行，与机制 token RENDER_EVIDENCE_GATE 同源）；17 门 name 无重复
-    const gmTable = (fs.readFileSync(path.join(repoRoot, 'references', 'taskflow-guard.md'), 'utf8').split('## 功能清单')[1] ?? '').split('\n## ')[0];
+    const gmTable = (fs.readFileSync(path.join(repoRoot, 'packs', 'host-adapters', 'taskflow-guard.md'), 'utf8').split('## 功能清单')[1] ?? '').split('\n## ')[0];
     const docLetters = new Set([...gmTable.matchAll(/^\|\s*([A-Z]+)\s*\|/gm)].map((m) => m[1]));
     const mfLetters = new Set(manifest.map((m) => m.feature).filter((f) => f && f !== 'RENDER'));
     const letterDiff = [...mfLetters].filter((x) => !docLetters.has(x)).concat([...docLetters].filter((x) => !mfLetters.has(x)));
@@ -3447,8 +3447,8 @@ try {
     walk(repoRoot);
     ok(jLeft.length === 0, `2.83.0 T4 残留断言：白名单外零 J 编号${jLeft.length ? `（残留 ${jLeft.slice(0, 6).join('、')}）` : ''}`);
     ok((fs.readFileSync(path.join(repoRoot, 'references', 'new-task.md'), 'utf8').match(/三源对照/g) ?? []).length >= 1, '2.83.0 T9 锚点：new-task.md 含方案三源对照节');
-    ok(fs.readFileSync(path.join(repoRoot, 'references', 'plain-speech.md'), 'utf8').includes('业内做法对照'), '2.83.0 T9 槽位：plain-speech.md §4 含业内做法对照');
-    ok(fs.readFileSync(path.join(repoRoot, 'SKILL.md'), 'utf8').includes('理解重述'), '2.83.0 T11 锚点：SKILL.md 全局判定纪律区含理解重述');
+    ok(fs.readFileSync(path.join(repoRoot, 'packs', 'briefing', 'plain-speech.md'), 'utf8').includes('业内做法对照'), '2.83.0 T9 槽位：plain-speech.md §4 含业内做法对照');
+    ok(fs.readFileSync(path.join(repoRoot, 'references', 'entry-routes.md'), 'utf8').includes('理解重述'), '2.83.0 T11 锚点（v3 改址）：entry-routes.md 判定行含理解重述（核心 SKILL 收敛后判定载体=注册表）');
   }
   {
     sh('git checkout -qb task/t-rve2', rveRepo);
