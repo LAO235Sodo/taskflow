@@ -3229,10 +3229,11 @@ function releaseCmd(args = []) {
   });
   step('④ commit（feat(v<版>): CHANGELOG 顶条目标题）', () => {
     const subjMatch = gin(['log', '-1', '--format=%s']) === `feat(v${ver}): ${clTitle}`;
+    const subjPre = new RegExp(`^feat\\(v${ver.replace(/\./g, '\\.')}[^)]*\\):`).test(gin(['log', '-1', '--format=%s']) ?? ''); // v3.0.0：分阶段预提交形态（feat(v3.0.0-phaseN): …）视同已达成
     gin(['add', '-u']);
     if (!gin(['diff', '--cached', '--name-only'])) {
-      if (subjMatch) return 'skip';
-      return '无暂存内容——载荷为空且版本双点无改动';
+      if (subjMatch || subjPre) return 'skip';
+      return '无暂存内容——载荷为空且版本写入无改动';
     }
     gin(['commit', '-m', `feat(v${ver}): ${clTitle}`]); // 同版重跑带新载荷=发版补丁并入同版本（版本由 SKILL.md/CHANGELOG 定义，不锁单提交）
     console.log(`  ${subjMatch ? '发版补丁并入同版本——' : ''}${gin(['log', '-1', '--format=%h %s'])}`);
