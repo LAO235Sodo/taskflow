@@ -1,0 +1,295 @@
+{
+  "_comment": "核心（非包）机制种子——gen-mechanisms.mjs 与 packs/*/manifest.json 合并生成 references/schemas/mechanisms.json；改这里必须重跑生成器",
+  "mechanisms": [
+    {
+      "token": "--deployed",
+      "name": "--deployed",
+      "def": "data.md deploy 字段",
+      "touch": [
+        "merge.md"
+      ],
+      "products": [],
+      "fixture": "tf.test.mjs",
+      "plain": "把「代码已部署到线上」写进任务档案的动作，任务状态同时翻到「等验收」"
+    },
+    {
+      "token": "LEASE",
+      "name": "LEASE",
+      "def": "data.md activeLease 字段",
+      "touch": [
+        "checkpoint.md",
+        "resume.md"
+      ],
+      "products": [],
+      "fixture": "I9",
+      "plain": "会话之间的「我正在用这个任务」登记，防止两个会话同时改一个任务"
+    },
+    {
+      "token": "PARK",
+      "name": "PARK",
+      "def": "data.md 状态机表 parked 两行 + parkedReason/parkedAt 字段行",
+      "touch": [
+        "resume.md",
+        "tf.mjs",
+        "tf.test.mjs"
+      ],
+      "products": [],
+      "fixture": "tf.test.mjs",
+      "plain": "给「先放放」带原因的正式状态：G 门/体检/stale 不再空跑悬挂任务，且搁置与遗忘可区分"
+    },
+    {
+      "token": ".owner.json",
+      "name": ".owner.json",
+      "def": "data.md I10 行",
+      "touch": [
+        "new-task.md",
+        "resume.md"
+      ],
+      "products": [],
+      "fixture": "I10",
+      "plain": "worktree 属主凭证文件，记录哪个进程在哪个目录干活"
+    },
+    {
+      "token": "接管仪式",
+      "name": "接管仪式",
+      "def": "resume.md 第 8 步",
+      "touch": [
+        "resume.md",
+        "checkpoint.md"
+      ],
+      "products": [],
+      "fixture": "tf.test.mjs",
+      "plain": "原属主进程已死时，新会话接手任务前的一套登记动作：改属主、刷新登记、清点桌面"
+    },
+    {
+      "token": "STUCK升级门",
+      "name": "STUCK升级门",
+      "def": "merge.md 第 3 步",
+      "touch": [
+        "merge.md",
+        "split.md",
+        "prototype.md"
+      ],
+      "products": [],
+      "fixture": "—（merge 门禁，prose 触点；打转保护无 CLI 断言面）",
+      "plain": "同一个问题修 3 轮还不过，强制停下来让用户拍板换路，不许默默试第 4 轮"
+    },
+    {
+      "token": "MERGE_LOCK",
+      "name": "MERGE_LOCK",
+      "def": "merge.md 第 5 步",
+      "touch": [
+        "merge.md"
+      ],
+      "products": [],
+      "fixture": "—（由 lock 命令测试承载，token 本身无断言面）",
+      "plain": "合并动作的排队锁：两个会话同时要合并时一个排队，防止互相踩"
+    },
+    {
+      "token": "req-confirm",
+      "name": "req-confirm",
+      "def": "data.md goalHash/reqChanges 字段",
+      "touch": [
+        "SKILL.md",
+        "resume.md",
+        "merge.md"
+      ],
+      "products": [],
+      "fixture": "tf.test.mjs",
+      "plain": "需求口径变更的登记命令：把「谁拍板改了什么」写进档案，刷新需求指纹"
+    },
+    {
+      "token": "问答管线",
+      "name": "问答管线",
+      "def": "references/qa.md",
+      "touch": [
+        "SKILL.md",
+        "qa.md",
+        "domain.md"
+      ],
+      "products": [],
+      "fixture": "—（会话行为管线；机械面=lint 触点可达，真实会话审计承载）",
+      "plain": "用户问代码/领域问题时，先复述「我理解你在问什么」再探索作答的固定流程"
+    },
+    {
+      "token": "services.json",
+      "name": "services.json",
+      "def": "data.md「services.json」节（服务端口租约）",
+      "touch": [
+        "new-task.md",
+        "resume.md",
+        "merge.md"
+      ],
+      "products": [],
+      "fixture": "I14",
+      "plain": "本地服务端口租约表：防止两个会话的开发服务抢同一个端口"
+    },
+    {
+      "token": "需求变更门",
+      "name": "需求变更门",
+      "def": "SKILL.md 反馈分类（隐性升级行）",
+      "touch": [
+        "SKILL.md",
+        "merge.md"
+      ],
+      "products": [],
+      "fixture": "—（SKILL 拍板门；落痕由 req-confirm/reqChanges fixture 承载）",
+      "plain": "验收标准和 PRD 原口径冲突时，必须先呈报「原口径→新口径」让用户拍板才许动工"
+    },
+    {
+      "token": "DEP_ASK_GATE",
+      "name": "DEP_ASK_GATE",
+      "def": "SKILL.md 硬规则 22",
+      "touch": [
+        "SKILL.md",
+        "new-task.md",
+        "domain.md"
+      ],
+      "products": [],
+      "fixture": "—（问答门 prose 触点；检测面 = tf.mjs skills exit code 承载）",
+      "plain": "外部依赖先检测再用：缺了必须列清单问用户装不装，禁止默默降级照跑"
+    },
+    {
+      "token": "MERGE_GATE",
+      "name": "MERGE_GATE",
+      "def": "references/merge.md 第 5 步（快照门+越界门+渲染证据门接线，细则唯一载体）+ tf.mjs snapshot/mergegate 命令（门一文件级分类：黄=免重审/红=命中读写集逐文件重审，v2.59.0；无快照 fail-closed v2.81.0）",
+      "touch": [
+        "merge.md",
+        "tf.mjs",
+        "tf.test.mjs"
+      ],
+      "products": [],
+      "fixture": "tf.test.mjs",
+      "plain": "合并三门：①main 在你审查后动过没——动过但没碰你的读写集=只同步+刷新快照（免重审），碰了=逐文件重审再合，没拍快照=红（缺档不放行）；②你的改动超出声明的文件范围=红；③改了样式却没交渲染证据=红"
+    },
+    {
+      "token": "STALE_CHECK",
+      "name": "STALE_CHECK",
+      "def": "merge.md 第 5 步（合并落定后全量扫接线）+ resume.md 第 5 步（接管/resume 对账接线，细则唯一载体）+ tf.mjs stale 命令",
+      "touch": [
+        "merge.md",
+        "resume.md",
+        "tf.mjs",
+        "tf.test.mjs"
+      ],
+      "products": [],
+      "fixture": "tf.test.mjs",
+      "plain": "在途任务的影响面体检：主线改过的文件和你在做的任务有没有重叠，重叠=你的假设过期了，先重验再动工"
+    },
+    {
+      "token": "DISPATCH_OVERLAP",
+      "name": "DISPATCH_OVERLAP",
+      "def": "split.md 隔离判定表（场景① 并行前置预检，细则唯一载体）+ tf.mjs overlap 命令",
+      "touch": [
+        "split.md",
+        "tf.mjs",
+        "tf.test.mjs"
+      ],
+      "products": [],
+      "fixture": "tf.test.mjs",
+      "plain": "并行开工前的地盘检查：两个子任务要改同一批文件就不许并行，先查出来再派活"
+    },
+    {
+      "token": "可行性门",
+      "name": "可行性门",
+      "def": "references/new-task.md 第 3 步（三问+红线清单，细则唯一载体）",
+      "touch": [
+        "new-task.md",
+        "stages.md"
+      ],
+      "products": [],
+      "fixture": "—（prose 门无脚本；lint 触点可达承载）",
+      "plain": "开工前三问：需求有没有着落、改动能不能本仓库闭环、依赖齐不齐——把注定卡死的需求拦在建工作目录之前"
+    },
+    {
+      "token": "施工纪律",
+      "name": "施工纪律",
+      "def": "references/split.md「施工纪律」块（粒度红线/依赖图排序/垂直切片/验证锚点+内聚豁免，细则唯一载体）",
+      "touch": [
+        "split.md",
+        "new-task.md",
+        "templates/subtask-spec.md",
+        "stages.md"
+      ],
+      "products": [],
+      "fixture": "—（prose 门无脚本；lint 触点可达承载）",
+      "plain": "写实现步骤的四条规矩：别一步摊太大、先地基后楼层、每步做完系统都能跑、隔几步设个验证点"
+    },
+    {
+      "token": "RENDER_EVIDENCE_GATE",
+      "name": "RENDER_EVIDENCE_GATE",
+      "def": "SKILL.md 硬规则 11（视觉变更判定不由模型自判段，2026-10-27 看板字体失调两次打回沉淀）",
+      "touch": [
+        "merge.md",
+        "validate-changelog.sh",
+        "tf.mjs",
+        "tf.test.mjs"
+      ],
+      "products": [
+        "scripts/harness/validate-render-evidence.sh"
+      ],
+      "fixture": "tf.test.mjs",
+      "plain": "渲染证据哨兵：改了样式就必须在任务档案交真实渲染的截图或量测记录，防「几何指标全绿但页面没人看过」"
+    },
+    {
+      "token": "TF_HOME",
+      "name": "全局数据根",
+      "def": "scripts/tf.mjs（TF_TASKFLOW_HOME 抽象+L0 迁移）",
+      "touch": [
+        "data.md",
+        "tf.mjs"
+      ],
+      "products": [],
+      "fixture": "tf.test.mjs",
+      "plain": "跨安装路径的全局数据位置：环境变量可搬，旧位置自动迁移只读保留"
+    },
+    {
+      "token": "CONFIRM_RECEIPT",
+      "name": "确认回执门",
+      "def": "scripts/tf.mjs confirm 命令 + accept/mergegate 前置",
+      "touch": [
+        "data.md",
+        "tf.mjs"
+      ],
+      "products": [],
+      "fixture": "tf.test.mjs",
+      "plain": "用户验收确认的原话留档：没有回执就不许把任务翻成已合并"
+    },
+    {
+      "token": "GATE_HITS",
+      "name": "门咬合台账",
+      "def": "scripts/tf.mjs appendGateHit + doctor 报表",
+      "touch": [
+        "data.md",
+        "tf.mjs",
+        "templates/conventions.md"
+      ],
+      "products": [],
+      "fixture": "tf.test.mjs",
+      "plain": "每道门红黄拦截的记录本：长期从不咬合的门是卸载候选"
+    },
+    {
+      "token": "SCAFFOLD",
+      "name": "脚手架命令",
+      "def": "scripts/tf.mjs init/new/checkpoint/rollback",
+      "touch": [
+        "tf.mjs"
+      ],
+      "products": [],
+      "fixture": "tf.test.mjs",
+      "plain": "建档四命令：初始化、建任务、存档、回退都由脚本保证格式正确"
+    },
+    {
+      "token": "ATOMIC_WRITE",
+      "name": "原子写",
+      "def": "scripts/tf.mjs writeTaskJsonAtomic（tmp+rename）",
+      "touch": [
+        "data.md",
+        "tf.mjs"
+      ],
+      "products": [],
+      "fixture": "tf.test.mjs",
+      "plain": "任务档案落盘先写临时文件再改名：并发写也不会出现半个文件"
+    }
+  ]
+}

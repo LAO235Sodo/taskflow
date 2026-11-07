@@ -1,0 +1,17 @@
+{
+  "id": "__ID__",
+  "title": "__TITLE__",
+  "goal": "__TITLE__",
+  "tier": "__TIER__",
+  "anchor": "managed",
+  "status": "active",
+  "type": __TYPE__,
+  "branch": __BRANCH__,
+  "worktree": __WORKTREE__,
+  "baseBranch": "__BASEBRANCH__",
+  "createdAt": "__TS__",
+  "lastActiveAt": "__TS__",
+  "sessionID": null,
+  "checkpoints": [],
+  "subtasks": []
+}

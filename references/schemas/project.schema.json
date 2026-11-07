@@ -23,7 +23,8 @@
       "type": "object",
       "description": "部署唯一入口命令配置（v2.42.0 四件套①；无此配置 deploy 入口拒绝执行并打印模板）",
       "properties": {
-        "server": { "type": "string", "description": "目标服务器（ssh 别名/主机）" },
+        "form": { "type": "string", "enum": ["none", "jar", "generic"], "description": "部署形态（v3.0.0，deploy 包 variants 分档）：none=无部署；jar=服务器 jar 包+ssh/md5 对账（server/commands/jarPath 必填）；generic=通用命令清单（conventions 登记命令+确认门+--record 登记）" },
+        "server": { "type": "string", "description": "目标服务器（ssh 别名/主机；form=jar 必填）" },
         "statePath": { "type": "string", "description": "服务器 live-state 路径" },
         "jarPath": { "type": "string", "description": "服务器 jar 路径（启用 I17 实况对账）" },
         "jarProbe": { "type": "string", "description": "容器内 md5 探针命令（自带 ssh 前缀，优先于 jarPath）" },
@@ -31,7 +32,7 @@
         "webCommands": { "type": "array", "items": { "type": "string" }, "description": "前端部署命令序列（--web-only 时执行）" },
         "procProbe": { "type": "string", "description": "进程/容器清点探针命令（v2.62.0，透传 preflight --proc-probe）" }
       },
-      "required": ["server", "commands"],
+      "required": [],
       "additionalProperties": false
     },
     "deployment": {

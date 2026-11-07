@@ -290,8 +290,9 @@
         "重构",
         "审查"
       ],
-      "desc": "改动影响面/牵连排查：14 种引用形态清单+五步检索序列+影响面表（已核 N/未核 0），禁未排查宣称无影响——J19 牵连排查的载体技能",
-      "install": "本机自维护：~/.omp/agent/skills/impact-analysis（无远程仓，换机整目录拷贝）"
+      "aliases": ["影响面盘点", "消费方清单"],
+      "desc": "改动影响面/牵连排查：消费方清单（文件:行号+消费性质）+牵连模块表——变更影响盘点纪律的载体技能（能力接口，v3.0.0 随 taskflow 包分发）",
+      "install": "packs://carrier/impact-analysis"
     },
     {
       "id": "data-boundary",
@@ -299,8 +300,9 @@
         "数据边界",
         "统计"
       ],
-      "desc": "数据管道/统计/对比/推送/导出的真空形态枚举：量/时间/值/一致性/展示五维度检查+三禁（算了不传/传空容器/没数据硬凑）+形态×行为对照表——J20 数据边界的载体技能",
-      "install": "本机自维护：~/.omp/agent/skills/data-boundary（无远程仓，换机整目录拷贝）"
+      "aliases": ["数据管道", "上下游影响"],
+      "desc": "涉数据管道边界枚举+上下游影响面——数据边界纪律的载体技能（能力接口，v3.0.0 随 taskflow 包分发）",
+      "install": "packs://carrier/data-boundary"
     },
     {
       "id": "conflict-triage",
@@ -309,8 +311,9 @@
         "合并",
         "分级"
       ],
-      "desc": "合并冲突分级：5 种机械冲突白名单当场解+6 种语义冲突清单逐处呈报（禁当场选边）+灰区默认升语义+三行呈报模板——J07 合并冲突分级的载体技能；与 resolving-merge-conflicts 分工：彼管怎么解，此管怎么分级",
-      "install": "本机自维护：~/.omp/agent/skills/conflict-triage（无远程仓，换机整目录拷贝）"
+      "aliases": ["冲突分级", "写集重叠"],
+      "desc": "冲突分级载体技能（能力接口，v3.0.0 随 taskflow 包分发）：输入=两任务写集；输出=重叠面+冲突分级（可并行/需排序/需拆分）",
+      "install": "packs://carrier/conflict-triage"
     },
     {
       "id": "improve-codebase-architecture",
@@ -336,8 +339,9 @@
         "页面取证",
         "接口面"
       ],
-      "desc": "页面级问题排查的接口面全量取证：运行时网络清单/代码面 API 枚举两通道建「页面↔接口」映射表+双轮证据链（网络面+视觉面）+三面合围（基线/接口面/svc），禁凭话语猜单接口开查——J25 页面取证全量抓取的载体技能",
-      "install": "本机自维护：~/.omp/agent/skills/page-forensics（无远程仓，换机整目录拷贝）"
+      "aliases": ["页面故障", "接口映射"],
+      "desc": "页面取证载体技能（能力接口，v3.0.0 随 taskflow 包分发）：输入=页面级故障现象；输出=页面↔接口映射+取证清单",
+      "install": "packs://carrier/page-forensics"
     },
     {
       "id": "scope-assessment",
@@ -345,8 +349,9 @@
         "范围评估",
         "改动面"
       ],
-      "desc": "需求实现前的改动面枚举与容量评估：页面→逐页接口面→文件清单三层递进（呈报含 N 页面/M 接口/K 文件）+容量三档判定+超限处置决策树（拆分 vs wayfinder，禁硬塞）——J26 实现前范围与容量评估的载体技能",
-      "install": "本机自维护：~/.omp/agent/skills/scope-assessment（无远程仓，换机整目录拷贝）"
+      "aliases": ["范围", "容量评估"],
+      "desc": "范围评估载体技能（能力接口，v3.0.0 随 taskflow 包分发）：输入=需求描述+候选改动面；输出=「N 页面/M 接口/K 文件」枚举+单会话容量对照+超限拆分建议",
+      "install": "packs://carrier/scope-assessment"
     }
   ]
 }

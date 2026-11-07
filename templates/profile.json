@@ -1,0 +1,12 @@
+{
+  "_comment": "项目 profile（v3.0.0，F08/F09/F44）：建档/resume/merge/checkpoint 四触点先读本文件——门族启用、任务类型裁剪、确认档位、宿主声明以此为唯一真源。由 tf.mjs init 渲染/升级；模型禁自改确认档位。",
+  "confirm_tier": "detailed",
+  "host": "auto",
+  "deploy_form": "none",
+  "packs": { "frontend": false, "jvm-data": false, "deploy": false, "docs-prd": false, "changelog-gates": true, "briefing": false },
+  "carriers": { "decision": "unset", "installed": [] },
+  "task_types": {
+    "mirror-precedent": { "disable_packs": ["frontend", "briefing"], "spec_sections": ["目标", "验收标准", "改动文件集合声明"], "note": "成熟先例镜像类：高频低险，重栈门族整体卸载" }
+  },
+  "unified_sources": []
+}

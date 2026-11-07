@@ -41,7 +41,7 @@ sha1_12() { if command -v sha1sum >/dev/null 2>&1; then sha1sum | cut -c1-12; el
 PRD_DIR="docs/prd"
 CONV="$ROOT/.taskflow/conventions.md"
 if [ -f "$CONV" ]; then
-  FOUND="$(sed -n '/统一源/,/^## /p' "$CONV" | grep -oE '[^ `|]*prd[^ `|]*' | head -1 || true)"
+  FOUND="$(sed -n '/统一源/,/^## /p' "$CONV" | grep -vE '^[>-].*<[^>]*>$' | grep -oE '[^ `|]*prd[^ `|]*' | head -1 || true)" # v3.0.0：跳过模板占位行（<…> 包裹），防占位路径被当真源
   [ -n "$FOUND" ] && PRD_DIR="${FOUND%/}"
 fi
 

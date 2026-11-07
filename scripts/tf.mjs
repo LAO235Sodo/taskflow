@@ -34,7 +34,49 @@ import { fileURLToPath } from 'node:url';
 import { STATES, validateTransition } from './taskflow-state-machine.mjs'; // 状态机唯一机器源（v2.69.0）：枚举单源 + 写侧转换合法性断言
 import { GATE_MANIFEST } from '../assets/guard/taskflow-guard.js'; // guard 门描述符单源（v2.85.0）：mechanisms 读数据不再解析头注释（guard 顶层零副作用，静态导入安全）
 import { J20_WORD_RE, J20_CODE_RE, j20CodeLines, j20Scan, EXT_FAMILY } from '../assets/shared/kernel.mjs'; // v2.86.0 单源共享内核（数据边界机械件唯一源，guard 同源）
+import { detectHost, usagePath, planScanDirs, guardTargets, redlineFile, canaryCmdBin } from '../assets/shared/host-adapter.mjs'; // v3.0.0 宿主适配单点（F02/F14/F36）：检测/埋点/计划扫描/守门落点/红线载体——宿主差异全收敛于此
 
+
+// ── v3.0.0 全局数据根（F02）：TF_TASKFLOW_HOME 可移植覆盖，缺省 ~/.local/state/taskflow（XDG 风格，宿主中立）。
+//    全局注册表（L0 projects.json）与未来全局态一律住这里；旧 ~/.config/opencode/taskflow/ 首触达单向迁移（不删原文件）。
+const TF_HOME = process.env.TF_TASKFLOW_HOME || path.join(os.homedir(), '.local', 'state', 'taskflow');
+const LEGACY_L0_DIR = path.join(os.homedir(), '.config', 'opencode', 'taskflow');
+// L0 注册表路径 + 一次性迁移（cp 不 mv：旧路径只读保留，README 注明废弃）。
+function l0RegistryPath() {
+  const tgt = path.join(TF_HOME, 'projects.json');
+  try {
+    const legacy = path.join(LEGACY_L0_DIR, 'projects.json');
+    if (fs.existsSync(legacy) && !fs.existsSync(tgt)) {
+      fs.mkdirSync(TF_HOME, { recursive: true });
+      fs.copyFileSync(legacy, tgt);
+    }
+  } catch { /* 迁移尽力而为：失败按无注册表处理 */ }
+  return tgt;
+}
+// 项目注册/刷新（init 与档案写路径共用）：key=remote 规范化或主仓库绝对路径。
+function projectKey(mainRoot) {
+  const url = git(['remote', 'get-url', 'origin'], mainRoot, true);
+  if (!url) return path.resolve(mainRoot);
+  return url.replace(/^(https:\/\/|ssh:\/\/|git@)/, '').replace(/\.git$/, '').replace(':', '/');
+}
+function registerProjectL0(mainRoot) {
+  try {
+    const p = l0RegistryPath();
+    fs.mkdirSync(TF_HOME, { recursive: true });
+    const j = readJson(p) ?? { projects: [] };
+    if (!Array.isArray(j.projects)) j.projects = [];
+    const key = projectKey(mainRoot);
+    const row = j.projects.find((x) => x?.key === key);
+    const now = new Date().toISOString();
+    if (row) row.lastActiveAt = now;
+    else j.projects.push({ key, name: path.basename(path.resolve(mainRoot)), registeredAt: now, lastActiveAt: now });
+    const tmp = p + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(j, null, 2) + '\n');
+    fs.renameSync(tmp, p);
+  } catch { /* L0 写失败不阻断项目侧命令 */ }
+}
+// 宿主单例（进程内缓存）：detectHost 走 env 优先（TF_HOST 注入），痕迹探测 fs.existsSync。
+const HOST = detectHost(process.env, (p) => { try { return fs.existsSync(p); } catch { return false; } });
 const R = (s) => String(s ?? '').trim();
 const trunc = (s, n) => { const a = Array.from(String(s ?? '')); return a.length > n ? a.slice(0, n - 1).join('') + '…' : a.join(''); }; // 码点安全切片（攻击轮 C5：UTF-16 码元切片切裂代理对 → U+FFFD）
 
@@ -134,7 +176,7 @@ function relTime(iso) {
   if (s < 86400) return `${Math.floor(s / 3600)} 小时前`;
   return `${Math.floor(s / 86400)} 天前`;
 }
-const STATUS = { active: 'active', verifying: '等验收', parked: '已搁置', merged: '已合并', archived: 'archived' };
+const STATUS = { active: '进行中(active)', verifying: '待验收(verifying)', parked: '已搁置(parked)', merged: '已合并(merged)', archived: '已归档(archived)' }; // v3.0.0 双语状态词（F40）：中文在前、英文括号一次；机器比较一律用原始枚举值，本表仅渲染
 
 function locate() {
   const common = git(['rev-parse', '--path-format=absolute', '--git-common-dir'], process.cwd(), true);
@@ -161,10 +203,21 @@ const resolveMainRef = (mainRoot) => {
   } catch { /* project.json 缺失/坏档走回退链 */ }
   return ['main', 'master', 'origin/main'].find((r) => git(['-C', mainRoot, 'rev-parse', '--verify', r], mainRoot, true)) ?? null;
 };
-// 「分支已并入主 ref」判定（v2.69.0 抽取，accept --pass 前置门与 gates 共用）：
+// v3.0.0（F46）：commit 乐观锁/锚定任务解析扩展到任意分支（含 main）——先按 branch 精确命中；
+// 未命中且当前分支=主分支时，恰有一个无分支记录的 active/verifying 任务（attached-on-main）且无歧义 → 命中它。
+function taskForBranch(tasks, br, mainRoot) {
+  const byBranch = tasks.find((x) => x.branch === br);
+  if (byBranch) return byBranch;
+  if (!br || !mainRoot) return null;
+  const mainRef = resolveMainRef(mainRoot);
+  if (!mainRef || br !== mainRef) return null;
+  const cands = tasks.filter((x) => !x.branch && (x.status === 'active' || x.status === 'verifying'));
+  return cands.length === 1 ? cands[0] : null; // 多义=拒绝猜（全局判定纪律）
+}
 // 合并事实 = 分支可达自**任一**主 ref（origin/main 可能落后于本地 main——本地合并未 push 时先命中它会误拒，2026-09-23 实证）；
 // baseBranch（任务集成的基线分支，如 origin/main-view2）同为合法主 ref 候选——非 main 命名主分支项目缺它必误拒（2026-09-24 实证）。
 // 返回 { mainRefs, merged }：merged=null 表示无主 ref 可判（调用方自行降级为无法机械校验）。
+// 「分支已并入主 ref」判定（v2.69.0 抽取，accept --pass 前置门与 gates 共用）：
 function isMergedIntoMain(t, mainRoot) {
   const mainRefs = ['origin/main', 'main', 'master', t.baseBranch].filter(Boolean)
     .filter((r) => git(['-C', mainRoot, 'rev-parse', '--verify', r], mainRoot, true));
@@ -230,9 +283,19 @@ function appendEvent(tasksDir, evt) {
   }
 }
 
+// v3.0.0 门咬合台账（F34）：门红/黄时追加 .taskflow/meta/gate-hits.jsonl（ts/gate/result/taskId）——
+// 流程审计的咬合率判据（连续 5 任务零咬合的门族=卸载候选，doctor 出报表）；只写不读命令面（报表归 doctor）。
+function appendGateHit(tasksDir, gate, result, taskId) {
+  try {
+    fs.mkdirSync(path.join(tasksDir, 'meta'), { recursive: true });
+    fs.appendFileSync(path.join(tasksDir, 'meta', 'gate-hits.jsonl'), JSON.stringify({ ts: new Date().toISOString(), gate, result, taskId }) + '\n');
+  } catch { /* 台账写失败不阻门判定 */ }
+}
+
 function ls(args = []) {
   const { isGit, mainRoot, tasksDir } = locate();
   const all = args.includes('--all');
+  const full = args.includes('--full'); // v3.0.0（F40/F37③）：缺省摘要模式（≤8 行任务表+待验收块+图例）；--full 才输出全量双列层级表
   const index = readJson(path.join(tasksDir, 'index.json'))?.tasks ?? [];
   const tasks = loadTasks(tasksDir);
   console.log(`# taskflow 盘点`);
@@ -265,9 +328,27 @@ function ls(args = []) {
         console.log(`- ${t.id} ${trunc(t.title ?? '', 30)} — 等验收 ${waitDays(t)}${exposure} · 验收简报：node tf.mjs accept ${t.id}`);
       }
     }
-    console.log(`\n## 登记任务（${all ? '全部' : 'active/verifying/parked'} 共 ${live.length} 个）`);
+    console.log(`\n## 登记任务（${all ? '全部' : 'active/verifying/parked'} 共 ${live.length} 个${full ? '' : '，摘要模式——ls --full 看全量'}）`);
     if (!live.length) console.log('（无进行中的任务）');
-    else {
+    else if (!full) {
+      // v3.0.0 摘要模式：≤8 行紧凑表（id/标题/状态/tier/最后活跃）+ 图例一行；I21 遗留敞口 ℹ 行并入
+      console.log('| id | 标题 | 状态 | tier | 最后活跃 |');
+      console.log('|---|---|---|---|---|');
+      for (const t of live.slice(0, 8)) {
+        const stCell = t.status === 'parked' ? STATUS.parked : (isVerifying(t) ? `待验收(verifying)·${waitDaysNum(t)}天` : (STATUS[t.status] ?? t.status));
+        const parkNote = t.status === 'parked' && t.parkedReason ? `（${trunc(t.parkedReason, 24)}）` : '';
+        const chain = typeof t.baseBranch === 'string' && t.baseBranch.startsWith('task/') ? ` ⛓` : '';
+        console.log(`| ${t.id}${chain} | ${trunc(t.title ?? '—', 26)} | ${stCell}${parkNote} | ${t.tier ?? '—'} | ${relTime(t.lastActiveAt ?? index.find((e) => e.id === t.id)?.lastActiveAt)} |`);
+      }
+      if (live.length > 8) console.log(`（还有 ${live.length - 8} 个未列——ls --full 全量 / ls --all 含归档）`);
+      console.log('图例：⛓ 链式（baseBranch=task/*，合并/部署顺序约束）/ 📌 待验收 / ⚠ 敞口（已部署未合并 main）');
+      // I21 遗留敞口（F30）：verifying ∧ 无 deploy 记录 ∧ lastActiveAt 超 3 天 → ℹ 呈报行（不红）
+      for (const t of ver) {
+        if (t.deploy?.deployedAt || t.deploy?.status === 'verifying') continue;
+        const days = (Date.now() - Date.parse(t.lastActiveAt ?? 0)) / 86400000;
+        if (Number.isFinite(days) && days > 3) console.log(`ℹ 遗留敞口（I21）：${t.id} verifying 无 deploy 记录且 ${Math.floor(days)} 天未活跃——确认部署状态或 req-confirm 校准口径`);
+      }
+    } else {
       console.log('| 一级任务 | 二级任务（派生/链式） | 标题 | 目标 | 状态 | tier | 子任务 | 最后活跃 | checkpoint 摘要 |');
       console.log('|---|---|---|---|---|---|---|---|---|');
       // v2.45.1 双列层级（2026-10-09 用户看过树形实物后拍板"加一列区分"）：一级列=簇头（血缘根），二级列=派生任务
@@ -312,7 +393,7 @@ function ls(args = []) {
         const cps = t.checkpoints ?? [];
         const lastCp = cps[cps.length - 1];
         const lastActive = t.lastActiveAt ?? index.find((e) => e.id === t.id)?.lastActiveAt;
-        const stCell = t.status === 'parked' ? STATUS.parked : (isVerifying(t) ? `等验收(${waitDaysNum(t)}天)` : (STATUS[t.status] ?? t.status));
+        const stCell = t.status === 'parked' ? STATUS.parked : (isVerifying(t) ? `待验收(verifying)·${waitDaysNum(t)}天` : (STATUS[t.status] ?? t.status));
         const parkNote = t.status === 'parked' && t.parkedReason ? `（${trunc(t.parkedReason, 40)}）` : ''; // 并入状态列渲染：拼在行尾管道符后会被 GFM 渲染器当超额单元格整体丢弃（攻击轮 C3）
         const chain = typeof t.baseBranch === 'string' && t.baseBranch.startsWith('task/') ? ` ⛓${trunc(t.baseBranch.slice(5), 22)}` : '';
         console.log(
@@ -376,6 +457,7 @@ function ls(args = []) {
     : '\n（↑ 把上表原样呈现给用户供其选择，然后问："继续哪个？"）');
   else if (live.length) console.log('\n（↑ 进行中任务均已搁置：parked 任务不续做——恢复跑 node tf.mjs unpark <task-id>（低影响可直接执行）；也可问是否新建）');
   else if (mergedCount) console.log('\n（↑ 无进行中任务：把「📌 可续迭代」入口句原样转述给用户——可直接复制；或问是否新建）');
+  console.log(`下一步：${liveCount ? '继续任务（resume）/ 验收（accept） / 存档（checkpoint）' : '新建任务（node tf.mjs new "<标题>"）'}｜全量明细 ls --full｜体检 doctor`);
   return 0;
 }
 
@@ -464,7 +546,8 @@ function strays({ mainRoot, tasksDir, index, tasks }) {
     }
   }
 
-  const planDir = path.join(os.homedir(), '.opencode', 'plan');
+  // v3.0.0 宿主适配（F14）：计划扫描目录经 adapter——omp 扫 ~/.opencode/plan，其余宿主不扫（[]）
+  for (const planDir of planScanDirs(HOST)) {
   if (fs.existsSync(planDir)) {
     const proj = path.basename(mainRoot);
     const files = fs.readdirSync(planDir)
@@ -477,8 +560,9 @@ function strays({ mainRoot, tasksDir, index, tasks }) {
       let head = '';
       try { head = fs.readFileSync(o.p, 'utf8').split('\n').slice(0, 40).join('\n'); } catch {}
       if (!head.includes(proj) && !head.includes(mainRoot)) continue;
-      items.push({ kind: 'plan', text: `📄 计划交接文档 ~/.opencode/plan/${o.f} · ${relTime(new Date(o.mt).toISOString())}`, sortKey: o.mt / 1000 });
+      items.push({ kind: 'plan', text: `📄 计划交接文档 ${planDir}/${o.f} · ${relTime(new Date(o.mt).toISOString())}`, sortKey: o.mt / 1000 });
     }
+  }
   }
 
   items.sort((a, b) => b.sortKey - a.sortKey);
@@ -514,6 +598,9 @@ const INVARIANTS = [
   { id: 'I16', desc: 'verifying 敞口：deploy 在档且分支∉main 超 24h → 红（线上跑分支包，main 构建部署将静默滚回）' },
   { id: 'I17', desc: '线上实况对账：live-state md5 vs 服务器实际 jar md5（jarProbe 实物探针优先，v2.64.0；ssh 只读；无 deploy 配置/ssh 不通=信息级跳过；本地触点版，CI/CD 到位后被流水线替代）' },
   { id: 'I18', desc: '（提示级；仅 active）账实对账：分支已并入 main=疑似漏收口；lastActiveAt≥14 天且 lease 过期=疑似搁置' },
+  { id: 'I19', desc: 'conventions 完备性：文件存在 + 必备小节（确认档位/推送与部署/验证清单/完成定义/禁止事项）齐 + 档位值 ∈ {detailed,batch}（v3.0.0，缺=红）' },
+  { id: 'I20', desc: '包完整性：packs/*/manifest.json 可解析 + 核心引用的 token 都有对应包 + mechanisms.json 与 manifest 一致（v3.0.0）' },
+  { id: 'I21', desc: '（提示级）遗留敞口：verifying ∧ 无 deploy 记录 ∧ lastActiveAt 超 3 天 → ℹ 呈报行（不红，进 ls 摘要；v3.0.0，F30）' },
 ];
 
 /* ---------------- doctor --self：spec↔注册表↔实现 三源一致性 ----------------
@@ -695,6 +782,93 @@ function doctor(args = []) {
     }
   }
 
+  // I19（项目级，红级，v3.0.0/F08）：conventions 完备性——文件存在 + 必备小节齐 + 档位值合法。
+  // 治「conventions 名存实亡」：骨架被删节/档位被改坏=每会话必读的约定层断供；升级模式 init 补齐。
+  {
+    const convP = path.join(tasksDir, 'conventions.md');
+    if (!fs.existsSync(convP)) { console.log(`⚠ 约定完备（I19） conventions.md 缺失 → node tf.mjs init（升级模式补骨架不覆盖既有内容）`); projDirty++; }
+    else {
+      const txt = fs.readFileSync(convP, 'utf8');
+      const need = ['确认档位', '推送与部署', '验证清单', '完成定义', '禁止事项'];
+      const missing = need.filter((s) => !new RegExp(`^#{1,6}[^\\n]*${s}`, 'm').test(txt));
+      const tierM = txt.match(/确认档位[：:]\s*(detailed|batch)/);
+      if (missing.length) { console.log(`⚠ 约定完备（I19） conventions.md 缺必备小节：${missing.join('、')} → node tf.mjs init 补齐`); projDirty++; }
+      else if (!tierM) { console.log(`⚠ 约定完备（I19） 「确认档位」节无合法档位值（须含「确认档位： detailed」或「确认档位： batch」行；模型禁自改档位）`); projDirty++; }
+      else console.log(`✓ 约定完备（I19） conventions.md 小节齐，档位=${tierM[1]}`);
+    }
+  }
+
+  // I20（技能级，红级，v3.0.0/F22）：包完整性——packs manifest 可解析 + mechanisms.json 与 manifest 一致。
+  // 生成链单一：改 manifest 后跑 scripts/gen-mechanisms.mjs；两源漂移=doctor 红（release 链内必跑）。
+  {
+    const skillRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+    const packsDir = path.join(skillRoot, 'packs');
+    let i20Bad = 0;
+    const manifests = fs.existsSync(packsDir) ? fs.readdirSync(packsDir, { withFileTypes: true }).filter((d) => d.isDirectory() && fs.existsSync(path.join(packsDir, d.name, 'manifest.json'))) : [];
+    for (const d of fs.existsSync(packsDir) ? fs.readdirSync(packsDir, { withFileTypes: true }) : []) {
+      if (!d.isDirectory()) continue;
+      const mp = path.join(packsDir, d.name, 'manifest.json');
+      if (!fs.existsSync(mp)) continue;
+      if (!readJson(mp)) { console.log(`⚠ 包完整（I20） packs/${d.name}/manifest.json 不可解析 → 修 JSON（schema 见 PACK 文档）`); i20Bad++; }
+    }
+    const mechPath = path.join(skillRoot, 'references', 'schemas', 'mechanisms.json');
+    const mech = readJson(mechPath);
+    if (!mech || !Array.isArray(mech.mechanisms) || !mech.mechanisms.length) { console.log(`⚠ 包完整（I20） references/schemas/mechanisms.json 缺失/为空 → node scripts/gen-mechanisms.mjs 再生成`); i20Bad++; }
+    else {
+      const packTokens = new Set(manifests.map((d) => readJson(path.join(packsDir, d.name, 'manifest.json'))?.token ?? d.name));
+      const jsonPackRows = mech.mechanisms.filter((m) => m?.pack);
+      const jsonTokens = new Set(jsonPackRows.map((m) => m.token));
+      for (const tk of packTokens) if (!jsonTokens.has(tk)) { console.log(`⚠ 包完整（I20） manifest token ${tk} 未进 mechanisms.json → node scripts/gen-mechanisms.mjs（改 manifest 必须重生成）`); i20Bad++; }
+      for (const tk of jsonTokens) if (!packTokens.has(tk)) { console.log(`⚠ 包完整（I20） mechanisms.json 含无 manifest 的包 token ${tk}（陈旧生成物？）→ 重跑 gen-mechanisms.mjs`); i20Bad++; }
+    }
+    if (!i20Bad) console.log(`✓ 包完整（I20） packs manifest ${manifests.length} 项可解析，mechanisms.json 与 manifest 一致`);
+    else projDirty++;
+  }
+
+  // I21（提示级，v3.0.0/F30）：遗留敞口——verifying ∧ 无 deploy 记录 ∧ lastActiveAt 超 3 天 → ℹ 呈报（不红）。
+  for (const t of allTasks) {
+    if (t.status !== 'verifying') continue;
+    if (t.deploy?.deployedAt || t.deploy?.status === 'verifying') continue;
+    const days = (Date.now() - Date.parse(t.lastActiveAt ?? 0)) / 86400000;
+    if (Number.isFinite(days) && days > 3) console.log(`ℹ 遗留敞口（I21） ${t.id} verifying 无 deploy 记录且 ${Math.floor(days)} 天未活跃——确认部署状态（commit --deployed / deploy --record）或 req-confirm 校准口径`);
+  }
+
+  // 复发台账报表（v3.0.0/F27）：.taskflow/meta/recurrence.json 每类事故最近复发时间；台账不存在=静默。
+  {
+    const rcP = path.join(tasksDir, 'meta', 'recurrence.json');
+    const rc = readJson(rcP);
+    if (rc && Array.isArray(rc.classes)) {
+      console.log('\n## 复发台账（同类事故复发监控）');
+      for (const c of rc.classes) {
+        if (!c?.name) continue;
+        console.log(`- ${c.name}：最近复发 ${c.lastRecurredAt ?? '—'}${c.count ? `（累计 ${c.count} 次）` : ''}${c.remedy ? `｜根治手法：${trunc(c.remedy, 40)}` : ''}`);
+      }
+    }
+  }
+
+  // 门咬合台账报表（v3.0.0/F34）：meta/gate-hits.jsonl 按门族统计——连续 5 任务零咬合的门族=卸载候选（流程审计判据）。
+  {
+    const ghP = path.join(tasksDir, 'meta', 'gate-hits.jsonl');
+    let rows = [];
+    try { rows = fs.readFileSync(ghP, 'utf8').split('\n').filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean); } catch { /* 无台账=从未咬合 */ }
+    if (rows.length) {
+      console.log('\n## 门咬合统计（红/黄命中台账；连续 5 任务零咬合=卸载候选）');
+      const byGate = new Map();
+      for (const r of rows) {
+        const g = byGate.get(r.gate) ?? { red: 0, yellow: 0, tasks: new Set(), last: null };
+        if (r.result === 'red') g.red++; else if (r.result === 'yellow') g.yellow++;
+        if (r.taskId) g.tasks.add(r.taskId);
+        g.last = r.ts ?? g.last;
+        byGate.set(r.gate, g);
+      }
+      const totalTasks = new Set(allTasks.map((t) => t.id)).size;
+      for (const [gate, g] of byGate) {
+        const silent = totalTasks >= 5 && g.tasks.size < Math.max(1, totalTasks - 5); // 粗判：台账覆盖任务远少于在档任务
+        console.log(`- ${gate}：红 ${g.red} / 黄 ${g.yellow}（命中 ${g.tasks.size} 个任务）${g.last ? `｜最近 ${relTime(g.last)}` : ''}${silent ? '｜⚠ 近期零咬合——卸载候选（拍板后才动）' : ''}`);
+      }
+    } else console.log('\nℹ 门咬合台账（meta/gate-hits.jsonl）为空或不存在——门从未红/黄过（新项目正常态；零咬合满 5 任务后进卸载候选评估）');
+  }
+
   // I17 线上实况对账（v2.42.0 本地触点版，项目级红级条件触发）：live-state 登记 md5 vs 服务器实际 jar md5
   //   ——治「漏登记部署/手工换包不可见」（历史修复包上线 8 天无登记无人知）。前提=project.json deploy 配置
   //   （server/jarPath 或 jarProbe）；ssh 不通/无配置=信息级跳过（通用项目零误报）。用户拍板 2026-10-08：不上服务器侧 cron，
@@ -704,7 +878,8 @@ function doctor(args = []) {
   {
     const pjP17 = path.join(tasksDir, 'project.json');
     const dep17 = fs.existsSync(pjP17) ? (readJson(pjP17)?.deploy ?? null) : null;
-    if (dep17?.server && (dep17.jarPath || dep17.jarProbe)) {
+    if (dep17?.form && dep17.form !== 'jar') console.log(`ℹ 实况对账（I17） deploy.form=${dep17.form}（jar 专属探针不加载——generic/none 形态走 conventions 登记命令+确认门）`); // v3.0.0（F20/F14）：ssh/jar 探针只在 jar 形态可达
+    else if (dep17?.server && (dep17.jarPath || dep17.jarProbe)) {
       let remote = '';
       let via = '';
       if (dep17.jarProbe) {
@@ -1081,6 +1256,14 @@ function syncIndexRow(tasksDir, t) {
   fs.renameSync(tmpP, indexPath);
 }
 
+// v3.0.0 原子写（F29）：task.json 全量落盘走 tmp+rename（复用 syncIndexRow 模式）——并发 checkpoint/接管/翻转
+// 不再可能读到半截 JSON；写后仍须调 syncIndexRow（data.md 纪律不变）。
+function writeTaskJsonAtomic(p, obj) {
+  const tmp = p + '.tmp';
+  fs.writeFileSync(tmp, JSON.stringify(obj, null, 2) + '\n');
+  fs.renameSync(tmp, p);
+}
+
 function reconcile(args = []) {
   const fix = args.includes('--fix');
   const { tasksDir } = locate();
@@ -1256,7 +1439,7 @@ function skillsCmd(args = []) {
   // --usage：技能加载埋点报表（v2.69.0，只读）——守门 T 模块写入的单文件聚合。
   // 左联注册表（零加载技能也在列）；按总次数升序（冷技能在前）。口径局限在尾行声明。
   if (args.includes('--usage')) {
-    const file = process.env.TF_SKILL_USAGE || path.join(os.homedir(), '.omp', 'agent', 'skill-usage.jsonl');
+    const file = process.env.TF_SKILL_USAGE || usagePath(HOST) || ''; // v3.0.0 经 adapter（F36）：omp 有埋点文件，其余宿主无（空串=只读不写）
     let rows = [];
     try {
       rows = fs.readFileSync(file, 'utf8').split('\n').filter(Boolean)
@@ -1299,20 +1482,27 @@ function skillsCmd(args = []) {
       try { if (fs.statSync(path.join(d, e.name)).isDirectory()) installed.add(e.name); } catch {}
     }
   }
-  const want = reg.skills.filter((s) => s?.id && (!args.length || (s.domains ?? []).some((x) => args.includes(x))));
-  if (!want.length) { console.log(`注册表中无匹配「${args.join(' ')}」领域的技能（共 ${reg.skills.length} 项，不带参数=全部；领域词须用注册表精确词如「前端UI」「测试」）——**无匹配 ≠ 依赖齐**：修正领域词重跑，仍无匹配按有缺处理（v2.53.0 对抗审查实证：旧版 exit 0 假绿，检测核心输入无兜底）`); return 1; }
+  const want = reg.skills.filter((s) => s?.id && (!args.length || (s.domains ?? []).some((x) => args.includes(x)) || (s.aliases ?? []).some((x) => args.includes(x)))); // v3.0.0（F46）：领域词别名表——「冲突分级→conflict-triage」等中文领域词直查
+  if (!want.length) { console.log(`注册表中无匹配「${args.join(' ')}」领域的技能（共 ${reg.skills.length} 项，不带参数=全部；领域词须用注册表精确词如「前端UI」「测试」，载体技能可用别名：冲突分级/范围/影响面/数据边界/页面取证）——**无匹配 ≠ 依赖齐**：修正领域词重跑，仍无匹配按有缺处理`); return 1; }
 
   console.log('# taskflow 领域技能检测');
   console.log(`检索目录：${dirs.join(' : ')}`);
   const missing = [];
   for (const s of want) {
     const has = installed.has(s.id);
-    console.log(`${has ? '✓' : '✗'} ${s.id}（${(s.domains ?? []).join('/')}）—— ${s.desc ?? ''}${has ? '' : s.install ? '' : '；安装源待补'}`);
+    console.log(`${has ? '✓' : '✗'} ${s.id}（${[...(s.domains ?? []), ...(s.aliases ?? [])].join('/')}）—— ${s.desc ?? ''}${has ? '' : s.install ? '' : '；安装源待补'}`);
     if (!has) missing.push(s);
   }
   if (!missing.length) { console.log(`\n✓ 领域技能全部就位（${want.length} 项）`); return 0; }
   console.log(`\n缺 ${missing.length} 个。把以下清单呈给用户选择安装哪些（网络安装，逐个确认后执行）：`);
-  for (const s of missing) console.log(`  ${s.id}：${s.install || '（安装源待补——请提供仓库地址，填入 skills-registry.json 的 install 字段后永久生效）'}`);
+  for (const s of missing) {
+    const inst = typeof s.install === 'string' ? s.install : null;
+    if (inst && inst.startsWith('packs://')) { // v3.0.0（F07/F43）：包内载体技能——检测先看目标目录（上面 installed 已判），回源包安装
+      console.log(`  ${s.id}：随包安装——node <skill目录>/scripts/tf.mjs packs install carrier ${s.id}（源：${inst}）`);
+      continue;
+    }
+    console.log(`  ${s.id}：${inst || '（安装源待补——请提供仓库地址，填入 skills-registry.json 的 install 字段后永久生效）'}`);
+  }
   console.log('\n用户不装 → 该领域后续审查如实注记「未经 XX 审查」，不假装在。');
   const noInstall = (reg?.skills ?? []).filter((x) => x && x.id && !x.install);
   if (noInstall.length) console.log(`⚠ 登记纪律：注册表 ${noInstall.length} 项缺 install 地址（${noInstall.map((x) => x.id).join('、')}）——新技能入表必须带地址（公共技能=仓库 URL / 项目自有=「项目自有：<名>」），存量待补齐`);
@@ -1393,13 +1583,19 @@ function acceptPass(tasksDir, t) {
   } else if (isGit && !t.branch) {
     console.log('ℹ 任务无分支记录（attached/非 git 工作流）——合并前置无法脚本校验，合并事实由编排层确认');
   }
+  // v3.0.0 确认回执门（F32）：验收翻转须 ≥1 条用户确认原话在档——「用户说通过」可机检，模型转述不算数
+  const receipts = confirmationsOf(tasksDir, t.id);
+  if (!receipts.length) {
+    console.log(`⛔ ${t.id} 无确认回执（.taskflow/${t.id}/confirmations.jsonl 空/缺）——先落用户确认原话：node tf.mjs confirm ${t.id} --note "<用户确认原话>"，再 accept --pass`);
+    return 1;
+  }
   const p = path.join(tasksDir, t.id, 'task.json');
   const j = readJson(p);
   if (!j) { console.log('⚠ task.json 损坏 → 翻转中止（先修复档案）'); return 1; }
   assertTransition(t.status, 'merged', 'accept --pass'); // active→merged 与 verifying→merged 两行均覆盖
   j.status = 'merged';
   j.mergedAt = new Date().toISOString();
-  fs.writeFileSync(p, JSON.stringify(j, null, 2) + '\n');
+  writeTaskJsonAtomic(p, j); // v3.0.0 原子写（F29）
   syncIndexRow(tasksDir, j);
   appendEvent(tasksDir, { task: t.id, from: t.status, to: 'merged', cmd: 'accept --pass' });
   console.log(`✓ ${t.id}：${t.status} → merged（用户验收通过 ${j.mergedAt}）+ index 已同步`);
@@ -1456,7 +1652,7 @@ function takeover(args = []) {
   }
   j.sessionID = session;
   j.activeLease = { sessionID: session, acquiredAt: new Date().toISOString(), heartbeatAt: new Date().toISOString() };
-  fs.writeFileSync(p, JSON.stringify(j, null, 2) + '\n');
+  writeTaskJsonAtomic(p, j); // v3.0.0 原子写（F29）
   syncIndexRow(tasksDir, j);
   console.log(`✓ 已接管：sessionID=${session}，LEASE 刷新，index 已同步`);
   if (t.worktree && fs.existsSync(t.worktree)) {
@@ -1513,7 +1709,7 @@ function parkCmd(args = []) {
   j.parkedReason = safeReason;
   j.parkedAt = ts;
   j.lastActiveAt = ts;
-  fs.writeFileSync(p, JSON.stringify(j, null, 2) + '\n');
+  writeTaskJsonAtomic(p, j); // v3.0.0 原子写（F29）
   syncIndexRow(tasksDir, j);
   appendEvent(tasksDir, { task: id, from: t.status, to: 'parked', cmd: 'park' });
   console.log(`✓ ${id} → parked（${safeReason}）——G 门/体检（缺省）不再盘点它；恢复：unpark ${id}`);
@@ -1534,7 +1730,7 @@ function unparkCmd(args = []) {
   assertTransition(t.status, 'active', 'unpark');
   j.status = 'active';
   j.lastActiveAt = new Date().toISOString();
-  fs.writeFileSync(p, JSON.stringify(j, null, 2) + '\n');
+  writeTaskJsonAtomic(p, j); // v3.0.0 原子写（F29）
   syncIndexRow(tasksDir, j);
   appendEvent(tasksDir, { task: id, from: t.status, to: 'active', cmd: 'unpark' });
   console.log(`✓ ${id} → active（已恢复；lease 若过期续做前跑 takeover 语义核对）`);
@@ -1599,7 +1795,7 @@ function mirrorDeployRecord({ tasksDir, mainRoot, branch, stateFile, dep, deploy
     if (rb) j.deploy.rollbackPoint = rb;
     if (prevStatus === 'active') j.status = 'verifying';
     j.lastActiveAt = new Date().toISOString();
-    fs.writeFileSync(p, JSON.stringify(j, null, 2) + '\n');
+    writeTaskJsonAtomic(p, j); // v3.0.0 原子写（F29）
     syncIndexRow(tasksDir, j);
     if (prevStatus === 'active') {
       appendEvent(tasksDir, { task: t.id, from: prevStatus, to: 'verifying', cmd: 'deploy' });
@@ -1805,12 +2001,23 @@ function lockCmd(args = []) {
      无反引号 = 空集不参与机读）；
    matchPath：精确相等，或声明项尾 / 目录前缀覆盖子孙（文件声明不当前缀——`src/a.ts` 不匹配 `src/a.ts.bak`）。
    normRel：`./`与`../`前缀链归一——对抗实锤 RC6：半截净化把 ../src/a.ts 变 /src/a.ts 与 src/a.ts 永不相遇。 */
-const DECL_LINE_RE = /^\s*[-*]\s*\*\*改动文件集合声明\*\*\s*[：:]\s*(.+)$/gm; // 声明行唯一正则——parseWriteSet 与门二 declM 共用（审查自证加固⑤）；g 标志收全部声明行（对抗加固 RC3）
+const DECL_LINE_RE = /^\s*[-*]\s*\*\*改动文件集合声明\*\*\s*[：:]\s*(.+)$/gm; // 行内式声明行唯一正则——parseWriteSet 与门二 declM 共用（审查自证加固⑤）；g 标志收全部声明行（对抗加固 RC3）
+const DECL_HEADING_RE = /^#{1,6}\s*改动文件集合声明\s*$/m; // v3.0.0 标题式（F46）：`## 改动文件集合声明` 节标题——节内列表行反引号路径同样入写集
+const DECL_SAMPLE = '声明两种合法格式：行内式 `- **改动文件集合声明**：`src/a.ts` `src/auth/``；标题式 `## 改动文件集合声明` 节下逐行列 `- `src/a.ts``'; // 门红消息共用的精确样例（F46）
 const normRel = (p) => String(p ?? '').replace(/^(?:[.]{1,2}[/])+/, ''); // ./ 与 ../ 前缀链归一（对抗加固 RC6；夹具先红实证首版 [./] 专形漏 ../——同类半截模式）
 function parseWriteSet(specText) {
+  const text = String(specText ?? '');
   const out = new Set();
-  for (const m of String(specText ?? '').matchAll(DECL_LINE_RE)) {
+  for (const m of text.matchAll(DECL_LINE_RE)) {
     for (const x of m[1].matchAll(/`([^`]+)`/g)) { const p = normRel(x[1]); if (p) out.add(p); }
+  }
+  if (DECL_HEADING_RE.test(text)) { // 标题式：节内（到下一标题行止）所有反引号路径入集
+    let inDecl = false;
+    for (const l of text.split('\n')) {
+      if (/^#{1,6}\s+\S/.test(l)) { inDecl = /^#{1,6}\s*改动文件集合声明\s*$/.test(l); continue; }
+      if (!inDecl) continue;
+      for (const x of l.matchAll(/`([^`]+)`/g)) { const p = normRel(x[1]); if (p) out.add(p); }
+    }
   }
   return [...out];
 }
@@ -1865,7 +2072,7 @@ function snapshotCmd(args = []) {
   const tp = path.join(dir, 'task.json');
   const j = readJson(tp) ?? {};
   j.mergeSnapshot = { commit: head, ts: new Date().toISOString(), mainRef };
-  fs.writeFileSync(tp, JSON.stringify(j, null, 2) + '\n');
+  writeTaskJsonAtomic(tp, j); // v3.0.0 原子写（F29）
   t.mergeSnapshot = j.mergeSnapshot;
   syncIndexRow(tasksDir, t);
   console.log(`✓ 快照已拍：${mainRef} @ ${head.slice(0, 7)} → task.json.mergeSnapshot（合并前跑 node tf.mjs mergegate ${id} 比对）`);
@@ -1936,13 +2143,13 @@ function mergeGateBoundary(t, mainRoot, mainRef) {
   if (branch && git(['-C', mainRoot, 'rev-parse', '--verify', `refs/heads/${branch}`], mainRoot, true)) {
     const bBase = git(['-C', mainRoot, 'merge-base', mainRef, branch], mainRoot, true);
     const diffFiles = (git(['-C', mainRoot, '-c', 'core.quotePath=false', 'diff', '--no-renames', '--name-only', `${bBase}..${branch}`], mainRoot, true) ?? '').split('\n').filter(Boolean); // 对抗加固 RC1/RC2：重命名双名入清单+非 ASCII 不转义
-    const declM = specText.match(DECL_LINE_RE); // 审查自证加固⑤：与 parseWriteSet 共用唯一正则（消双份静默分叉）
+    const declM = specText.match(DECL_LINE_RE) || specText.match(DECL_HEADING_RE); // v3.0.0（F46）：行内式与标题式都认；与 parseWriteSet 共用正则（消双份分叉）
     if (!declM) {
-      g.findings.push('⛔ 越界门红：spec 无「改动文件集合声明」行 → 按模板补节（templates/spec.md「边界与影响面」），把本任务会动的文件用反引号列全再过本门');
+      g.findings.push(`⛔ 越界门红：spec 无「改动文件集合声明」→ 按模板补节（templates/spec.md「边界与影响面」），把本任务会动的文件用反引号列全再过本门。${DECL_SAMPLE}`);
       g.red = true;
-      g.reason = 'spec 无「改动文件集合声明」行';
+      g.reason = 'spec 无「改动文件集合声明」（行内式/标题式均无）';
     } else if (!writeSet.length) {
-      g.findings.push('⛔ 越界门红：声明行在但无反引号路径（解析为空 = 全量误报，dogfood 自证）→ 每个文件路径用反引号包住（如 `src/a.ts` 或目录 `src/auth/`）再过本门');
+      g.findings.push(`⛔ 越界门红：声明在但无反引号路径（解析为空 = 全量误报，dogfood 自证）→ 每个文件路径用反引号包住（如 \`src/a.ts\` 或目录 \`src/auth/\`）再过本门。${DECL_SAMPLE}`);
       g.red = true;
       g.reason = '声明行在但无反引号路径';
     } else {
@@ -2019,13 +2226,21 @@ function mergegateCmd(args = []) {
   if (!t) { console.error(`⚠ 任务不存在：${id}`); return 1; }
   const mainRef = resolveMainRef(mainRoot);
   if (!mainRef) { console.error('⚠ 主分支不可解析'); return 1; }
+  // v3.0.0 确认回执门（F32）：verifying 任务过 mergegate 须 ≥1 条确认回执在档（缺=红——防「未验收先合并」）
+  let receiptRed = false;
+  if (isVerifying(t) && !confirmationsOf(tasksDir, t.id).length) {
+    console.log(`⛔ 回执门红：${t.id} 处于 verifying 但无确认回执（confirmations.jsonl 空/缺）→ 先落用户确认原话：node tf.mjs confirm ${t.id} --note "<用户确认原话>"`);
+    receiptRed = true;
+  }
   const snap = mergeGateSnapshot(t, mainRoot, mainRef);
   const bound = mergeGateBoundary(t, mainRoot, mainRef);
   const evid = mergeGateEvidence(t, mainRoot, mainRef);
   for (const f of snap.findings) console.log(f);
   for (const f of bound.findings) console.log(f);
   for (const f of evid.findings) console.log(f);
-  const red = (snap.red ? 1 : 0) + (bound.red ? 1 : 0) + (evid.red ? 1 : 0);
+  const red = (snap.red ? 1 : 0) + (bound.red ? 1 : 0) + (evid.red ? 1 : 0) + (receiptRed ? 1 : 0);
+  const yellow = snap.yellow || bound.yellow || evid.yellow;
+  if (red || yellow) appendGateHit(tasksDir, 'mergegate', red ? 'red' : 'yellow', t.id); // v3.0.0 门咬合台账（F34）
   console.log(red ? `\nmergegate：${red} 门红——按上面指引处理后重跑（三门全绿才进 lock → mergegate 复跑 → merge --no-ff，merge.md 第 5 步）` : '\nmergegate：三门全绿——可进 lock → merge --no-ff（merge.md 第 5 步；lock 会现场重算三门，不消费任何落盘门状态）');
   return red ? 1 : 0;
 }
@@ -2444,7 +2659,8 @@ function commitCmd(args = []) {
   if (session) {
     const { tasksDir } = locate();
     const br = git(['symbolic-ref', '--short', 'HEAD'], cwd, true); // 未出生分支（仓库首个提交前）也能解析，rev-parse 会失败致锁静默解除
-    const t = br ? loadTasks(tasksDir).find((x) => x.branch === br) : null;
+    const { mainRoot: mrS } = locate();
+    const t = br ? taskForBranch(loadTasks(tasksDir), br, mrS) : null; // v3.0.0（F46）：乐观锁解析同源扩展（任意分支含 main）
     if (!t) console.log(`ℹ 当前分支 ${br ?? '?'} 未登记任务——--session 乐观锁未生效，按普通提交执行`);
     else if (t.sessionID && t.sessionID !== session) {
       console.log(`⚠ 任务 ${t.id} 属主是会话 ${t.sessionID}，你 = ${session}——先走接管仪式（改 sessionID + 重写 .owner.json + 清点桌面）再提交`);
@@ -2454,7 +2670,7 @@ function commitCmd(args = []) {
       try {
         const fresh = JSON.parse(fs.readFileSync(path.join(dir, 'task.json'), 'utf8'));
         fresh.sessionID = session;
-        fs.writeFileSync(path.join(dir, 'task.json'), JSON.stringify(fresh, null, 2));
+        writeTaskJsonAtomic(path.join(dir, 'task.json'), fresh); // v3.0.0 原子写（F29）
         syncIndexRow(tasksDir, fresh); // v2.19.0：写路径单源——回填属主后 index 必须同步（I1 漂移根因封堵）
         console.log(`ℹ 已回填任务 ${t.id} 属主 sessionID = ${session}`);
       } catch { console.log('⚠ 回填 sessionID 失败（task.json 读/写异常）——照常提交，稍后人工核对'); }
@@ -2499,7 +2715,8 @@ function commitCmd(args = []) {
   {
     const { tasksDir } = locate();
     const br = git(['symbolic-ref', '--short', 'HEAD'], cwd, true);
-    const t = br ? loadTasks(tasksDir).find((x) => x.branch === br) : null;
+    const { mainRoot: mrA } = locate();
+    const t = br ? taskForBranch(loadTasks(tasksDir), br, mrA) : null; // v3.0.0（F46）：首锚定扩展到 main 上的 attached 任务（唯一无歧义时）
     if (t) {
       const dir = fs.existsSync(path.join(tasksDir, t.id)) ? path.join(tasksDir, t.id) : path.join(tasksDir, 'archive', t.id);
       try {
@@ -2530,7 +2747,7 @@ function commitCmd(args = []) {
           }
         }
         if (anchored) {
-          fs.writeFileSync(path.join(dir, 'task.json'), JSON.stringify(fresh, null, 2));
+          writeTaskJsonAtomic(path.join(dir, 'task.json'), fresh); // v3.0.0 原子写（F29）
           syncIndexRow(tasksDir, fresh);
         }
       } catch { /* 锚定失败不阻断提交——事后 req-confirm 补 */ }
@@ -2544,7 +2761,8 @@ function commitCmd(args = []) {
   if (deployed) {
     const { tasksDir } = locate();
     const br = git(['symbolic-ref', '--short', 'HEAD'], cwd, true);
-    const t = br ? loadTasks(tasksDir).find((x) => x.branch === br) : null;
+    const { mainRoot: mrD } = locate();
+    const t = br ? taskForBranch(loadTasks(tasksDir), br, mrD) : null; // v3.0.0（F46）：--deployed 扳机同源解析
     if (!t) console.log(`⚠ --deployed：当前分支 ${br ?? '?'} 无登记任务——状态翻转未执行（提交本身已成功）`);
     else {
       const dir = fs.existsSync(path.join(tasksDir, t.id)) ? path.join(tasksDir, t.id) : path.join(tasksDir, 'archive', t.id);
@@ -2563,7 +2781,7 @@ function commitCmd(args = []) {
           console.log(`✓ ${t.id} active → verifying（部署待验收）`);
         }
         fresh.lastActiveAt = new Date().toISOString();
-        fs.writeFileSync(path.join(dir, 'task.json'), JSON.stringify(fresh, null, 2));
+        writeTaskJsonAtomic(path.join(dir, 'task.json'), fresh); // v3.0.0 原子写（F29）
         syncIndexRow(tasksDir, fresh);
         if (prevStatus !== fresh.status) appendEvent(tasksDir, { task: t.id, from: prevStatus, to: fresh.status, cmd: 'commit --deployed' });
         console.log(`📌 待你验收：node tf.mjs accept ${t.id}`);
@@ -2597,7 +2815,7 @@ function reqConfirm(args = []) {
   t.goalHashAt = ts;
   t.reqChanges = [...(t.reqChanges ?? []), { ts, hash: h, note: note.trim() }];
   t.lastActiveAt = ts;
-  fs.writeFileSync(tP, JSON.stringify(t, null, 2));
+  writeTaskJsonAtomic(tP, t); // v3.0.0 原子写（F29）
   syncIndexRow(tasksDir, t); // 写后必同步（v2.19.0 规约）
   console.log(`✓ ${idArg} 需求变更已留痕（goalHash=${h}，reqChanges 第 ${t.reqChanges.length} 条）——doctor I11 转绿`);
   console.log(`ℹ 领域复核（domain.md）：本次变更是否触及新领域（新增前端页面/新语言栈文件/新测试面）？是 → 重跑领域检测（node tf.mjs skills <领域词>）并按 domain.md 映射表把新领域技能要求补进 spec 约束节——变更后领域漂移不重检 = 新领域无审查能力在场（2.69.3 补挂）`);
@@ -2903,8 +3121,10 @@ function mechanismsCmd() {
    /tmp 夹具仓渲染守门副本 → 真实 omp -p 零工具提问 → 模型仅凭 system 注入答出 verifying 任务 id = 送达实证。
    omp 不在 PATH（spawnSync ENOENT）=跳过 exit 0（无 omp 环境合法）；答错/超时=⛔ exit 1 收尾红灯——禁只靠单测宣称注入生效。 */
 function canaryCmd() {
-  const avail = spawnSync('omp', ['--help'], { encoding: 'utf8', timeout: 20000, stdio: ['ignore', 'pipe', 'pipe'] });
-  if (avail.error && avail.error.code === 'ENOENT') { console.log('ℹ 跳过金丝雀（omp 不可用）'); return 0; }
+  const bin = canaryCmdBin(HOST); // v3.0.0 经 adapter（F36）：omp→'omp'，其余宿主 null=无单轮通道，直接静默跳过不打印
+  if (!bin) return 0;
+  const avail = spawnSync(bin, ['--help'], { encoding: 'utf8', timeout: 20000, stdio: ['ignore', 'pipe', 'pipe'] });
+  if (avail.error && avail.error.code === 'ENOENT') return 0; // 宿主声明 omp 但二进制缺失=合法跳过，保持静默
   const ts = new Date().toISOString().replace(/[-:]/g, '').replace('T', '').slice(0, 12);
   const idA = `canary-a-${ts}`, idV = `canary-v-${ts}`, idP = `canary-p-${ts}`;
   const fx = fs.mkdtempSync(path.join(os.tmpdir(), 'tf-canary-'));
@@ -2921,7 +3141,7 @@ function canaryCmd() {
     const inst = spawnSync('node', [fileURLToPath(import.meta.url), 'mech', 'install', 'TASKFLOW_GUARD', '--yes'], { cwd: fx, encoding: 'utf8', timeout: 60000 });
     if (inst.status !== 0 || !fs.existsSync(path.join(fx, '.omp', 'hooks', 'pre', 'taskflow-guard.js'))) { console.log(`⛔ 金丝雀：守门副本渲染失败\n${inst.stdout ?? ''}${inst.stderr ?? ''}`); return 1; }
     const q = '禁止使用任何工具。仅凭 system 提示回答：当前 taskflow 状态引导中等验收（verifying）的任务 id 是什么？不知道就说不知道。';
-    const r = spawnSync('omp', ['-p', q], { cwd: fx, encoding: 'utf8', timeout: 240000 });
+    const r = spawnSync(bin, ['-p', q], { cwd: fx, encoding: 'utf8', timeout: 240000 });
     const hit = typeof r.stdout === 'string' && r.stdout.includes(idV);
     if (hit) { console.log(`✓ 金丝雀：注入达模型（零工具语义由提示约束；回答含 ${idV}）`); return 0; }
     console.log(`⛔ 金丝雀：注入未达模型——模型回答：\n${(r.stdout ?? '') + (r.stderr ?? '')}`);
@@ -2931,78 +3151,20 @@ function canaryCmd() {
   }
 }
 
-/* ---------------- release：发版十步链（RELEASE_CHAIN，v2.90.0）——managed-skills/taskflow-release-sync 配方固化 ----------------
+/* ---------------- release：发版链（v3.0.0 简化，F06）——作者机六路径常量/bundle 配方/机制刷新步全删 ----------------
    用法：node tf.mjs release <version> [--canary] [--dry-run] [--root <技能仓根，测试用>]
-   前置（fail-fast，两模式同跑，全只读）：main 分支 / 无未跟踪文件（新文件须先显式 git add）/ 无冲突 /
-     CHANGELOG 顶条目=目标版本（条目人工先写，release 不代写）；tracked 改动=发布载荷（commit 步 git add -u 入库）。
-   链：①版本双点（frontmatter+description 版本串自动改，lint #9/#10 锁一致性）→②lint→③回归→④commit feat(v<版>):顶条目标题→
-     ⑤push（败重试一次；成功后 ls-remote 远端哈希确认）→⑥六路径同步（WSL 实体仓 fetch 源仓+ff-only；Windows 两仓 bundle 配方——
-     9P pull 超时/ghproxy 认证/ff-only 拒三死路唯 bundle 通，脏副本 numstat>0 跳过不重置）→⑦HEAD 对账（六路径哈希+版本唯一）→
-     ⑧项目侧机制刷新（project.json.mechanisms 清单逐个 mech install --yes（非硬编码）+doctor 采纳漂移=0）→⑨审计/重启提示→
-     [--canary]⑩送达金丝雀。审计矩阵（release-audit 六步）属人肉审计，链内只提示不代跑。
-   幂等：每步先自检是否已达成（双点已改/HEAD 已是该 feat 提交/origin/main==HEAD/实体仓 HEAD 相同→跳过），断点续跑安全。
-   --dry-run：前置+打印计划与关键参数，零执行——测试主通道（TF_RELEASE_PROJECT 可指夹具项目验机制清单读取）。 */
-const RELEASE_WIN_USER = process.env.TF_RELEASE_WIN_USER || '/mnt/c/Users/<win-user>'; // v2.91.2 脱敏：Windows 用户名移出代码——六路径同步目标由 TF_RELEASE_WIN_USER 显式提供
-const RELEASE_WSL_REPO = () => path.join(os.homedir(), '.agents', 'skills', 'taskflow');
-const RELEASE_WIN_REPOS = [`${RELEASE_WIN_USER}/.omp/agent/skills/taskflow`, `${RELEASE_WIN_USER}/.claude/skills/taskflow`];
-const RELEASE_PROJECT = () => process.env.TF_RELEASE_PROJECT || ''; // v2.91.2 脱敏：默认项目路径移出代码（含用户名/项目名）——机制刷新目标由 TF_RELEASE_PROJECT 显式提供；未配置=步骤⑧红并给指引（幂等重跑）
-const wslToWin = (p) => p.replace(/^\/mnt\/([a-z])\//i, (_, d) => `${d.toUpperCase()}:\\`).replace(/\//g, '\\');
-const releaseTokensOf = () => { const pj = readJson(path.join(RELEASE_PROJECT(), '.taskflow', 'project.json')); return pj && pj.mechanisms && Object.keys(pj.mechanisms).length ? Object.keys(pj.mechanisms) : null; };
-function syncWslEntity(repo, srcRoot, headShort) {
-  const at = (a) => { try { return R(execFileSync('git', ['-C', repo, ...a], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })); } catch { return null; } };
-  const local = at(['rev-parse', '--short=7', 'HEAD']);
-  if (at(['status', '--porcelain'])) return { line: `✗ ${repo}：有本地改动——不自动同步（人工确认后清理）`, err: `${repo} 工作区不干净` };
-  if (local === headShort) return { line: `⏭ ${repo}（已达成 ${local}）` };
-  const f = spawnSync('bash', ['-c', `git fetch '${srcRoot}' main && git merge --ff-only FETCH_HEAD`], { cwd: repo, encoding: 'utf8', timeout: 60000, stdio: ['ignore', 'pipe', 'pipe'] });
-  if (f.status !== 0) return { line: `✗ ${repo}：fetch+ff-only 失败（diverged 或源不可达）`, err: `${repo} 无法 ff-only：${trunc(R((f.stdout ?? '') + (f.stderr ?? '')), 120)}` };
-  const now = at(['rev-parse', '--short=7', 'HEAD']);
-  return now === headShort ? { line: `✓ ${repo}（${local} → ${now}）` } : { line: `✗ ${repo}：同步后 ${now} ≠ 源 ${headShort}`, err: `${repo} 同步后不齐` };
-}
-function syncWindowsBundle(srcRoot, targetVer) {
-  const errs = []; const lines = [];
-  const ts = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14);
-  const bundle = `${RELEASE_WIN_USER}/AppData/Local/Temp/tf-release-${ts}.bundle`;
-  const ps1 = `${RELEASE_WIN_USER}/AppData/Local/Temp/tf-release-${ts}.ps1`;
-  try {
-    const mk = spawnSync('git', ['-C', srcRoot, 'bundle', 'create', bundle, 'main'], { encoding: 'utf8', timeout: 60000, stdio: ['ignore', 'pipe', 'pipe'] });
-    if (mk.status !== 0) return { lines, errs: [`bundle create 失败：${trunc(R(mk.stderr ?? ''), 120)}`] };
-    const repos = RELEASE_WIN_REPOS.map((r) => `'${wslToWin(r)}'`).join(',');
-    fs.writeFileSync(ps1, [
-      `$ErrorActionPreference = 'Stop'`,
-      `foreach ($repo in @(${repos})) {`,
-      `  try {`,
-      `    $lock = Join-Path $repo '.git\\index.lock'`,
-      `    if (Test-Path $lock) { Remove-Item $lock -Force }`,
-      `    git -C $repo config core.filemode false | Out-Null`,
-      `    git -C $repo config core.autocrlf false | Out-Null`,
-      `    $dn = (git -C $repo -c core.filemode=false diff --numstat | Measure-Object).Count`,
-      `    if ($dn -gt 0) { Write-Output ("DIRTY " + $repo); continue }`,
-      `    git -C $repo fetch '${wslToWin(bundle)}' main | Out-Null`,
-      `    git -C $repo reset --hard FETCH_HEAD | Out-Null`,
-      `    $h = (git -C $repo rev-parse '--short=7' HEAD)`,
-      `    $m = Select-String -Path (Join-Path $repo 'SKILL.md') -Pattern '^version:\\s*(\\S+)'`,
-      `    Write-Output ("OK " + $repo + " " + $h + " " + $m.Matches[0].Groups[1].Value)`,
-      `  } catch { Write-Output ("FAIL " + $repo + " " + $_.Exception.Message) }`,
-      `}`,
-    ].join('\n'));
-    const run = spawnSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', wslToWin(ps1)], { encoding: 'utf8', timeout: 180000, stdio: ['ignore', 'pipe', 'pipe'] });
-    for (const l of R(run.stdout ?? '').split('\n').map((s) => s.trim()).filter(Boolean)) {
-      if (l.startsWith('OK ')) { const [, rp, h, v] = l.split(' '); const okW = h && v === targetVer; lines.push(`${okW ? '✓' : '✗'} ${rp}（${h || '?'}，v${v || '?'}）`); if (!okW) errs.push(`${rp} 同步后不齐（${h}，v${v}）`); }
-      else if (l.startsWith('DIRTY ')) { lines.push(`✗ ${l.slice(6)}：有本地内容改动——未重置（人工确认）`); errs.push(`${l.slice(6)} 工作区不干净`); }
-      else if (l.startsWith('FAIL ')) { lines.push(`✗ ${l.slice(5)}`); errs.push(l.slice(5)); }
-    }
-    if (run.status !== 0 && !errs.length) errs.push(`powershell exit ${run.status}：${trunc(R(run.stderr ?? ''), 160)}`);
-    if (!lines.length && !errs.length) errs.push('powershell 无输出——配方未按预期执行');
-  } finally { try { fs.rmSync(bundle, { force: true }); fs.rmSync(ps1, { force: true }); } catch { /* 清理失败不阻判定 */ } }
-  return { lines, errs };
-}
+   前置（fail-fast，两模式同跑，全只读）：main 分支 / 无未跟踪文件 / 无冲突 / CHANGELOG 顶条目=目标版本（人工先写）。
+   链：①版本写入（SKILL.md frontmatter version——v3 起 description 不含版本号，单点）→②lint→③回归→
+     ④commit feat(v<版>):顶条目标题→⑤tag v<版>→⑥push origin main --tags（远程不可达=警告不失败）→
+     ⑦收尾提示（各安装位 self-update；项目侧 mech check）→[--canary]⑧送达金丝雀（omp 宿主）。
+   幂等：每步先自检是否已达成，断点续跑安全；安装位同步走 git clone/pull 自愈（self-update 命令）。 */
 function releaseCmd(args = []) {
   const dry = args.includes('--dry-run');
   const withCanary = args.includes('--canary');
   const rootO = args.includes('--root') ? path.resolve(String(args[args.indexOf('--root') + 1] ?? '')) : null;
   const root = rootO ?? path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
   const ver = args.length && !args[0].startsWith('--') ? R(args[0]) : '';
-  const usageMsg = '用法：node tf.mjs release <version> [--canary] [--dry-run]\n发版十步链（RELEASE_CHAIN）：改完代码+手写 CHANGELOG 顶条目后一条命令收口；--dry-run 打印计划零执行；幂等重跑自动跳过已达成步骤。';
+  const usageMsg = '用法：node tf.mjs release <version> [--canary] [--dry-run]\n发版链（v3 简化）：版本写入→lint→回归→commit→tag v<版>→push origin main --tags（远程不可达=警告不失败）→安装位 self-update 提示；--dry-run 打印计划零执行；幂等重跑自动跳过已达成步骤。';
   if (!/^\d+\.\d+\.\d+$/.test(ver)) { console.log(usageMsg); return 1; }
   const scriptPath = fileURLToPath(import.meta.url);
   const gin = (a, mayFail = true) => { try { return R(execFileSync('git', ['-C', root, ...a], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })); } catch { if (mayFail) return ''; throw new Error(`git ${a[0]} 失败`); } };
@@ -3027,32 +3189,27 @@ function releaseCmd(args = []) {
   const skillTxt = fs.readFileSync(skillP, 'utf8');
   const curVer = R((skillTxt.match(/^version:\s*(\S+)/m) ?? [])[1]);
   if (!curVer) { console.log('⛔ release：SKILL.md 缺 frontmatter version 行'); return 1; }
-  console.log(`发版链（RELEASE_CHAIN）${dry ? '——dry-run 零执行' : ''}：${curVer === ver ? '版本双点已达成' : `版本双点 ${curVer} → ${ver}`}｜载荷 ${payload.length} 文件｜CHANGELOG 顶条目 ${top[1]}：「${clTitle}」`);
+  console.log(`发版链${dry ? '——dry-run 零执行' : ''}：${curVer === ver ? '版本已达成' : `版本写入 ${curVer} → ${ver}`}｜载荷 ${payload.length} 文件｜CHANGELOG 顶条目 ${top[1]}：「${clTitle}」`);
   if (dry) {
-    const toks = releaseTokensOf();
-    console.log(`\n计划（将执行 ${withCanary ? 10 : 9} 步）：`);
-    console.log(`  ① 版本双点：SKILL.md frontmatter version + description 版本串（${curVer === ver ? '已达成，将跳过' : `${curVer} → ${ver}`}）`);
+    console.log(`\n计划（将执行 ${withCanary ? 8 : 7} 步）：`);
+    console.log(`  ① 版本写入：SKILL.md frontmatter version（${curVer === ver ? '已达成，将跳过' : `${curVer} → ${ver}`}；v3 起 description 不含版本号）`);
     console.log('  ② lint：node tf.mjs lint（红=中止）');
-    console.log('  ③ 回归：node scripts/tf.test.mjs（约 40s，红=中止）');
-    console.log(`  ④ commit：git add -u（${payload.length} 载荷文件${payload.length ? `：${payload.join('、')}` : ''}）→ feat(v${ver}): ${clTitle}`);
-    console.log('  ⑤ push：git push origin main（败重试一次；成功后 ls-remote 远端哈希确认）');
-    console.log(`  ⑥ 六路径同步：${RELEASE_WSL_REPO()}（fetch 源仓+ff-only）｜${RELEASE_WIN_REPOS.join('、')}（bundle 配方：bundle create→powershell reset --hard FETCH_HEAD，脏副本跳过不重置）`);
-    console.log(`  ⑦ HEAD 对账：六路径 rev-parse --short 唯一 + SKILL.md 版本=${ver}`);
-    console.log(`  ⑧ 机制刷新：${RELEASE_PROJECT() || '（TF_RELEASE_PROJECT 未配置——默认路径已脱敏移除，export 后重跑）'} mechanisms ${toks ? `${toks.length} 个（${toks.join('、')}）逐个 mech install --yes` : '清单缺失/空——真跑将红'} → doctor 采纳漂移=0`);
-    console.log('  ⑨ 提示：审计矩阵（managed-skills/taskflow-release-audit 六步，人肉不代跑）+ 重启 omp 生效');
-    console.log(`  ⑩ canary：${withCanary ? '启用（真实 omp 约 65s）' : '未启用（--canary 开）'}`);
+    console.log('  ③ 回归：node scripts/tf.test.mjs（红=中止）');
+    console.log(`  ④ commit：git add -u（${payload.length} 载荷文件）→ feat(v${ver}): ${clTitle}`);
+    console.log(`  ⑤ tag：git tag v${ver}`);
+    console.log('  ⑥ push：git push origin main --tags（败两试后=警告不失败，手动补推）');
+    console.log('  ⑦ 提示：各安装位 self-update（git pull --ff-only）');
+    if (withCanary) console.log('  ⑧ canary：送达金丝雀（omp 宿主，约 65s）');
     console.log('\n（--dry-run 零执行；去掉即真跑，断点重跑幂等跳过已达成步骤）');
     return 0;
   }
   // ---- 链执行（每步先自检是否已达成；任一步失败=中止并呈报已完成/剩余） ----
   const steps = [];
   const step = (name, fn) => steps.push({ name, fn });
-  step('① 版本双点（SKILL.md frontmatter+description 版本串）', () => {
+  step('① 版本写入（SKILL.md frontmatter version——v3 单点：description 不含版本号）', () => {
     if (curVer === ver) return 'skip';
     if (!/^version:\s*\S+/m.test(skillTxt)) return 'SKILL.md version 行缺失';
-    const descRe = new RegExp(`版本\\s*${curVer.replace(/\./g, '\\.')}。`);
-    if (!descRe.test(skillTxt)) return `description 未找到「版本 ${curVer}。」——双点第二处缺失，禁盲改`;
-    fs.writeFileSync(skillP, skillTxt.replace(new RegExp('^version:\\s*\\S+', 'm'), `version: ${ver}`).replace(descRe, `版本 ${ver}。`));
+    fs.writeFileSync(skillP, skillTxt.replace(new RegExp('^version:\\s*\\S+', 'm'), `version: ${ver}`));
     return true;
   });
   step('② lint（全绿门）', () => {
@@ -3081,72 +3238,31 @@ function releaseCmd(args = []) {
     console.log(`  ${subjMatch ? '发版补丁并入同版本——' : ''}${gin(['log', '-1', '--format=%h %s'])}`);
     return true;
   });
-  step('⑤ push origin main（败重试一次+远端哈希确认）', () => {
+  step('⑤ tag v<版本>（幂等：已指向 HEAD=跳过）', () => {
     const head = gin(['rev-parse', 'HEAD']);
-    if (gin(['rev-parse', 'origin/main']) === head) console.log('  origin/main 已是 HEAD（跳过推送）');
-    else {
-      const shp = () => spawnSync('bash', ['-c', 'git push origin main'], { cwd: root, encoding: 'utf8', timeout: 120000, stdio: ['ignore', 'pipe', 'pipe'] });
-      let pr = shp();
-      if (pr.status !== 0) { console.log('  推送失败，重试一次…'); pr = shp(); }
-      if (pr.status !== 0) return `push 两次失败——${trunc(lastLines((pr.stdout ?? '') + (pr.stderr ?? ''), 2), 160)}`;
-    }
-    const lsr = () => spawnSync('bash', ['-c', 'git ls-remote origin -h refs/heads/main'], { cwd: root, encoding: 'utf8', timeout: 60000, stdio: ['ignore', 'pipe', 'pipe'] });
-    let lr = lsr(); if (lr.status !== 0) { console.log('  ls-remote 失败，重试一次…'); lr = lsr(); }
-    const remote = R((lr.stdout ?? '').match(/^(\S+)\s+refs\/heads\/main/m)?.[1] ?? '');
-    if (!remote) return '远端哈希未确认（ls-remote 两次失败）——网络抖动时稍后重跑本命令（已推送部分幂等跳过）';
-    if (remote.slice(0, 7) !== head.slice(0, 7)) return `远端 main ${remote.slice(0, 7)} ≠ 本地 ${head.slice(0, 7)}`;
-    console.log(`  远端 main = ${remote.slice(0, 7)} ✓`);
+    const tag = `v${ver}`;
+    const cur = gin(['rev-parse', tag]);
+    if (cur === head) return 'skip';
+    if (cur) return `tag ${tag} 已存在且指向 ${cur.slice(0, 7)} ≠ HEAD——核对后先删旧 tag（git tag -d ${tag}）再重跑`;
+    const r = spawnSync('git', ['-C', root, 'tag', tag], { encoding: 'utf8' });
+    if (r.status !== 0) return `git tag ${tag} 失败`;
+    console.log(`  ${tag} → ${head.slice(0, 7)}`);
     return true;
   });
-  step('⑥ 六路径同步（WSL fetch+ff-only｜Windows bundle 配方）', () => {
-    const headShort = gin(['rev-parse', '--short=7', 'HEAD']);
-    const errs = []; const lines = [];
-    const wslRepo = RELEASE_WSL_REPO();
-    if (fs.existsSync(path.join(wslRepo, '.git'))) { const w = syncWslEntity(wslRepo, root, headShort); lines.push(w.line); if (w.err) errs.push(w.err); }
-    else errs.push(`WSL 实体仓缺失：${wslRepo}`);
-    const winAt = (p) => { try { return R(execFileSync('git', ['-C', p, 'rev-parse', '--short=7', 'HEAD'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })); } catch { return '?'; } };
-    const winDone = RELEASE_WIN_REPOS.every((p) => winAt(p) === headShort && R((fs.readFileSync(path.join(p, 'SKILL.md'), 'utf8').match(/^version:\s*(\S+)/m) ?? [])[1]) === ver);
-    if (winDone) lines.push(`⏭ Windows×2（已达成 ${headShort}，免 bundle）`);
-    else { const win = syncWindowsBundle(root, ver); lines.push(...win.lines); errs.push(...win.errs); }
-    lines.forEach((l) => console.log('  ' + l));
-    return errs.length ? errs.join('；') : true;
-  });
-  step('⑦ HEAD 对账（六路径哈希+版本唯一）', () => {
-    const headShort = gin(['rev-parse', '--short=7', 'HEAD']);
-    const six = [root, RELEASE_WSL_REPO(), ...RELEASE_WIN_REPOS, path.join(os.homedir(), '.pi', 'agent', 'skills', 'taskflow'), path.join(os.homedir(), '.claude', 'skills', 'taskflow')];
-    const bad = [];
-    for (const p of six) {
-      let h = '', v = '';
-      try { h = R(execFileSync('git', ['-C', p, 'rev-parse', '--short=7', 'HEAD'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })); } catch { }
-      try { v = R((fs.readFileSync(path.join(p, 'SKILL.md'), 'utf8').match(/^version:\s*(\S+)/m) ?? [])[1]); } catch { }
-      const ok7 = h === headShort && v === ver;
-      console.log(`  ${ok7 ? '✓' : '✗'} ${p}（${h || '读不到'}，v${v || '?'}）`);
-      if (!ok7) bad.push(p);
+  step('⑥ push origin main --tags（远程不可达=警告不失败）', () => {
+    const shp = () => spawnSync('bash', ['-c', 'git push origin main --tags'], { cwd: root, encoding: 'utf8', timeout: 120000, stdio: ['ignore', 'pipe', 'pipe'] });
+    let pr = shp();
+    if (pr.status !== 0) { console.log('  推送失败，重试一次…'); pr = shp(); }
+    if (pr.status !== 0) {
+      console.log(`  ⚠ push 两次失败（${trunc(lastLines((pr.stdout ?? '') + (pr.stderr ?? ''), 2), 160)}）——本地 commit+tag 已完成，远程同步稍后手动 git push origin main --tags（不阻塞发版）`);
+      return true; // v3.0.0（F06）：远程不可达=警告不失败——安装位更新走 git pull 自愈
     }
-    return bad.length ? `六路径对账不齐：${bad.join('、')}` : true;
-  });
-  step('⑧ 机制刷新（mech install --yes ×project.json.mechanisms 清单 + doctor 漂移=0）', () => {
-    const toks = releaseTokensOf();
-    if (!RELEASE_PROJECT()) return 'TF_RELEASE_PROJECT 未配置——机制刷新目标项目路径已脱敏移出代码，export TF_RELEASE_PROJECT=<项目根> 后重跑本步（幂等）';
-    if (!toks) return `${RELEASE_PROJECT()} project.json.mechanisms 清单缺失/空——机制清单按登记读（非硬编码），缺失即红`;
-    console.log(`  机制 ${toks.length} 个：${toks.join('、')}`);
-    const failTk = [];
-    for (const tk of toks) {
-      const r = spawnSync('node', [scriptPath, 'mech', 'install', tk, '--yes'], { cwd: RELEASE_PROJECT(), encoding: 'utf8', timeout: 120000, stdio: ['ignore', 'pipe', 'pipe'] });
-      console.log(`  ${r.status === 0 ? '✓' : '✗'} mech install ${tk}`);
-      if (r.status !== 0) { failTk.push(tk); console.log(trunc(lastLines((r.stdout ?? '') + (r.stderr ?? ''), 2), 300)); }
-    }
-    if (failTk.length) return `mech install 失败：${failTk.join('、')}`;
-    const d = spawnSync('node', [scriptPath, 'doctor'], { cwd: RELEASE_PROJECT(), encoding: 'utf8', timeout: 120000, stdio: ['ignore', 'pipe', 'pipe'] });
-    const drift = R(d.stdout ?? '').split('\n').filter((l) => l.includes('采纳漂移'));
-    console.log(`  doctor：${drift.length ? drift.map((l) => R(l)).join('｜') : '采纳漂移 0 ✓'}`);
-    if (drift.length) return 'doctor 采纳漂移非零——按提示逐项处置后重跑';
-    if (d.status !== 0) console.log('  ℹ doctor 整体非零（任务级体检/schema 等项目侧发现，非采纳对账）——不阻发版链，按 doctor 提示另行处置');
+    console.log('  origin main + tags 已推送 ✓');
     return true;
   });
-  step('⑨ 收尾提示（审计矩阵+重启生效）', () => {
-    console.log('  审计：读 managed-skills/taskflow-release-audit 走六步（六副本矩阵/registry 条目数/守门运行时副本/新技能分布/行为抽测/悬空复扫）——人肉审计，链内不代跑');
-    console.log('  提示：omp/Claude Code/pi 技能启动时发现——已开会话持旧版，重启后新会话才生效（守门渲染产物重装即生效）');
+  step('⑦ 收尾提示（安装位自更新）', () => {
+    console.log('  提示：各安装位跑 node <skill目录>/scripts/tf.mjs self-update（git pull --ff-only）；已开会话持旧版，重启后新会话生效');
+    console.log('  提示：项目侧机制刷新 mech check（漂移项逐个 mech install --yes）');
     return true;
   });
   if (withCanary) step('⑩ canary（真实 omp 送达金丝雀，约 65s）', () => {
@@ -3172,9 +3288,410 @@ function releaseCmd(args = []) {
   return 0;
 }
 
+/* ══════════ v3.0.0 脚手架命令（F45）：init / new / checkpoint / rollback / confirm ——建档质量由脚本保证，编排层不再手写 JSON ══════════ */
+
+// conventions 回执哈希（F35 落痕）：checkpoint 时读 conventions.md 回填 task.json.conventions——「读没读约定」可机检。
+const conventionsReceipt = (tasksDir) => {
+  try {
+    const p = path.join(tasksDir, 'conventions.md');
+    const txt = fs.readFileSync(p, 'utf8');
+    return { readAt: new Date().toISOString(), hash: crypto.createHash('sha256').update(txt).digest('hex').slice(0, 16) };
+  } catch { return null; }
+};
+// 确认回执（F32）：.taskflow/<id>/confirmations.jsonl 追加式回执——accept --pass / mergegate(verifying) 的机械前置。
+function confirmationsPath(tasksDir, id) { return path.join(taskDirOf(tasksDir, id), 'confirmations.jsonl'); }
+function confirmationsOf(tasksDir, id) {
+  try {
+    return fs.readFileSync(confirmationsPath(tasksDir, id), 'utf8').split('\n').filter(Boolean)
+      .map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
+  } catch { return []; }
+}
+
+/* init：项目初始化/升级（F45/F08）。新装：写 project.json + profile.json + conventions.md 骨架 + L0 注册；
+   已有 .taskflow/ → 升级模式：只补缺失文件与缺失小节，绝不覆盖既有内容。--ask 单问卷一次问完（F15），
+   答案经 flag 回填（--deploy-form/--packs/--carriers/--confirm-tier），不再逐门问。 */
+function initCmd(args = []) {
+  const noGit = args.includes('--no-git');
+  const askIdx = args.indexOf('--host');
+  const hostArg = askIdx >= 0 ? String(args[askIdx + 1] ?? '') : null;
+  const host = ['auto', 'omp', 'opencode', 'claude', 'none'].includes(hostArg) ? hostArg : null;
+  if (hostArg && !host) { console.log(`⚠ --host 取值非法（${hostArg}）——只认 auto|omp|opencode|claude|none`); return 1; }
+  if (args.includes('--ask')) {
+    // 单张问卷（F15）：一次问完四项，答案用 flag 回填重跑 init——替代 v2 逐门逐触点追问
+    console.log('# taskflow 初始化问卷（一次问完，答案经 flag 回填重跑）');
+    console.log('① 部署形态 deploy_form：none（无部署）| jar（服务器 jar 包+ssh 对账）| generic（conventions 登记命令+确认门）→ --deploy-form <值>');
+    console.log('② 门族启用 packs（缺省仅 changelog-gates）：frontend/jvm-data/deploy/docs-prd/changelog-gates/briefing 逗号分隔 → --packs <a,b>');
+    console.log('③ 载体技能 carriers：all（装全部五个）| none（不装，降级纯纪律档）| 逗号分隔名单 → --carriers <all|none|名>')
+    console.log('④ 确认档位 confirm_tier：detailed（每道门单独确认）| batch（低影响合并组末报告）→ --confirm-tier <值>');
+    console.log('\n示例：node tf.mjs init --deploy-form generic --packs changelog-gates,briefing --carriers all --confirm-tier detailed');
+    return 0;
+  }
+  const { isGit, mainRoot, tasksDir } = locate();
+  const useGit = !noGit && isGit;
+  if (noGit && isGit) console.log('ℹ --no-git：git 仓库存在但按档案模式初始化（project.json git:false，禁用 worktree/分支/commit 能力）');
+  const exists = fs.existsSync(tasksDir);
+  const skillRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+  fs.mkdirSync(tasksDir, { recursive: true });
+  // project.json：升级模式保留全部既有键（mechanisms/mainRef/deploy 配置等），只补缺
+  const pjPath = path.join(tasksDir, 'project.json');
+  const pjOld = readJson(pjPath) ?? {};
+  const pj = { ...pjOld, key: pjOld.key ?? projectKey(mainRoot), git: pjOld.git ?? useGit };
+  if (!pj.deploy || typeof pj.deploy !== 'object') pj.deploy = { form: 'none' };
+  else if (!('form' in pj.deploy)) pj.deploy.form = 'none';
+  const dfIdx = args.indexOf('--deploy-form');
+  if (dfIdx >= 0) { const v = String(args[dfIdx + 1] ?? ''); if (!['none', 'jar', 'generic'].includes(v)) { console.log(`⚠ --deploy-form 取值非法（${v}）——只认 none|jar|generic`); return 1; } pj.deploy.form = v; }
+  writeTaskJsonAtomic(pjPath, pj);
+  // profile.json：升级模式只补缺失键（既有拍板不覆盖）
+  const profPath = path.join(tasksDir, 'profile.json');
+  let prof = readJson(profPath);
+  if (!prof) {
+    try { prof = JSON.parse(fs.readFileSync(path.join(skillRoot, 'templates', 'profile.json'), 'utf8')); delete prof._comment; } catch { prof = {}; }
+  }
+  if (host) prof.host = host;
+  const ctIdx = args.indexOf('--confirm-tier');
+  if (ctIdx >= 0) { const v = String(args[ctIdx + 1] ?? ''); if (!['detailed', 'batch'].includes(v)) { console.log(`⚠ --confirm-tier 取值非法（${v}）——只认 detailed|batch`); return 1; } prof.confirm_tier = v; }
+  const pkIdx = args.indexOf('--packs');
+  if (pkIdx >= 0) {
+    const names = String(args[pkIdx + 1] ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+    const known = Object.keys(prof.packs ?? {});
+    for (const n of names) { if (!known.includes(n)) { console.log(`⚠ --packs 含未知包 ${n}——可选项：${known.join('/')}`); return 1; } }
+    for (const k of known) prof.packs[k] = names.includes(k);
+  }
+  const crIdx = args.indexOf('--carriers');
+  if (crIdx >= 0) {
+    const v = String(args[crIdx + 1] ?? '');
+    if (v === 'all') { prof.carriers = { decision: 'all', installed: prof.carriers?.installed ?? [] }; }
+    else if (v === 'none') prof.carriers = { decision: 'none', installed: [] };
+    else prof.carriers = { decision: 'partial', installed: v.split(',').map((s) => s.trim()).filter(Boolean) };
+  }
+  writeTaskJsonAtomic(profPath, prof);
+  // conventions.md：升级模式=补缺失小节不覆盖既有内容；新装=骨架全文
+  const convPath = path.join(tasksDir, 'conventions.md');
+  const REQUIRED_SECTIONS = ['确认档位', '推送与部署', '验证清单', '完成定义', '环境与端口', '禁止事项', '流程审计', '统一源'];
+  const tmpl = fs.readFileSync(path.join(skillRoot, 'templates', 'conventions.md'), 'utf8');
+  if (!fs.existsSync(convPath)) fs.writeFileSync(convPath, tmpl);
+  else {
+    const cur = fs.readFileSync(convPath, 'utf8');
+    const missing = REQUIRED_SECTIONS.filter((s) => !new RegExp(`^#{1,6}[^\\n]*${s}`, 'm').test(cur));
+    if (missing.length) {
+      const additions = missing.map((s) => `\n## ${s}\n- <补写：${s}>\n`).join('');
+      fs.writeFileSync(convPath, cur.replace(/\n*$/, '\n') + additions);
+      console.log(`ℹ conventions.md 升级：补缺失小节 ${missing.join('、')}（既有内容未动）`);
+    }
+  }
+  // .git/info/exclude 登记档案目录（git 项目）
+  if (useGit) {
+    const excl = path.join(mainRoot, '.git', 'info', 'exclude');
+    try {
+      let txt = fs.existsSync(excl) ? fs.readFileSync(excl, 'utf8') : '';
+      if (!txt.split('\n').some((l) => l.trim() === '.taskflow/')) {
+        txt = txt.replace(/\n*$/, '\n') + '.taskflow/\n';
+        fs.writeFileSync(excl, txt);
+      }
+    } catch { /* 只读文件系统等=编排层处理 */ }
+  }
+  registerProjectL0(mainRoot);
+  console.log(`${exists ? '✓ 项目已升级（只补缺不覆盖）' : '✓ 项目已初始化'}：${tasksDir}`);
+  console.log(`  project.json（git:${pj.git}，deploy.form:${pj.deploy.form}）｜profile.json（confirm_tier:${prof.confirm_tier}，host:${prof.host}）｜conventions.md（${REQUIRED_SECTIONS.length} 小节齐）`);
+  console.log('下一步：node tf.mjs new "<任务标题>" --tier <small|medium|large> [--type <任务类型>] 建第一个任务（缺陷类先跑 scout <症状词>）');
+  return 0;
+}
+
+/* new：建档命令（F45/F09）。nextid 占号 → 渲染 templates/task.json + spec.md（--type 按 profile.task_types 裁剪节）
+   → schema 校验 → git 项目缺省建 worktree（--no-worktree 可关）→ 打印下一步。 */
+function newCmd(args = []) {
+  const title = args.find((a) => !String(a).startsWith('--'));
+  let tier = 'small', type = null;
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--tier') tier = String(args[++i] ?? 'small');
+    else if (args[i] === '--type') type = String(args[++i] ?? '') || null;
+  }
+  if (!title || !title.trim()) { console.log('用法：node tf.mjs new "<标题>" [--tier small|medium|large] [--type <任务类型>] [--worktree|--no-worktree]\n建档质量由脚本保证：占号 → 渲染 task.json+spec.md → schema 校验 → git 项目缺省建 worktree。'); return 1; }
+  if (!['small', 'medium', 'large'].includes(tier)) { console.log(`⚠ --tier 取值非法（${tier}）——只认 small|medium|large`); return 1; }
+  const { isGit, mainRoot, tasksDir } = locate();
+  if (!fs.existsSync(path.join(tasksDir, 'project.json'))) { console.log(`⚠ 项目未初始化（${tasksDir}/project.json 缺失）→ 先跑 node tf.mjs init`); return 1; }
+  const pj = readJson(path.join(tasksDir, 'project.json')) ?? {};
+  const prof = readJson(path.join(tasksDir, 'profile.json')) ?? {};
+  if (type && !(type in (prof.task_types ?? {}))) { console.log(`⚠ --type 未知（${type}）——profile.task_types 已登记：${Object.keys(prof.task_types ?? {}).join('、') || '（无）'}`); return 1; }
+  // 占号（nextid 语义）：id = <标题slug>-<YYYYMMDD>，.taskflow/.reservations/ 独占创建防并行撞号
+  const slug = title.trim().slice(0, 24).replace(/[\\/:*?"<>|\s]+/g, '-').replace(/^-+|-+$/g, '') || 'task';
+  const ymd = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+  const resDir = path.join(tasksDir, '.reservations');
+  fs.mkdirSync(resDir, { recursive: true });
+  let id = null;
+  for (let k = 0; k < 10; k++) {
+    const cand = k === 0 ? `${slug}-${ymd}` : `${slug}-${ymd}-${k + 1}`;
+    try { fs.closeSync(fs.openSync(path.join(resDir, cand), 'wx')); id = cand; break; } catch { /* 已占，试下一号 */ }
+  }
+  if (!id) { console.log('⚠ 占号失败：连续 10 个号被占——请人工核查 .taskflow/.reservations/'); return 1; }
+  if (fs.existsSync(path.join(tasksDir, id))) { console.log(`⚠ 任务目录已存在：${id}（同名任务？换标题或先归档旧的）`); return 1; }
+  // worktree（git 项目缺省建；--no-worktree / 非 git / git:false 关）：分支 task/<id>，路径 ../<repo名>-<id>（new-task.md 约定）
+  let branch = null, worktree = null, baseBranch = null;
+  const wantWt = isGit && pj.git !== false && !args.includes('--no-worktree');
+  if (wantWt) {
+    const mainRef = resolveMainRef(mainRoot);
+    if (!mainRef) { console.log('⚠ 主分支不可解析（origin/main、main、master 均无）——加 --no-worktree 或先建主分支'); return 1; }
+    branch = `task/${id}`;
+    worktree = path.resolve(mainRoot, '..', `${path.basename(mainRoot)}-${id}`);
+    baseBranch = mainRef;
+    const ok = git(['worktree', 'add', '-b', branch, worktree, mainRef], mainRoot, true);
+    if (ok === null) { console.log(`⚠ worktree 创建失败：${worktree}（已存在？分支 ${branch} 已有？）→ 核对后重跑，或 --no-worktree`); return 1; }
+  }
+  // 渲染 task.json（templates/task.json 占位替换 + schema 校验）
+  const skillRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+  const ts = new Date().toISOString();
+  const raw = fs.readFileSync(path.join(skillRoot, 'templates', 'task.json'), 'utf8')
+    .replaceAll('__ID__', id).replaceAll('__TITLE__', title.trim()).replaceAll('__TIER__', tier)
+    .replaceAll('__TYPE__', JSON.stringify(type ?? null))
+    .replaceAll('__BRANCH__', JSON.stringify(branch)).replaceAll('__WORKTREE__', JSON.stringify(worktree))
+    .replaceAll('__BASEBRANCH__', baseBranch ?? 'main').replaceAll('__TS__', ts);
+  let t;
+  try { t = JSON.parse(raw); } catch (e) { console.log(`⛔ 渲染产物 schema 校验失败（task.json 非法 JSON：${e.message}）——模板损坏？`); return 1; }
+  for (const f of ['id', 'title', 'status', 'tier']) if (!t[f]) { console.log(`⛔ 渲染产物 schema 校验失败（缺 ${f}）`); return 1; }
+  if (t.status !== 'active') { console.log('⛔ 渲染产物 schema 校验失败（status 必须 active）'); return 1; }
+  // 渲染 spec.md：--type 裁剪（profile.task_types[type].spec_sections 白名单；无类型=全节）
+  const specTmpl = fs.readFileSync(path.join(skillRoot, 'templates', 'spec.md'), 'utf8');
+  let spec = specTmpl.replaceAll('<任务标题>', title.trim()).replaceAll('<任务id>', id);
+  if (type) {
+    const SEC_ALIAS = { '改动文件集合声明': '边界与影响面' }; // 声明行是「边界与影响面」节内的加粗行（非独立标题）——裁剪白名单按宿主节名归一
+    const keep = (prof.task_types[type]?.spec_sections ?? []).map((k) => SEC_ALIAS[k] ?? k);
+    if (Array.isArray(keep) && keep.length) {
+      const lines = spec.split('\n');
+      const out = [];
+      let cur = null;
+      let buf = [];
+      const flush = () => { if (cur === null || keep.some((k) => cur.includes(k))) out.push(...buf); };
+      for (const l of lines) {
+        const h = l.match(/^(#{1,6})\s+(.*)$/);
+        if (h && h[1].length <= 2) { flush(); cur = h[2]; buf = [l]; }
+        else buf.push(l);
+      }
+      flush();
+      spec = out.join('\n');
+      console.log(`ℹ 任务类型 ${type}：spec 裁剪为 ${keep.join('/')} 节（${(prof.task_types[type]?.disable_packs ?? []).join('/') || '无'} 门族不加载）`);
+    }
+  }
+  fs.mkdirSync(path.join(tasksDir, id), { recursive: true });
+  writeTaskJsonAtomic(path.join(tasksDir, id, 'task.json'), t);
+  fs.writeFileSync(path.join(tasksDir, id, 'spec.md'), spec);
+  // index 登记 + L0 刷新
+  const indexPath = path.join(tasksDir, 'index.json');
+  const idx = readJson(indexPath) ?? { tasks: [] };
+  if (!Array.isArray(idx.tasks)) idx.tasks = [];
+  idx.tasks.unshift({ id, title: title.trim(), status: 'active', tier, createdAt: ts, lastActiveAt: ts, ...(branch ? { branch, worktree } : {}) });
+  writeTaskJsonAtomic(indexPath, idx);
+  registerProjectL0(mainRoot);
+  console.log(`✓ 已建档：${id}（${title.trim()}，tier=${tier}${type ? `，type=${type}` : ''}）`);
+  if (worktree) console.log(`  worktree：${worktree}（分支 ${branch}，基线 ${baseBranch}）——所有改动在该目录进行`);
+  console.log(`  档案：${path.join(tasksDir, id)}（task.json + spec.md 已渲染）`);
+  console.log('下一步：worktree 内开工 → node tf.mjs checkpoint ' + id + ' --note "<一句话>" 首存档（首存前 spec「边界与影响面」节须非空=理解重述痕）');
+  return 0;
+}
+
+/* checkpoint：存档命令（F45/F35/F33）。追加 checkpoints[]（含当前 HEAD sha）+ 刷新 lease 心跳 + conventions 回执
+   （readAt+hash 落 task.json）+ 首存校验理解重述痕（spec「边界与影响面」节非空，缺=黄牌提醒不阻断）。 */
+function checkpointCmd(args = []) {
+  const id = args.find((a) => !String(a).startsWith('--'));
+  let note = '', files = [];
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--note') note = String(args[++i] ?? '');
+    else if (args[i] === '--files') files = String(args[++i] ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+  }
+  if (!id || !note.trim()) { console.log('用法：node tf.mjs checkpoint <task-id> --note "<一句话>" [--files "a.md,b.js"]\n追加存档点 + 刷新 lease + conventions 回执落痕；首存校验 spec「边界与影响面」理解重述痕。'); return 1; }
+  const { isGit, mainRoot, tasksDir } = locate();
+  const t = loadTasks(tasksDir).find((x) => x.id === id);
+  if (!t) { console.log(`未找到任务 ${id}（跑 ls 查看列表）`); return 1; }
+  if (t.status !== 'active' && t.status !== 'verifying') { console.log(`⚠ ${id} 状态 ${t.status}——仅 active/verifying 可存档（parked 先 unpark；终态任务续迭代走新任务）`); return 1; }
+  const dir = taskDirOf(tasksDir, id);
+  const p = path.join(dir, 'task.json');
+  const j = readJson(p);
+  if (!j) { console.log('⚠ task.json 损坏 → 存档中止（先修复档案）'); return 1; }
+  // 当前 HEAD sha：任务分支优先（无分支=attached/非 git → null）
+  const commit = isGit && t.branch && git(['-C', mainRoot, 'rev-parse', '--verify', t.branch], mainRoot, true)
+    ? git(['-C', mainRoot, 'rev-parse', t.branch], mainRoot, true) : null;
+  const ts = new Date().toISOString();
+  j.checkpoints = [...(j.checkpoints ?? []), { ts, commit, summary: note.trim(), files }];
+  j.lastActiveAt = ts;
+  if (j.activeLease) j.activeLease.heartbeatAt = ts;
+  const rc = conventionsReceipt(tasksDir);
+  if (rc) j.conventions = rc;
+  writeTaskJsonAtomic(p, j);
+  syncIndexRow(tasksDir, j);
+  registerProjectL0(mainRoot);
+  console.log(`✓ 已存档：${id} 第 ${j.checkpoints.length} 笔（${commit ? `${commit.slice(0, 7)} ` : '无分支提交 '}"${note.trim()}"）${rc ? '｜conventions 回执已落痕' : '｜⚠ 无 conventions.md（先跑 init 补齐）'}`);
+  if (!(j.checkpoints ?? []).some((_, i) => i) || j.checkpoints.length === 1) {
+    const specText = fs.existsSync(path.join(dir, 'spec.md')) ? fs.readFileSync(path.join(dir, 'spec.md'), 'utf8') : '';
+    const m = specText.match(/^#{1,6}\s*边界与影响面\s*$([\s\S]*?)(?=^#{1,6}\s|\n*$)/m);
+    const body = m ? m[1].replace(/<!--[\s\S]*?-->/g, '').trim() : '';
+    if (!body) console.log('⚠ 黄牌（F33）：首个 checkpoint 但 spec「边界与影响面」节为空——理解重述痕缺失；按模板补节（对象/范围/预期行为）再继续');
+  }
+  console.log(`下一步：继续施工（commit --files 声明范围）｜中断收尾 node tf.mjs checkpoint ${id} --note "收尾"｜完成走 merge 流程（merge.md）`);
+  return 0;
+}
+
+/* rollback：任务分支回退（F45）。对 baseCommit 之后的提交逐个 git revert --no-edit——绝不 reset/force/共享分支 -D
+   （本命令物理上不含任何破坏性 git 形态）；未建分支=仅报告。已并入 main 的任务走 revert-plan（Saga 补偿）。 */
+function rollbackCmd(args = []) {
+  const id = args.find((a) => !String(a).startsWith('--'));
+  if (!id) { console.log('用法：node tf.mjs rollback <task-id>\n对任务分支 baseCommit 之后的提交逐个 git revert --no-edit（禁 reset/force/共享分支 -D，本命令物理不含破坏性形态）；未建分支=仅报告；已合并任务走 revert-plan。'); return 1; }
+  const { isGit, mainRoot, tasksDir } = locate();
+  if (!isGit) { console.log('⚠ 非 git 项目无回退对象'); return 1; }
+  const t = loadTasks(tasksDir).find((x) => x.id === id);
+  if (!t) { console.log(`未找到任务 ${id}（跑 ls 查看列表）`); return 1; }
+  if (!t.branch) { console.log(`ℹ ${id} 未建分支——无可回滚物（档案模式/attached 任务；文本改动手工反向修改+checkpoint 留痕）`); return 0; }
+  if (!git(['-C', mainRoot, 'rev-parse', '--verify', `refs/heads/${t.branch}`], mainRoot, true)) { console.log(`⚠ ${id} 分支 ${t.branch} 不存在（已删？已并入后清理？）——无可回滚物；已合并任务的撤销走 node tf.mjs revert-plan ${id}`); return 0; }
+  const mainRef = resolveMainRef(mainRoot);
+  const base = t.baseCommit ?? (mainRef ? git(['-C', mainRoot, 'merge-base', mainRef, t.branch], mainRoot, true) : null); // 无基线锚 → 回退 merge-base（首锚前零提交的等价区间）
+  const logOut = base ? (git(['-C', mainRoot, 'log', '--no-merges', '--oneline', `${base}..${t.branch}`], mainRoot, true) ?? '') : '';
+  const commits = logOut.split('\n').filter(Boolean).map((l) => ({ sha: l.split(' ')[0], subject: l.slice(l.indexOf(' ') + 1) }));
+  if (!commits.length) { console.log(`ℹ ${id} 分支 ${t.branch} 在基线 ${(base ?? '?').slice(0, 7)} 之后无提交——无可回滚物`); return 0; } // 先于并入判定：零提交新分支==基线 tip，是 main 祖先但无物可回（误判源）
+  if (mainRef && isAnc(mainRoot, t.branch, mainRef)) { console.log(`⚠ ${id} 分支已并入 ${mainRef}——在途 rollback 不适用，走 node tf.mjs revert-plan ${id}（Saga 补偿：逐条 git revert -m 1）`); return 1; }
+  // 工作树：任务 worktree 优先；缺失则临时挂（回退完保留，清点归编排层）
+  let wt = t.worktree && fs.existsSync(t.worktree) ? t.worktree : null;
+  if (!wt) {
+    wt = path.join(os.tmpdir(), `tf-rollback-${id}-${Date.now()}`);
+    const ok = git(['-C', mainRoot, 'worktree', 'add', '--detach', wt, t.branch], mainRoot, true);
+    if (ok === null) { console.log(`⚠ worktree 不可用（${wt}）——人工核对后重试`); return 1; }
+    console.log(`ℹ 任务 worktree 缺失，临时挂 ${wt}（回退后保留供清点）`);
+  }
+  console.log(`# rollback ${id}：${commits.length} 个提交逐个 revert（新→旧；--no-edit；绝不 reset/force/-D）`);
+  let done = 0;
+  for (const c of commits) {
+    const ok = git(['-C', wt, 'revert', '--no-edit', c.sha], wt, true);
+    if (ok === null) { console.log(`⚠ revert ${c.sha.slice(0, 7)} ${c.subject} 冲突/失败——停下人工处置（禁 reset --hard 跳过；解冲突后续跑 git revert --continue）`); return 1; }
+    done++;
+    console.log(`  ✓ 已回退 ${c.sha.slice(0, 7)} ${trunc(c.subject, 50)}`);
+  }
+  const p = path.join(taskDirOf(tasksDir, id), 'task.json');
+  const j = readJson(p);
+  if (j) {
+    const ts = new Date().toISOString();
+    j.checkpoints = [...(j.checkpoints ?? []), { ts, commit: null, summary: `rollback：回退 ${done} 个提交（${commits.map((c) => c.sha.slice(0, 7)).join(' ')}）`, files: [] }];
+    j.lastActiveAt = ts;
+    writeTaskJsonAtomic(p, j);
+    syncIndexRow(tasksDir, j);
+  }
+  console.log(`✓ ${id} 已回退 ${done} 个提交（worktree：${wt}）；下一步：核对工作区 → checkpoint ${id} --note "回退后存档" 留痕`);
+  return 0;
+}
+
+/* confirm：确认回执（F32）。用户验收/拍板原话追加 .taskflow/<id>/confirmations.jsonl——
+   accept --pass 与 mergegate(verifying) 的机械前置（缺回执=拒绝翻转）。 */
+function confirmCmd(args = []) {
+  const id = args.find((a) => !String(a).startsWith('--'));
+  let note = '', briefingHash = null;
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--note') note = String(args[++i] ?? '');
+    else if (args[i] === '--briefing-hash') briefingHash = String(args[++i] ?? '') || null;
+  }
+  if (!id || !note.trim()) { console.log('用法：node tf.mjs confirm <task-id> --note "<用户确认原话>" [--briefing-hash <简报哈希>]\n确认回执落痕——accept --pass / mergegate(verifying) 的机械前置（≥1 条回执才放行）。'); return 1; }
+  const { tasksDir, mainRoot } = locate();
+  const t = loadTasks(tasksDir).find((x) => x.id === id);
+  if (!t) { console.log(`未找到任务 ${id}（跑 ls 查看列表）`); return 1; }
+  const cp = confirmationsPath(tasksDir, id);
+  fs.mkdirSync(path.dirname(cp), { recursive: true });
+  const row = { ts: new Date().toISOString(), note: note.trim() };
+  if (briefingHash) row.briefingHash = briefingHash;
+  fs.appendFileSync(cp, JSON.stringify(row) + '\n');
+  const count = confirmationsOf(tasksDir, id).length;
+  console.log(`✓ 确认回执已落痕：${id} 第 ${count} 条（"${trunc(note.trim(), 60)}"）`);
+  console.log(`下一步：${t.status === 'verifying' ? `node tf.mjs accept ${id} --pass（回执已满足前置）` : '继续任务流（回执在档，验收翻转不再拦截）'}`);
+  return 0;
+}
+
+/* packs：能力包清单/安装（F07/F43）。list=包清单+profile 启用态；install carrier=五载体技能实体化安装
+   （复制包目录到目标技能目录+登记 profile.carriers.installed）。 */
+function packManifests() {
+  const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+  const out = new Map();
+  const packsDir = path.join(root, 'packs');
+  if (!fs.existsSync(packsDir)) return out;
+  for (const d of fs.readdirSync(packsDir, { withFileTypes: true })) {
+    if (!d.isDirectory()) continue;
+    const mp = path.join(packsDir, d.name, 'manifest.json');
+    if (!fs.existsSync(mp)) continue;
+    const m = readJson(mp);
+    if (m) out.set(d.name, m);
+  }
+  return out;
+}
+function packsCmd(args = []) {
+  const sub = args[0];
+  const packs = packManifests();
+  if (!sub || sub === 'list') {
+    if (!packs.size) { console.log('（packs/ 无任何 manifest——技能仓损坏或未随包分发；doctor I20 会点名）'); return 1; }
+    const { tasksDir } = locate();
+    const prof = readJson(path.join(tasksDir, 'profile.json'));
+    console.log('# taskflow 能力包清单（懒加载：未启用的包连一行都不加载）');
+    for (const [name, m] of packs) {
+      const enabled = prof?.packs ? (prof.packs[name] === true ? '✓启用' : '·未启用') : '（项目未 init——缺省仅 changelog-gates）';
+      console.log(`- ${name}（token: ${m.token ?? name}）${enabled}——${m.name ?? ''}${Array.isArray(m.triggers) && m.triggers.length ? `｜触发：${m.triggers.join('/')}` : ''}`);
+    }
+    const car = packs.get('carrier');
+    if (car) console.log(`- 载体技能（carrier）：${(car.carriers ?? []).join('、') || '见 packs/carrier/'}｜安装：node tf.mjs packs install carrier --all`);
+    console.log('启用/停用：node tf.mjs init --packs <a,b> 重跑（升级模式只改拍板项）；任务类型裁剪：profile.task_types');
+    return 0;
+  }
+  if (sub === 'install') {
+    const what = args[1];
+    if (what !== 'carrier') { console.log(`⚠ packs install 当前只支持 carrier（收到 ${what}）；栈包经 mech install <token> 安装产物`); return 1; }
+    const tIdx = args.indexOf('--target');
+    const target = tIdx >= 0 ? path.resolve(String(args[tIdx + 1] ?? '')) : path.join(os.homedir(), '.agents', 'skills');
+    const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+    const carrierDir = path.join(root, 'packs', 'carrier');
+    const all = args.includes('--all');
+    const names = all ? [] : args.slice(2).filter((a) => !a.startsWith('--') && a !== target);
+    const available = fs.existsSync(carrierDir) ? fs.readdirSync(carrierDir, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name) : [];
+    if (!available.length) { console.log('⚠ packs/carrier/ 无载体技能目录（技能仓损坏）'); return 1; }
+    const want = all ? available : names;
+    if (!want.length) { console.log(`用法：node tf.mjs packs install carrier --all|<名>[ <名>…] [--target <技能目录>]\n可用载体：${available.join('、')}`); return 1; }
+    for (const n of want) {
+      if (!available.includes(n)) { console.log(`⚠ 未知载体 ${n}——可用：${available.join('、')}`); return 1; }
+      const dst = path.join(target, n);
+      try { fs.rmSync(dst, { recursive: true, force: true }); fs.cpSync(path.join(carrierDir, n), dst, { recursive: true }); }
+      catch (e) { console.log(`⚠ 安装 ${n} 失败：${e.message}`); return 1; }
+      console.log(`✓ 已安装载体技能 ${n} → ${dst}`);
+    }
+    // 登记 profile（项目内跑才登记；技能仓自身无 .taskflow=跳过）
+    const { tasksDir } = locate();
+    const profPath = path.join(tasksDir, 'profile.json');
+    if (fs.existsSync(profPath)) {
+      const prof = readJson(profPath) ?? {};
+      const inst = new Set([...(prof.carriers?.installed ?? []), ...want]);
+      prof.carriers = { ...(prof.carriers ?? {}), decision: all ? 'all' : (prof.carriers?.decision === 'all' ? 'all' : 'partial'), installed: [...inst] };
+      writeTaskJsonAtomic(profPath, prof);
+      console.log(`✓ profile.json carriers.installed 已登记（${[...inst].join('、')}）`);
+    }
+    console.log('下一步：node tf.mjs skills <领域词|别名> 检测在场（别名：冲突分级/范围/影响面/数据边界/页面取证）');
+    return 0;
+  }
+  console.log('用法：node tf.mjs packs [list|install carrier --all|<名> [--target <目录>]]');
+  return 1;
+}
+
+/* self-update：安装位自更新（F06）。git clone 形态 → git pull --ff-only + 版本对账；非 git 安装位 → 提示重新 clone。 */
+function selfUpdateCmd() {
+  const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+  if (!fs.existsSync(path.join(root, '.git'))) { console.log(`⚠ ${root} 非 git clone 形态——请重新安装：git clone <源仓> ${root}（或删除后 clone）`); return 1; }
+  const cur = skillVersion();
+  const pull = spawnSync('git', ['-C', root, 'pull', '--ff-only'], { encoding: 'utf8', timeout: 120000 });
+  if (pull.status !== 0) { console.log(`⚠ git pull --ff-only 失败（本地改动/分叉/网络）——人工核对：\n${trunc(String(pull.stderr ?? pull.stdout ?? ''), 300)}`); return 1; }
+  const after = skillVersion();
+  console.log(`✓ 已更新：${root}（v${cur} → v${after}${cur === after ? '，本就是最新' : ''}）`);
+  console.log('下一步：项目侧机制刷新 node <skill目录>/scripts/tf.mjs mech check（漂移项逐个 mech install --yes）');
+  return 0;
+}
+
 /* ---------------- 命令表（v2.85.0 描述符注册表）：name/usage/run 单源——分发区、help（USAGE 组合）、lint 孤儿检查三处消费 ----------------
    usage=帮助行原文（svc/mech 为三行块）；run 签名特例照旧分发区（accept/diagnose 取首参，mechanisms/migrate 无参）。 */
 const COMMANDS = [
+  { name: 'init', usage: `  node tf.mjs init [--no-git] [--host auto|omp|opencode|claude|none] [--ask] [--deploy-form none|jar|generic] [--packs <a,b>] [--carriers all|none|<名>] [--confirm-tier detailed|batch]  项目初始化/升级（v3.0.0）：写 project.json+profile.json+conventions.md 骨架+L0 注册（TF_TASKFLOW_HOME）；已有 .taskflow/ 只补缺不覆盖；--ask 打印单张问卷（答案经 flag 回填重跑）`, run: (rest) => initCmd(rest) },
+  { name: 'new', usage: `  node tf.mjs new "<标题>" [--tier small|medium|large] [--type <任务类型>] [--worktree|--no-worktree]  建档（v3.0.0）：占号 → 渲染 task.json+spec.md（--type 按 profile.task_types 裁剪节）→ schema 校验 → git 项目缺省建 worktree → 打印下一步；缺陷类建档前先跑 scout <症状词>`, run: (rest) => newCmd(rest) },
+  { name: 'checkpoint', usage: `  node tf.mjs checkpoint <task-id> --note "<一句话>" [--files "a.md,b.js"]  存档（v3.0.0）：checkpoints[] 追加（含 HEAD sha）+ lease 心跳刷新 + conventions 回执落痕（readAt/hash 入 task.json）+ 首存校验理解重述痕（spec「边界与影响面」空=黄牌不阻断）`, run: (rest) => checkpointCmd(rest) },
+  { name: 'rollback', usage: `  node tf.mjs rollback <task-id>   任务分支回退（v3.0.0）：baseCommit 后提交逐个 git revert --no-edit（物理不含 reset/force/-D）；未建分支=仅报告；已并入 main 走 revert-plan`, run: (rest) => rollbackCmd(rest) },
+  { name: 'confirm', usage: `  node tf.mjs confirm <task-id> --note "<用户确认原话>" [--briefing-hash <哈希>]  确认回执（v3.0.0，F32）：追加 confirmations.jsonl——accept --pass / mergegate(verifying) 的机械前置（≥1 条才放行）`, run: (rest) => confirmCmd(rest) },
+  { name: 'packs', usage: `  node tf.mjs packs [list]              能力包清单（v3.0.0）：包名/token/触发词 + profile 启用态（懒加载——未启用的包连一行都不加载）\n  node tf.mjs packs install carrier [--all|<名>] [--target <技能目录>]  载体技能实体化安装（五载体：scope-assessment/impact-analysis/data-boundary/conflict-triage/page-forensics；缺省装 ~/.agents/skills）`, run: (rest) => packsCmd(rest) },
+  { name: 'self-update', usage: `  node tf.mjs self-update             安装位自更新（v3.0.0）：git clone 形态 git pull --ff-only + 版本对账打印；非 git 安装位提示重新 clone`, run: () => selfUpdateCmd() },
   { name: 'ls', usage: `  node tf.mjs ls [--all]                 盘点：登记任务表 + 游离工作（只读；--all 展开已归档；无活任务时打印可续迭代入口句）`, run: (rest) => ls(rest) },
   { name: 'doctor', usage: `  node tf.mjs doctor [--all] [--self] [--data <path>] [task-id]  体检：不变量逐条检查（缺省=active/verifying + 根层死任务，--all 含 archive/ 内 merged）；--self=不变量 spec↔注册表↔实现 三源一致性（--data 指 spec 副本，测试用）（只读）`, run: (rest) => doctor(rest) },
   { name: 'reconcile', usage: `  node tf.mjs reconcile [--fix]         对账：档案对账（I1）回写/幽灵清理/损坏报告；默认 dry-run，--fix=原子回写（唯一写命令，幂等）`, run: (rest) => reconcile(rest) },
@@ -3182,7 +3699,7 @@ const COMMANDS = [
   { name: 'skills', usage: `  node tf.mjs skills [领域词]           领域技能在场检测：缺哪些+怎么装；呈用户选装（不装则如实注记）（只读）；--usage=技能加载埋点报表（TF_SKILL_USAGE 单文件聚合，仅 omp 侧显式 skill:// 加载计数）`, run: (rest) => skillsCmd(rest) },
   { name: 'mechanisms', usage: `  node tf.mjs mechanisms               guard 门清单（机制透明化，v2.83.0，只读）：逐行输出宿主防护层每个门的中文名/管什么/开关 env/是否写触发日志——被拦或被提醒时按它向用户解释原因`, run: () => mechanismsCmd() },
   { name: 'canary', usage: `  node tf.mjs canary                        送达金丝雀：/tmp 夹具仓渲染守门副本+真实 omp -p 验证注入达模型（一次模型调用；omp 缺失则跳过 exit 0）`, run: () => canaryCmd() },
-  { name: 'release', usage: `  node tf.mjs release <version> [--canary] [--dry-run]  发版十步链（RELEASE_CHAIN）：版本双点自动改→lint→回归→commit(feat(v<版>):CHANGELOG顶条目标题)→push(败重试一次+远端哈希确认)→六路径同步（WSL实体 fetch+ff-only｜Windows侧 bundle 配方）→HEAD六路径对账→机制刷新（mech install --yes×project.json.mechanisms+doctor 漂移=0）→审计/重启提示；--dry-run 打印计划零执行；幂等重跑跳过已达成步骤；前置红=顶条目非目标版本/未跟踪文件未add/非 main`, run: (rest) => releaseCmd(rest) },
+  { name: 'release', usage: `  node tf.mjs release <version> [--canary] [--dry-run]  发版链（v3.0.0 简化）：版本写入（frontmatter 单点）→lint→回归→commit(feat(v<版>):CHANGELOG顶条目标题)→tag v<版>→push origin main --tags（远程不可达=警告不失败，手动补推）→各安装位 self-update 提示；--dry-run 打印计划零执行；幂等重跑跳过已达成步骤；前置红=顶条目非目标版本/未跟踪文件未add/非 main`, run: (rest) => releaseCmd(rest) },
   { name: 'accept', usage: `  node tf.mjs accept <task-id> [--pass]  缺省=验收简报：任务是什么/部署状态/验什么/怎么验/怎么回复；--pass=机械翻转 *→merged（前置=分支已并入主分支，幂等）`, run: (rest) => accept(rest[0], rest.slice(1)) },
   { name: 'takeover', usage: `  node tf.mjs takeover <task-id> --session <本会话ID>  接管仪式：改 sessionID + 重写 .owner.json + 刷新 lease + 打印桌面清点清单（清点判断归编排层）`, run: (rest) => takeover(rest) },
   { name: 'park', usage: `  node tf.mjs park <task-id> --reason "<原因>"   搁置在途任务（active→parked，簿记写入口）——档案保留、体检（缺省）与 G 门不再盘点；等验收中（含部署态）拒`, run: (rest) => parkCmd(rest) },
@@ -3211,7 +3728,8 @@ const USAGE_FOOTER = `  环境变量 TF_STATUS=<off|warn|enforce>    守门 J �
   环境变量 TF_VERIFY_WARN=off              关闭守门 K 验收期提醒（v2.69.0；git push/merge 时在档等验收任务的时序核对提醒，缺省开，提醒不拦）
   环境变量 TF_IMPACT_THRESHOLD=<N 缺省 3>  basename 引用文件数阈值（impact 命令与守门牵连排查共用）；TF_J19_WARN / TF_J20_WARN=off 各自关闭守门牵连排查/数据边界提醒（v2.72.0；缺省 warn，纯提醒不拦、无 enforce 档）
 ${COMMANDS.find((c) => c.name === 'mech').usage}
-退出码：0 正常/全绿/账目一致；1 有差异/有待修项/缺参数/有缺技能。不变量 spec：references/data.md；判断与叙事修复归编排层。`;
+退出码：0 正常/全绿/账目一致；1 有差异/有待修项/缺参数/有缺技能。不变量 spec：references/data.md；判断与叙事修复归编排层。
+状态迁移审计流：.taskflow/events.jsonl（ts/from/to/cmd/taskId 追加式日志，park/unpark/accept/commit --deployed 等状态翻转自动落痕；只写不读，tail 人工核对）；门咬合台账：.taskflow/meta/gate-hits.jsonl。`;
 const USAGE = '用法：\n' + COMMANDS.filter((c) => c.name !== 'mech').map((c) => c.usage).join('\n') + '\n' + USAGE_FOOTER; // mech 三行块原文位于环境变量行之后——FOOTER 引用其 usage 保持行序与单源
 
 /* ---------------- mech：机制采纳（ls/check 只读 / install 生成式安装——簿记写入口，v2.29.0；v2.65.0 --yes 确认闸 + 统一采纳对账谓词） ----------------
@@ -3221,19 +3739,20 @@ const USAGE = '用法：\n' + COMMANDS.filter((c) => c.name !== 'mech').map((c) 
    install 确认闸 = 漂移刷新/整文件覆盖已有文件须显式 --yes（DEP_ASK_GATE 机械面），首装空位不拦（懒加载保留）。
    CI 挂点只建议不自动改（改 workflow 属高影响，归确认门）。 */
 function mechRegistry() {
+  // v3.0.0（F23）：注册表出 markdown——机器真源 = references/schemas/mechanisms.json（由 scripts/gen-mechanisms.mjs
+  // 从 packs/*/manifest.json + scripts/mechanisms-core.json 生成，进 release 链）；data.md 只留人读一句指向。
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-  let text = ''; try { text = fs.readFileSync(path.join(root, 'references', 'data.md'), 'utf8'); } catch {}
-  const m = text.match(/## 机制登记表[\s\S]*?(?=\n## |$)/);
   const reg = new Map();
-  if (!m) return reg;
-  for (const line of m[0].split('\n')) {
-    if (!/^\|/.test(line) || /^\|[-: |]+$/.test(line) || /^\| *token/.test(line)) continue;
-    const cells = line.split('|').map((c) => c.trim());
-    if (cells.length < 6 || !cells[1]) continue;
-    reg.set(cells[1], {
-      def: cells[2] ?? '', touch: cells[3] ?? '',
-      products: (cells[4] ?? '').split(/[、,;]/).map((s) => s.trim()).filter((s) => s && !s.startsWith('—')), // v2.54.0 幻影产物过滤：—（说明）整串曾被当产物名（全角；不在切分集）——6 token 永久假漂移+全家渲染（对抗审查实证）；说明归定义处/检测列
-      fixture: cells[5] ?? '',
+  let rows = null;
+  try { rows = JSON.parse(fs.readFileSync(path.join(root, 'references', 'schemas', 'mechanisms.json'), 'utf8')).mechanisms; } catch { /* 缺失/坏档=空注册表，doctor I20 点名 */ }
+  if (!Array.isArray(rows)) return reg;
+  for (const m of rows) {
+    if (!m?.token) continue;
+    reg.set(m.token, {
+      def: m.def ?? '', touch: Array.isArray(m.touch) ? m.touch.join('、') : (m.touch ?? ''),
+      triggers: m.triggers ?? [], pack: m.pack ?? null,
+      products: Array.isArray(m.products) ? m.products.filter(Boolean) : [],
+      fixture: m.fixture ?? '', plain: m.plain ?? '',
     });
   }
   return reg;
@@ -3422,7 +3941,14 @@ function mechCmd(args = []) {
   const token = args.filter((a) => a !== '--yes')[1];
   if (!token) { console.log('用法：node tf.mjs mech install <token>'); return 1; }
   const row = reg.get(token);
-  if (!row) { console.log(`未登记机制 ${token}（真相源：references/data.md 机制登记表；mech ls 查看可装清单）`); return 1; }
+  if (!row) { console.log(`未登记机制 ${token}（真相源：references/schemas/mechanisms.json；mech ls 查看可装清单）`); return 1; }
+  // v3.0.0 宿主守门落点（F14/6.3）：guard 产物只经 adapter.guardTargets(host) 落盘——omp→.omp/hooks/pre；
+  // 其余宿主无守门通道：TASKFLOW_GUARD 降级纯纪律档（conventions 红线 + doctor），不渲染不落盘。
+  const guardOuts = guardTargets(HOST);
+  if (token === 'TASKFLOW_GUARD' && !guardOuts.length) {
+    console.log('ℹ 本宿主无守门通道（adapter: none）——已降级纯纪律档：conventions「禁止事项」红线 + doctor 体检承载同等约束，不渲染 guard 产物');
+    return 0;
+  }
   if (!pj) { console.log('缺 .taskflow/project.json（先走 new-task 初始化流程）'); return 1; }
   if (!row.products.length) { console.log(`机制 ${token} 无项目侧产物定义（纯编排层机制，无需 install）`); return 0; }
   const prose = MECH_PROSE[token] ?? null; // 机制的项目侧锚点/补记（无 prose 的机制只渲染产物）
@@ -3441,7 +3967,7 @@ function mechCmd(args = []) {
   // v2.65.0 确认闸前置：渲染计划只读先算（会写哪些文件/哪些是整文件覆盖），闸过才落盘——闸判定与写路径共用同一份计划，禁止两份渲染实现。
   const renderable = new Set([...reg.values()].flatMap((row) => row.products).map((p) => path.normalize(p)));
   const renderPlan = [];
-  for (const [assetSub, outSub, ext, mode] of [['harness', path.join('scripts', 'harness'), '.sh', 0o755], ['harness', path.join('scripts', 'harness'), '.mjs', 0o755], ['design', path.join('scripts', 'design'), '.js', 0o644], ['guard', path.join('.omp', 'hooks', 'pre'), '.js', 0o644]]) {
+  for (const [assetSub, outSub, ext, mode] of [['harness', path.join('scripts', 'harness'), '.sh', 0o755], ['harness', path.join('scripts', 'harness'), '.mjs', 0o755], ['design', path.join('scripts', 'design'), '.js', 0o644], ...guardOuts.map((o) => ['guard', o, '.js', 0o644])]) {
     const aDir = path.join(skillRoot, 'assets', assetSub);
     const oDir = path.join(trackedRoot, outSub);
     for (const f of fs.existsSync(aDir) ? fs.readdirSync(aDir).filter((x) => x.endsWith(ext)) : []) {
@@ -3719,7 +4245,7 @@ function lintCmd(args = []) {
     ['SKILL.md', '需求变更门'],
     ['templates/spec.md', '需求基线'],
     ['references/resume.md', '需求锚定'],
-    ['references/data.md', '机制登记表'],
+    ['references/data.md', '不变量'], // v3.0.0（F23）：机制登记表出走 data.md（真源=mechanisms.json，由 I20 承载）——承重锚改「不变量」表头
     ['references/data.md', '状态机（唯一事实源'],
     ['scripts/tf.mjs', 'INVARIANTS'],
   ];
@@ -3746,38 +4272,36 @@ function lintCmd(args = []) {
       else console.log(`ℹ lint：${f} 未跟踪（归属会话认领或删除；不拦截）`);
     }
   } catch { /* ls-files 不可用（非 git 环境）→ 跳过该检查 */ }
-  // 6) 机制触点可达性（死规则检测；数据源 = data.md「机制登记表」）
+  // 6) 机制触点可达性（死规则检测；v3.0.0 数据源 = references/schemas/mechanisms.json，F23 注册表出 markdown）
   //    反面实证：LEASE/.owner.json 曾有 schema+doctor 检查、零流程触点——写入口/刷新点/接管仪式无一处接线（2026-09-23 审查）
-  const dataP = path.join(root, '..', 'references', 'data.md');
-  const mechSec = fs.existsSync(dataP) ? fs.readFileSync(dataP, 'utf8').match(/## 机制登记表[\s\S]*?(?=\n## |$)/)?.[0] : null;
-  if (!mechSec && fs.existsSync(dataP)) { console.log('⛔ lint：references/data.md 存在但缺「## 机制登记表」段——触点可达/fixture落痕/大白话三检查整体失明（段头被改名或误删？对抗审查 F 实证形态）'); bad++; }
-  if (mechSec) {
-    for (const row of mechSec.split('\n').filter((l) => { const t = l.trim(); return t.startsWith('|') && !/^\|\s*-/.test(t); }).slice(1)) {
-      const cells = row.split('|').map((c) => c.trim());
-      const token = cells[1], touchCell = cells[3];
-      if (!token || !touchCell) continue;
-      const touchFiles = touchCell.split(/[,，、]+/).map((s) => s.trim().replace(/^`+|`+$/g, '').replace(/^references\//, '')).filter((s) => /^[\w.-]+\.md$/.test(s) || s.startsWith('templates/'));
-      const nonMd = touchCell.split(/[,，、]+/).map((s) => s.trim().replace(/^`+|`+$/g, '').replace(/^references\//, '')).filter((s) => s && !/\.md$/.test(s));
-      if (nonMd.length) console.log(`ℹ lint 机制 ${token}：触点列含非文档项「${nonMd.join('、')}」——字面 token 校验仅覆盖 *.md 项（测试触点由 fixture 落痕检查分守；攻击轮 E4：声明面与可验证面对齐）`);
-      const unrecognized = touchCell.split(/[,，、]+/).map((s) => s.trim().replace(/^`+|`+$/g, '').replace(/^references\//, '')).filter((s) => /\.md$/.test(s) && !/^[\w.-]+\.md$/.test(s) && !s.startsWith('templates/'));
-      if (unrecognized.length) { console.log(`⚠ lint 机制 ${token}：触点列无法识别的形式「${unrecognized.join('、')}」——只认裸 *.md / templates/*.md / references/*.md / 反引号包裹（剥壳后判）`); bad++; }
+  const mechJsonP = path.join(root, '..', 'references', 'schemas', 'mechanisms.json');
+  let mechRows = null;
+  try { mechRows = JSON.parse(fs.readFileSync(mechJsonP, 'utf8')).mechanisms; } catch { /* 缺失在下分支点名 */ }
+  if (!Array.isArray(mechRows) || !mechRows.length) { console.log('⛔ lint：references/schemas/mechanisms.json 缺失/为空/不可解析——触点可达/fixture落痕/大白话三检查整体失明（跑 node scripts/gen-mechanisms.mjs 再生成）'); bad++; }
+  else {
+    for (const mrow of mechRows) {
+      const token = mrow?.token ?? '';
+      const touchList = Array.isArray(mrow?.touch) ? mrow.touch : String(mrow?.touch ?? '').split(/[,，、]+/);
+      if (!token) continue;
+      const touchFiles = touchList.map((s) => String(s).trim().replace(/^`+|`+$/g, '').replace(/^references\//, '')).filter((s) => /^[\w.-]+\.md$/.test(s) || s.startsWith('templates/') || s.startsWith('packs/') || s === 'SKILL.md');
+      const nonMd = touchList.map((s) => String(s).trim().replace(/^`+|`+$/g, '').replace(/^references\//, '')).filter((s) => s && !/\.md$/.test(s));
+      if (nonMd.length) console.log(`ℹ lint 机制 ${token}：触点含非文档项「${nonMd.join('、')}」——字面 token 校验仅覆盖 *.md 项（测试触点由 fixture 落痕检查分守）`);
       if (!touchFiles.length) { console.log(`⛔ lint：机制 ${token} 触点列为空 = 死规则 → 接线或删除（induction.md 反面模式）`); bad++; continue; }
       for (const tf of touchFiles) {
-        const rel = tf === 'SKILL.md' || tf === 'README.md' || tf.startsWith('templates/') ? tf : `references/${tf}`;
+        const rel = tf === 'SKILL.md' || tf === 'README.md' || tf.startsWith('templates/') || tf.startsWith('packs/') ? tf : `references/${tf}`;
         const tp = path.join(root, '..', rel);
         if (!fs.existsSync(tp)) { console.log(`⚠ lint 机制 ${token}：触点文件不存在 ${rel}`); bad++; continue; }
         if (!fs.readFileSync(tp, 'utf8').includes(token)) { console.log(`⛔ lint：机制 ${token} 触点 ${rel} 无此 token = 死规则 → 接线（token 字面写入）或删触点`); bad++; }
       }
-      // v2.29.0 fixture 落痕检查（治「覆盖跟着事故走」：机制↔夹具对照，登记即须有落痕）
-      const fx = (cells[5] ?? '').trim();
+      // fixture 落痕检查（治「覆盖跟着事故走」：机制↔夹具对照，登记即须有落痕）
+      const fx = String(mrow?.fixture ?? '').trim();
       if (fx === 'tf.test.mjs') {
         if (!testSrc.includes(token)) { console.log(`⛔ lint：机制 ${token} fixture 落痕声明 tf.test.mjs 但测试文件无此 token → 补测试（先红后绿）`); bad++; }
       } else if (/^I\d+$/.test(fx)) {
         if (!invariantIds.includes(fx)) { console.log(`⛔ lint：机制 ${token} fixture 声明 ${fx} 但 INVARIANTS 无此行 → 修登记或补不变量`); bad++; }
-      } else if (fx.startsWith('—') && fx.replace(/^—\s*[（(]?/, '').replace(/[）)\s]*$/, '').length < 6) { console.log(`⛔ lint：机制 ${token} fixture 豁免理由过短「${fx}」———<理由> 须 ≥6 字符说明（对抗审查 C1/C2 实证：裸—与—TODO 可免疫先红后绿纪律）`); bad++; } else if (!fx.startsWith('—')) { console.log(`⛔ lint：机制 ${token} fixture 落痕列须为 tf.test.mjs / I<N> / —<理由> 之一（当前「${fx}」）`); bad++; }
-      // v2.43.0 大白话列非空检查（PLAIN_SPEECH_GATE 词表源——门脚本与呈报白话都从这里抄）
-      const plainCell = (cells[7] ?? '').trim(); // v2.52.0 修列索引：七列表 cells[7] 才是大白话——旧读 cells[6]=检测列，自出生未看过真列（对抗审查 A1/A2 实证）
-      if (!plainCell) { console.log(`⛔ lint：机制 ${token} 「大白话」列为空 → 一句人类解释（词表源，门脚本代号解释/呈报白话从这抄）`); bad++; }
+      } else if (fx.startsWith('—') && fx.replace(/^—\s*[（(]?/, '').replace(/[）)\s]*$/, '').length < 6) { console.log(`⛔ lint：机制 ${token} fixture 豁免理由过短「${fx}」———<理由> 须 ≥6 字符说明`); bad++; } else if (!fx.startsWith('—') && fx) { console.log(`⛔ lint：机制 ${token} fixture 落痕列须为 tf.test.mjs / I<N> / —<理由> 之一（当前「${fx}」）`); bad++; }
+      // 大白话非空检查（PLAIN_SPEECH_GATE 词表源——门脚本与呈报白话都从这里抄）
+      if (!String(mrow?.plain ?? '').trim()) { console.log(`⛔ lint：机制 ${token} 「大白话」为空 → 一句人类解释（词表源，门脚本代号解释/呈报白话从这抄）`); bad++; }
     }
   }
   // 7) 事实禁改写（prose 禁复述可推导事实；清单真相源：data.md 表 / tf.mjs 分发区 / templates/ 目录）

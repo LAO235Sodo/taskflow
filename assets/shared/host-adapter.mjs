@@ -27,3 +27,42 @@ export function sessIdOf(sessionFile) {
 export function inSessionMark(sessionId, tjSessionId) {
   return sessionId && tjSessionId && (tjSessionId === sessionId || sessionId.endsWith('_' + tjSessionId)) ? '，本会话' : '';
 }
+
+// ── 宿主适配（v3.0.0）：宿主差异单点——检测/埋点路径/计划扫描目录/守门落点/红线载体。tf.mjs 与 guard 同源消费；
+//    新宿主只改这里（OCP：加分支不改调用方）。零 import 纯函数（渲染副本经 inlineSharedDeps 内联自包含）。
+const HOME = (typeof process !== 'undefined' && (process.env.HOME || process.env.USERPROFILE)) || (typeof os !== 'undefined' && os.homedir ? os.homedir() : '');
+const homeJoin = (...seg) => (HOME ? [HOME, ...seg].join('/') : '');
+
+// 宿主探测：env 优先（TF_HOST 强制/测试注入），再按痕迹探测；无命中='none'（纯纪律档降级）。
+export function detectHost(env = (typeof process !== 'undefined' ? process.env : {}), exists = () => false) {
+  const forced = env.TF_HOST;
+  if (forced && ['omp', 'opencode', 'claude', 'none'].includes(forced)) return forced;
+  if (env.OMP || env.OMP_SESSION_ID) return 'omp';
+  if (exists(homeJoin('.config', 'opencode'))) return 'opencode';
+  if (exists(homeJoin('.claude'))) return 'claude';
+  return 'none';
+}
+// 技能加载埋点文件：omp 侧守门 T 模块写 jsonl；其余宿主 null=不写埋点（报表口径如实声明）。
+export function usagePath(host) {
+  return host === 'omp' ? homeJoin('.omp', 'agent', 'skill-usage.jsonl') : null;
+}
+// 计划交接文档扫描目录（ls 游离工作源）：omp 独有；其余 []。
+export function planScanDirs(host) {
+  return host === 'omp' ? [homeJoin('.opencode', 'plan')] : [];
+}
+// 守门扩展落盘目标（mech install TASKFLOW_GUARD 渲染位）：omp=hooks 目录；其余 null=宿主无守门通道（降级纯纪律档）。
+export function guardTargets(host) {
+  if (host === 'omp') return [pathJoin('.omp', 'hooks', 'pre')];
+  return [];
+}
+// 红线摘要载体（new-task/记录约定写红线处）：opencode=AGENTS.md / claude=CLAUDE.md / 其余仅 conventions.md。
+export function redlineFile(host) {
+  if (host === 'opencode') return 'AGENTS.md';
+  if (host === 'claude') return 'CLAUDE.md';
+  return null;
+}
+// 金丝雀通道（canary 命令）：omp 有 -p 单轮通道；其余 null=静默跳过。
+export function canaryCmdBin(host) {
+  return host === 'omp' ? 'omp' : null;
+}
+const pathJoin = (...seg) => seg.join('/');

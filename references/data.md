@@ -43,6 +43,9 @@ git diff main...task/<id>                   # 任务全量改动
 | I16 | verifying 敞口：`deploy` 在档且任务分支 ∉ main 超 24h → 红（线上跑分支包，任何 main 构建部署将静默滚回——双包事故实证） | 已部署未合并超 24 小时=滚回倒计时，必须收口 | 收口链：验收 `accept --pass` → merge main → main 重建替换包（`tf.mjs deploy --branch main`）；ls 待验收块同步 ⚠敞口 标记 |
 | I17 | 线上实况对账（本地触点版）：live-state jar.md5 vs 服务器实际 jar md5（ssh 只读；前提 project.json deploy 配置；ssh 不通/无配置=信息级跳过；CI/CD 到位后被流水线替代——2026-10-08 拍板不上服务器侧） | 登记的部署指纹与服务器实际文件一致，手工换包必被点名 | 红=未登记部署/手工换包 → `deploy-preflight --record` 补账 |
 | I18 | （提示级；仅 active 任务——参与资格以 isVerifying() 为准：顶层 + deploy 双源，等验收态不参与）账实对账：①分支已并入任一主 ref（与 accept --pass 前置同源集合，含 baseBranch；须有 checkpoint 才报——零提交新任务分支==基线 tip 的 identity 祖先恒真，不算漏收口）= 疑似漏收口；②lastActiveAt 距今 ≥14 天且 activeLease 过期 = 疑似搁置 | 分支已并入但状态还活着=疑似漏收口；长期没动静=疑似搁置 | ℹ：①呈报验收简报（accept 是验收拍板，不可代理）或恢复开发；②直接 `park <id> --reason` 留档（可逆低影响，事后报告，v2.60.2 档位）或刷新续做；确认仍活跃则保持并刷新 lease |
+| I19 | conventions 完备性（v3.0.0）：文件存在 + 必备小节（确认档位/推送与部署/验证清单/完成定义/禁止事项）齐 + 档位值 ∈ {detailed,batch} | 每会话必读的约定层不缺节、档位值合法（模型禁自改档位） | 红=缺文件/缺节/档位非法 → `tf.mjs init`（升级模式只补缺不覆盖） |
+| I20 | 包完整性（v3.0.0）：packs/*/manifest.json 可解析 + 核心引用 token 都有对应包 + mechanisms.json 与 manifest 一致 | 技能的包清单与机器注册表两源一致，改包必重生成 | 红=manifest 坏/两源漂移 → 修 manifest 后 `node scripts/gen-mechanisms.mjs` |
+| I21 | （提示级）遗留敞口（v3.0.0）：verifying ∧ 无 deploy 记录 ∧ lastActiveAt 超 3 天 | 等验收却没有部署记录且多日未动——口径或状态存疑 | ℹ 呈报：确认部署状态（commit --deployed / deploy --record）或 req-confirm 校准口径 |
 
 ## index.json（L1）
 
