@@ -3769,7 +3769,8 @@ try {
     ok(ci.status === 0 && five.every((n) => fs.existsSync(path.join(carTarget, n, 'SKILL.md'))), 'v3 packs install carrier --all：五载体技能落目标目录（CARRIER_SKILLS 实体化）');
     const carProf = JSON.parse(fs.readFileSync(path.join(cprojC, '.taskflow', 'profile.json'), 'utf8'));
     ok(Array.isArray(carProf?.carriers?.installed) && five.every((n) => carProf.carriers.installed.includes(n)), 'v3 packs install：profile.carriers.installed 登记五项');
-    const skBefore = crunC(['skills', '冲突分级']);
+    const emptyDirs = path.join(tmp, 'car-empty-dirs'); fs.mkdirSync(emptyDirs, { recursive: true }); // 隔离扫描面：本机/开发者全局位可能已装载体（测试不依赖机器状态）
+    const skBefore = crunC(['skills', '冲突分级'], { TF_SKILL_DIRS: emptyDirs });
     ok(skBefore.status === 1 && /conflict-triage（.*冲突分级/.test(skBefore.stdout) && skBefore.stdout.includes('packs install carrier'), 'v3 skills 别名：中文领域词「冲突分级」命中 conflict-triage；未装 → 缺席点名 + packs:// 安装源指路');
     const skAfter = crunC(['skills', '冲突分级'], { TF_SKILL_DIRS: carTarget });
     ok(skAfter.status === 0 && /✓ conflict-triage/.test(skAfter.stdout), 'v3 skills 别名：装后检测转绿（目标目录在场即命中）');
