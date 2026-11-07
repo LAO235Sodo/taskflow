@@ -234,6 +234,24 @@ subtask status 取值：`pending` / `in_progress` / `done` / `blocked`。
 - `decisions/` —— **项目决策库**（`YYYY-MM-DD-<slug>.md`）。任务会结束，决策留在项目——**改类似功能之前先查这里**。注意：部署/验收类约定只住 conventions.md，不要重复记入决策库
 - **产物住址约定**（v2.16.0）：已拍板的 PRD/用户故事住 `docs/prd/<域>/`、设计文档住 `docs/design/<域>/`——**进 git**（团队共享拍板产物）；任务内设计稿/原型住 `.taskflow/<id>/design/`（**主仓库根相对路径**——审查子代理在任务 worktree 工作，读取时按主仓库根解析）或独立 clone——不进 git。决策库（`.taskflow/decisions/`）进 git 的开关机制属专项待办，未实现前维持本地
 
+## 全局注册表（L0，v3.0.0）
+
+- 全局数据根 = `$TF_TASKFLOW_HOME`（缺省 `~/.local/state/taskflow`，TF_HOME 抽象）；项目注册表 `projects.json` 住此（key=remote 规范化或主仓库绝对路径；registeredAt/lastActiveAt）。旧路径 `~/.config/opencode/taskflow/` 首触达单向迁移（cp 不 mv，旧文件只读保留）。
+
+## confirmations.jsonl（L2 任务级，v3.0.0 CONFIRM_RECEIPT）
+
+- `.taskflow/<id>/confirmations.jsonl`——确认回执追加式日志：`{ "ts": ISO, "note": "<用户确认原话>", "briefingHash"?: "<简报哈希>" }`。写入唯一入口 `tf.mjs confirm <id> --note`；消费方：`accept --pass` 与 `mergegate`（verifying 任务）的机械前置（≥1 条才放行）。
+
+## 并发模型（v3.0.0）
+
+- **原子写（ATOMIC_WRITE）**：task.json/index.json/profile.json/project.json 全量落盘一律 `writeFileSync(p+'.tmp') + renameSync`（`writeTaskJsonAtomic`）——并发 checkpoint/接管/翻转不再可能读到半截 JSON；写后必调 `syncIndexRow`（写路径单源纪律不变）。
+- **锁与租约语义**：`lock` 排队锁 ttl 缺省 120s（>ttl 陈旧可强占；仅持锁者清理）；`activeLease.heartbeatAt` 心跳护栏（>30 分钟视为过期可接管）；lock 文件目录=原子 mkdir 竞争。
+- **事件审计流**：`events.jsonl`（ts/from/to/cmd/taskId 追加式；状态翻转命令自动落痕，只写不读，tail 人工核对）；**门咬合台账（GATE_HITS）**：`meta/gate-hits.jsonl`（ts/gate/result/taskId；mergegate 等门红/黄时落痕；doctor 报表=流程审计的咬合率判据，连续 5 任务零咬合的门族=卸载候选）。
+
+## profile.json（L1，v3.0.0）
+
+- 项目 profile：`confirm_tier`（detailed|batch，模型禁自改）、`host`（auto|omp|opencode|claude|none）、`deploy_form`（none|jar|generic）、`packs`（六包启用态——未启用的包连一行都不加载）、`carriers`（五载体拍板 decision + installed 名单）、`task_types`（任务类型一等公民：裁剪 spec 节 + 禁用包门族，如 mirror-precedent）、`unified_sources`（统一源路径登记）。建档/resume/merge/checkpoint 四触点必读；由 `tf.mjs init` 渲染/升级（SCAFFOLD）。
+
 ## 机制登记表（触点可达性——lint「死规则」检查的数据源）
 
 > 每个机制一个唯一 token。**触点列为空、或 token 未字面出现在触点文件 = 死规则 = lint 红**（反面实证：LEASE 与 `.owner.json` 曾有 schema 定义 + doctor 检查、零流程触点——写入口/刷新点/接管仪式无一处接线，机制等于不存在，2026-09-23 审查发现后补线）。**新机制 = 登记行 + 触点接线同一变更交付**（DoD 见 induction.md）。

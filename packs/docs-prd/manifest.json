@@ -1,0 +1,19 @@
+{
+  "token": "REQ_ANCHOR_GATE",
+  "name": "需求基线对照门（PRD 锚）",
+  "triggers": ["PRD", "需求基线", "验收锚"],
+  "assets": [
+    "assets/harness/validate-baseline-anchor-gate.sh"
+  ],
+  "install_targets": {
+    "scripts/harness/validate-baseline-anchor-gate.sh": "assets/harness/validate-baseline-anchor-gate.sh",
+    "scripts/harness/validate-changelog.sh": "packs/changelog-gates/assets/harness/validate-changelog.sh"
+  },
+  "docs": "PACK.md",
+  "fixtures": ["tf.test.mjs"],
+  "touch": ["PACK.md", "references/entry-routes.md"],
+  "plain": "每条验收标准必须挂 PRD 条目锚：挂不上就登记草案并经用户确认，防止需求口径静默漂移",
+  "mechanisms": [
+    { "token": "REQ_BASELINE", "name": "需求基线溯源", "products": [], "plain": "spec 里必须写清需求出自哪份 PRD 文档哪条，防止需求来源失传" }
+  ]
+}

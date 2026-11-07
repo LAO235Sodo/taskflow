@@ -68,3 +68,30 @@
 | J29 | 理解重述确认 | 改动类/含糊类输入动手前第一输出=理解重述（把用户的话转成对象+范围+预期行为请确认，含糊处列候选口径；重述≠复述原话）；连续施工轮（同一任务上下文已锁定）豁免 | SKILL.md::全局判定纪律 | 理解重述 |
 | J30 | 方案三源对照 | 新功能面方案呈报前查三源：仓内既有实现（复用先例）→ 业内做法（web_search 官方文档/成熟方案，来源带 URL）→ 现成能力（拟手写逻辑核对库/框架内置）；复用既有模式的小改动可跳过但注明 | references/new-task.md::方案三源对照 | 三源对照 |
 | J31 | 使用者视角连带检查 | 改动呈报/验收简报列本次改动触达的使用者触点（入口/文案/交互步骤/边界态/加载与错误态）与顺带易用性观察——观察只列不做，取舍归用户（与功能面取舍同边界）；无观察写「无」 | references/testing.md::使用者视角检查 | 使用者视角 |
+
+## 表三：能力包路由（v3.0.0 懒加载——未启用的包连一行都不加载；启用态以项目 profile.json 为准）
+
+| token | 包 | 触发词 | 规则全文与细则 | 安装/检测 |
+| --- | --- | --- | --- | --- |
+| STYLE_SOURCE_GATE | frontend | 前端视觉/原型/样式/页面基线/渲染证据 | packs/frontend/PACK.md | `mech install STYLE_SOURCE_GATE` |
+| DESIGN_SPEC_EXTRACT | frontend | 原型定稿/规格表 | packs/frontend/PACK.md | 随 frontend 包 |
+| APP_PAGE_BASELINE | frontend | 改现有页面/现状基线 | packs/frontend/PACK.md | 随 frontend 包 |
+| RENDER_EVIDENCE_GATE | frontend | 样式 diff/渲染证据 | packs/frontend/PACK.md | 随 frontend 包 |
+| PROTOTYPE_STALE | frontend | 原型确认/实现门禁 | packs/frontend/PACK.md | 纯流程门 |
+| 感知层验收 | frontend | UI 可达状态/解释载体 | packs/frontend/PACK.md | 验收维度 |
+| DATA_MODEL_GATE | jvm-data | 数据模型/表结构/DDL/实体口径 | packs/jvm-data/PACK.md | `mech install DATA_MODEL_GATE` |
+| DEPLOY_GATE | deploy | 部署/发版/上线/升级环境 | packs/deploy/PACK.md | `mech install DEPLOY_GATE`（jar 形态） |
+| DEPLOY_ENTRY | deploy | 部署唯一入口 | packs/deploy/PACK.md | deploy 命令本体 |
+| DEPLOYMENT_PROFILE | deploy | project.json schema | packs/deploy/PACK.md | doctor 校验 |
+| REQ_ANCHOR_GATE | docs-prd | PRD/需求基线/验收锚 | packs/docs-prd/PACK.md | `mech install REQ_ANCHOR_GATE` |
+| REQ_BASELINE | docs-prd | 需求出处/PRD 条目 | packs/docs-prd/PACK.md | spec 节 |
+| 决策组合门 | changelog-gates | 收尾/CHANGELOG/组合评估 | packs/changelog-gates/PACK.md | `mech install 决策组合门` |
+| CLASS_SWEEP_GATE | changelog-gates | 同类排查/扩散三问 | packs/changelog-gates/PACK.md | 随 changelog 收尾门 |
+| DOC_SYNC_GATE | changelog-gates | 文档同步/统一源 | packs/changelog-gates/PACK.md | 随 changelog 收尾门 |
+| PLAIN_SPEECH_GATE | briefing | 呈报/简报/说人话 | packs/briefing/PACK.md | 门脚本住技能仓（opt-in） |
+| 三层路径盘点 | briefing | 不可行宣称/绕过诉求 | packs/briefing/PACK.md | 呈报纪律 |
+| 合规哲学 | briefing | 合规标注/路径否决 | packs/briefing/PACK.md | 呈报纪律 |
+| CARRIER_SKILLS | carrier | 范围评估/影响面/数据边界/冲突分级/页面取证 | packs/carrier/PACK.md | `packs install carrier --all`；`skills <领域词|别名>` 检测 |
+| TASKFLOW_GUARD | host-adapters | 守门/guard/宿主扩展 | packs/host-adapters/PACK.md | `mech install TASKFLOW_GUARD`（仅 omp 宿主） |
+
+> 包清单与启用态：`node <skill目录>/scripts/tf.mjs packs list`；profile 拍板：`tf.mjs init --packs <a,b>`；机制机器注册表：references/schemas/mechanisms.json（`node scripts/gen-mechanisms.mjs` 再生成，doctor I20 对账）。

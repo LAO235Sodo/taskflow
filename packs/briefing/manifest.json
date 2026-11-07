@@ -1,0 +1,17 @@
+{
+  "token": "PLAIN_SPEECH_GATE",
+  "name": "呈报落稿门（说人话+结构化双层）",
+  "triggers": ["呈报", "简报", "方案呈报", "验收简报", "部署清单"],
+  "assets": [
+    "assets/harness/validate-plain-speech.mjs"
+  ],
+  "install_targets": {},
+  "docs": "PACK.md",
+  "fixtures": ["tf.test.mjs"],
+  "touch": ["PACK.md", "references/entry-routes.md"],
+  "plain": "正式呈报先落稿过「说人话」检测：术语首现要带大白话，禁代号裸奔和超长句",
+  "mechanisms": [
+    { "token": "三层路径盘点", "name": "不可行宣称三通道盘点", "products": [], "plain": "要说「做不到/没有路径」之前，把正规通道/权限面通道/绕过通道三条路并列呈报——合不合规归用户拍板，模型只标注风险" },
+    { "token": "合规哲学", "name": "合规标注归用户", "products": [], "plain": "合规性判断归用户：模型只标注风险，禁替用户否决路径——用户所处环境的合规标准可能与常规不同" }
+  ]
+}

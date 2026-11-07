@@ -31,15 +31,29 @@ if (manifests.length) {
   for (const [name, mp] of manifests) {
     let m;
     try { m = JSON.parse(fs.readFileSync(mp, 'utf8')); } catch (e) { console.error(`⛔ manifest 不可解析：${mp}（${e.message}）`); process.exit(1); }
-    // install_targets 值（源文件相对包）的集合 = 渲染产物集；variants 形态分档资产并入
-    const products = Object.values(m.install_targets ?? {})
-      .filter((v) => typeof v === 'string')
-      .map((v) => String(v));
-    for (const [variant, assets] of Object.entries(m.variants ?? {})) {
-      if (Array.isArray(assets)) products.push(...assets.map(String));
+    // install_targets 键（项目侧落盘路径）= 采纳产物集（doctor 采纳对账/mech 渲染过滤的消费契约）；variants 分档资产并入去重
+    const products = [...new Set([
+      ...Object.keys(m.install_targets ?? {}).map(String),
+      ...Object.values(m.variants ?? {}).flatMap((a) => (Array.isArray(a) ? a.map(String) : [])),
+    ])];
+    // 触点（lint 死规则检查）：包内文档触点须包路径前缀（packs/<name>/PACK.md——lint 按字面路径找文件）；缺省=docs+entry-routes
+    const docPath = m.docs ? `packs/${name}/${m.docs}` : null;
+    const touch = Array.isArray(m.touch) && m.touch.length ? m.touch.map((t) => (t === m.docs ? docPath : t)) : [docPath, 'references/entry-routes.md'].filter(Boolean);
+    // 子 token 声明（manifest.mechanisms）：一包多机制（存量项目 project.json.mechanisms 的既有采纳 token 兼容）——主 token 行照常推导，子 token 追加
+    if (Array.isArray(m.mechanisms)) {
+      for (const sub of m.mechanisms) {
+        if (!sub?.token) continue;
+        mechanisms.push({
+          token: sub.token, name: sub.name ?? sub.token, pack: name,
+          def: `${m.docs}（packs/${name}/）`,
+          touch: Array.isArray(sub.touch) && sub.touch.length ? sub.touch : [docPath, 'references/entry-routes.md'].filter(Boolean),
+          triggers: sub.triggers ?? [],
+          products: [...new Set((sub.products ?? []).map(String))],
+          fixture: Array.isArray(sub.fixtures) && sub.fixtures.length ? sub.fixtures.join('、') : '—（随包主 token 夹具承载）',
+          plain: sub.plain ?? sub.token,
+        });
+      }
     }
-    // 触点（lint 死规则检查）：manifest touch 字段显式声明（entry-routes 路由行 + 包内文档）；缺省=docs+entry-routes
-    const touch = Array.isArray(m.touch) && m.touch.length ? m.touch : [m.docs, 'references/entry-routes.md'].filter(Boolean);
     mechanisms.push({
       token: m.token ?? name,
       name: m.name ?? name,

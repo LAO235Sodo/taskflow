@@ -1,0 +1,21 @@
+{
+  "token": "决策组合门",
+  "name": "收尾门族（决策组合/同类排查/文档同步/基线/规格表串接）",
+  "triggers": ["收尾", "CHANGELOG", "组合评估", "同类排查", "文档同步"],
+  "assets": [
+    "assets/harness/validate-changelog.sh",
+    "assets/harness/validate-decision-combo-gate.sh"
+  ],
+  "install_targets": {
+    "scripts/harness/validate-changelog.sh": "assets/harness/validate-changelog.sh",
+    "scripts/harness/validate-decision-combo-gate.sh": "assets/harness/validate-decision-combo-gate.sh"
+  },
+  "docs": "PACK.md",
+  "fixtures": ["tf.test.mjs"],
+  "touch": ["PACK.md", "references/entry-routes.md"],
+  "plain": "任务收尾的机械检查：新改动和既有拍板拼出的新状态要逐条评估、修 bug 前扫同类、功能改了文档要跟着改",
+  "mechanisms": [
+    { "token": "CLASS_SWEEP_GATE", "name": "同类排查门", "products": ["scripts/harness/validate-changelog.sh"], "plain": "修一个 bug 前先答三问——上游输入干净吗、下游要不要同步、同类还有几处；答完留痕才许动手修" },
+    { "token": "DOC_SYNC_GATE", "name": "文档同步门", "products": ["scripts/harness/validate-changelog.sh"], "plain": "功能代码改了，收尾必须回答「文档跟了吗」——更新了哪条写哪条，确实没变写一句理由，缺了收尾红灯" }
+  ]
+}

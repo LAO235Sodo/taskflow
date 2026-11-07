@@ -32,7 +32,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { STATES, validateTransition } from './taskflow-state-machine.mjs'; // 状态机唯一机器源（v2.69.0）：枚举单源 + 写侧转换合法性断言
-import { GATE_MANIFEST } from '../assets/guard/taskflow-guard.js'; // guard 门描述符单源（v2.85.0）：mechanisms 读数据不再解析头注释（guard 顶层零副作用，静态导入安全）
+import { GATE_MANIFEST } from '../packs/host-adapters/assets/guard/taskflow-guard.js'; // guard 门描述符单源（v2.85.0；v3.0.0 住 host-adapters 包——包=机械载体）；guard 顶层零副作用，静态导入安全
 import { J20_WORD_RE, J20_CODE_RE, j20CodeLines, j20Scan, EXT_FAMILY } from '../assets/shared/kernel.mjs'; // v2.86.0 单源共享内核（数据边界机械件唯一源，guard 同源）
 import { detectHost, usagePath, planScanDirs, guardTargets, redlineFile, canaryCmdBin } from '../assets/shared/host-adapter.mjs'; // v3.0.0 宿主适配单点（F02/F14/F36）：检测/埋点/计划扫描/守门落点/红线载体——宿主差异全收敛于此
 
@@ -815,7 +815,7 @@ function doctor(args = []) {
     const mech = readJson(mechPath);
     if (!mech || !Array.isArray(mech.mechanisms) || !mech.mechanisms.length) { console.log(`⚠ 包完整（I20） references/schemas/mechanisms.json 缺失/为空 → node scripts/gen-mechanisms.mjs 再生成`); i20Bad++; }
     else {
-      const packTokens = new Set(manifests.map((d) => readJson(path.join(packsDir, d.name, 'manifest.json'))?.token ?? d.name));
+      const packTokens = new Set(manifests.flatMap((d) => { const m = readJson(path.join(packsDir, d.name, 'manifest.json')) ?? {}; return [m.token ?? d.name, ...(Array.isArray(m.mechanisms) ? m.mechanisms.map((s) => s?.token).filter(Boolean) : [])]; })); // 主 token + 子 token（manifest.mechanisms）同一张账
       const jsonPackRows = mech.mechanisms.filter((m) => m?.pack);
       const jsonTokens = new Set(jsonPackRows.map((m) => m.token));
       for (const tk of packTokens) if (!jsonTokens.has(tk)) { console.log(`⚠ 包完整（I20） manifest token ${tk} 未进 mechanisms.json → node scripts/gen-mechanisms.mjs（改 manifest 必须重生成）`); i20Bad++; }
@@ -841,7 +841,7 @@ function doctor(args = []) {
       console.log('\n## 复发台账（同类事故复发监控）');
       for (const c of rc.classes) {
         if (!c?.name) continue;
-        console.log(`- ${c.name}：最近复发 ${c.lastRecurredAt ?? '—'}${c.count ? `（累计 ${c.count} 次）` : ''}${c.remedy ? `｜根治手法：${trunc(c.remedy, 40)}` : ''}`);
+        console.log(`- ${c.name}：最近复发 ${c.lastRecurredAt ?? '—'}${c.count ? `（累计 ${c.count} 次）` : ''}${c.remedy ? `｜修法：${trunc(c.remedy, 40)}` : ''}`); // v3.0.0：「根治」全仓禁词——复发监控只说修法
       }
     }
   }
@@ -3107,7 +3107,7 @@ function mechanismsCmd() {
     console.log('⛔ mechanisms：GATE_MANIFEST 缺失或为空（guard 源损坏？）');
     return 1;
   }
-  console.log('# guard 机制清单（真源=GATE_MANIFEST @ assets/guard/taskflow-guard.js——改门先改数组，此处零解析）');
+  console.log('# guard 机制清单（真源=GATE_MANIFEST @ packs/host-adapters/assets/guard/taskflow-guard.js——改门先改数组，此处零解析）');
   for (const m of GATE_MANIFEST) {
     console.log(`${m.name}${m.feature ? `（${m.feature}）` : ''}：${m.what}｜事件：${m.events}｜开关：${m.envs.length ? m.envs.join(' ') : '无'}｜触发日志：${m.gate ? `写 .guard-log.jsonl（gate=${m.gate}）` : '不写'}`);
   }
@@ -3949,6 +3949,15 @@ function mechCmd(args = []) {
     console.log('ℹ 本宿主无守门通道（adapter: none）——已降级纯纪律档：conventions「禁止事项」红线 + doctor 体检承载同等约束，不渲染 guard 产物');
     return 0;
   }
+  // v3.0.0（F20）deploy 形态分档：jar 专属资产（ssh/md5 对账/血统门）只在 project.json deploy.form==='jar' 安装；
+  // generic/none 形态走「conventions 登记命令 + 确认门 + --record」——不渲染 jar 资产不登记采纳（登记即漂移）。
+  if (row.pack) {
+    const depMan = readJson(path.join(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'), 'packs', row.pack, 'manifest.json'));
+    if (depMan?.variants && pj && pj.deploy?.form !== 'jar') {
+      console.log(`ℹ ${token} 带 jar 专属变体（ssh/md5 实况对账/血统门）——project.json deploy.form=${pj.deploy?.form ?? '未声明'} 非 jar，不安装 jar 资产；generic 形态走 conventions「推送与部署」登记命令清单 + 部署确认门 + deploy 入口 --record 登记`);
+      return 0;
+    }
+  }
   if (!pj) { console.log('缺 .taskflow/project.json（先走 new-task 初始化流程）'); return 1; }
   if (!row.products.length) { console.log(`机制 ${token} 无项目侧产物定义（纯编排层机制，无需 install）`); return 0; }
   const prose = MECH_PROSE[token] ?? null; // 机制的项目侧锚点/补记（无 prose 的机制只渲染产物）
@@ -3967,18 +3976,33 @@ function mechCmd(args = []) {
   // v2.65.0 确认闸前置：渲染计划只读先算（会写哪些文件/哪些是整文件覆盖），闸过才落盘——闸判定与写路径共用同一份计划，禁止两份渲染实现。
   const renderable = new Set([...reg.values()].flatMap((row) => row.products).map((p) => path.normalize(p)));
   const renderPlan = [];
+  // v3.0.0（F22）渲染源=packs/<name>/assets/*（包=机械载体；manifest install_targets 键=产物集）+ 旧 assets/* 兼容兜底。
+  // 跨包引用：产物源路径以 packs/ 开头时按技能仓根解析（docs-prd 的 changelog 串接即此形态）。
+  const scanRoots = [];
+  {
+    const packsDir = path.join(skillRoot, 'packs');
+    if (fs.existsSync(packsDir)) {
+      for (const d of fs.readdirSync(packsDir, { withFileTypes: true })) {
+        if (!d.isDirectory() || !fs.existsSync(path.join(packsDir, d.name, 'manifest.json'))) continue;
+        for (const sub of ['harness', 'design', 'guard']) scanRoots.push(path.join(packsDir, d.name, 'assets', sub));
+      }
+    }
+    for (const sub of ['harness', 'design', 'guard']) scanRoots.push(path.join(skillRoot, 'assets', sub)); // 旧布局兜底（v2 存量克隆）
+  }
   for (const [assetSub, outSub, ext, mode] of [['harness', path.join('scripts', 'harness'), '.sh', 0o755], ['harness', path.join('scripts', 'harness'), '.mjs', 0o755], ['design', path.join('scripts', 'design'), '.js', 0o644], ...guardOuts.map((o) => ['guard', o, '.js', 0o644])]) {
-    const aDir = path.join(skillRoot, 'assets', assetSub);
+    for (const aDir of scanRoots.filter((r) => r.endsWith(assetSub))) {
     const oDir = path.join(trackedRoot, outSub);
     for (const f of fs.existsSync(aDir) ? fs.readdirSync(aDir).filter((x) => x.endsWith(ext)) : []) {
-      if (!renderable.has(path.normalize(path.join(outSub, f)))) continue; // 登记表产物列未收（技能内门）→ 不渲染（D1，语义见上）
+      if (!renderable.has(path.normalize(path.join(outSub, f)))) continue; // 注册表产物列未收（技能内门）→ 不渲染（D1，语义见上）
       let next = fs.readFileSync(path.join(aDir, f), 'utf8').replaceAll('__ASSET_EXTS__', exts);
-      if (next.includes('__DEPLOYMENT_ENUMS__')) next = next.replaceAll('__DEPLOYMENT_ENUMS__', deploymentEnumLiteral(skillRoot)); // v2.89.0 guard 枚举注入（DEPLOYMENT_PROFILE 单源=schema 文件；注入失败='null'→guard 降级提醒模式）
-      next = inlineSharedDeps(next, skillRoot); // v2.86.0：shared/{kernel,host-adapter}.mjs import 内联展开——渲染产物自包含；无该 import 形态的文件原样=幂等
+      if (next.includes('__DEPLOYMENT_ENUMS__')) next = next.replaceAll('__DEPLOYMENT_ENUMS__', deploymentEnumLiteral(skillRoot));
+      next = inlineSharedDeps(next, skillRoot);
       const outP = path.join(oDir, f);
       const prev = fs.existsSync(outP) ? fs.readFileSync(outP, 'utf8') : null;
       if (prev === next) continue;
+      if (renderPlan.some((e) => e.abs === outP)) continue; // 同名产物多包扫描去重（先包后旧 assets，包优先）
       renderPlan.push({ rel: `${outSub}/${f}`, abs: outP, next, prev, ext, mode });
+    }
     }
   }
   const missing = row.products.filter((p) => !fs.existsSync(path.resolve(mainRoot, p)));

@@ -1,0 +1,18 @@
+{
+  "token": "CARRIER_SKILLS",
+  "name": "五载体技能（能力接口）",
+  "triggers": ["范围评估", "影响面", "数据边界", "冲突分级", "页面取证"],
+  "assets": [
+    "scope-assessment/SKILL.md",
+    "impact-analysis/SKILL.md",
+    "data-boundary/SKILL.md",
+    "conflict-triage/SKILL.md",
+    "page-forensics/SKILL.md"
+  ],
+  "carriers": ["scope-assessment", "impact-analysis", "data-boundary", "conflict-triage", "page-forensics"],
+  "install_targets": {},
+  "docs": "PACK.md",
+  "fixtures": ["tf.test.mjs"],
+  "touch": ["PACK.md", "references/entry-routes.md"],
+  "plain": "五个可装可卸的分析技能：范围评估、影响面、数据边界、冲突分级、页面取证——装不装由项目 profile 一次拍板"
+}

@@ -1,0 +1,32 @@
+{
+  "token": "STYLE_SOURCE_GATE",
+  "name": "前端视觉门族（规格表/样式真源/现状基线/渲染证据）",
+  "triggers": ["前端视觉", "原型", "样式", "页面基线", "渲染证据"],
+  "assets": [
+    "assets/design/extract-spec.js",
+    "assets/design/extract-app-baseline.js",
+    "assets/harness/validate-design-spec-gate.sh",
+    "assets/harness/validate-style-source-gate.sh",
+    "assets/harness/validate-app-baseline-gate.sh",
+    "assets/harness/validate-render-evidence.sh"
+  ],
+  "install_targets": {
+    "scripts/design/extract-spec.js": "assets/design/extract-spec.js",
+    "scripts/design/extract-app-baseline.js": "assets/design/extract-app-baseline.js",
+    "scripts/harness/validate-design-spec-gate.sh": "assets/harness/validate-design-spec-gate.sh",
+    "scripts/harness/validate-style-source-gate.sh": "assets/harness/validate-style-source-gate.sh",
+    "scripts/harness/validate-app-baseline-gate.sh": "assets/harness/validate-app-baseline-gate.sh",
+    "scripts/harness/validate-render-evidence.sh": "assets/harness/validate-render-evidence.sh"
+  },
+  "docs": "PACK.md",
+  "fixtures": ["tf.test.mjs"],
+  "touch": ["PACK.md", "references/entry-routes.md"],
+  "plain": "前端改样式的四道检查：先机器提取现状和规格表，改动只认规格表，定稿样式有唯一真源，改了样式要真渲染证据",
+  "mechanisms": [
+    { "token": "DESIGN_SPEC_EXTRACT", "name": "原型规格表提取门", "products": ["scripts/harness/validate-design-spec-gate.sh", "scripts/harness/validate-changelog.sh", "scripts/design/extract-spec.js"], "plain": "原型定稿后机器逐元素提取规格表（位置/颜色/间距），实现只认规格表、禁止凭记忆转述原型" },
+    { "token": "APP_PAGE_BASELINE", "name": "现状基线门", "products": ["scripts/harness/validate-app-baseline-gate.sh", "scripts/design/extract-app-baseline.js"], "plain": "改现有页面前先机器提取线上现状快照，原型必须基于现状做增量，禁止从零重画整页" },
+    { "token": "RENDER_EVIDENCE_GATE", "name": "渲染证据门", "products": ["scripts/harness/validate-render-evidence.sh"], "plain": "改了样式就必须在任务档案交真实渲染的截图或量测记录，防「指标全绿但页面没人看过」" },
+    { "token": "PROTOTYPE_STALE", "name": "原型失效门", "products": [], "plain": "原型没有用户确认记录就往下做实现——流程直接拒绝，防止做完才发现方向早错了" },
+    { "token": "感知层验收", "name": "感知层验收维度", "products": [], "plain": "界面行为验收不能只测数据对不对，还要测每个状态用户能不能看到解释它的文案" }
+  ]
+}

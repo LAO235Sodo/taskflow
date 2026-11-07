@@ -657,7 +657,7 @@ try {
   sh('git merge -q --no-ff task/t11-dep-20260101 -m "merge: t11 合入 main"', repo);
   // v3.0.0 确认回执门（F32）：无回执拒绝翻转（退出 1 提示先 confirm）；落回执后放行
   const apNoRcpt = run(['accept', 't11-dep-20260101', '--pass'], repo);
-  ok(apNoRcpt.status === 1 && apNoRcpt.stdout.includes('confirm'), 'accept --pass：无确认回执 → 拒绝并提示先跑 confirm（F32 前置）');
+  ok(apNoRcpt.status === 1 && apNoRcpt.stdout.includes('confirm'), 'accept --pass：无确认回执 → 拒绝并提示先跑 confirm（CONFIRM_RECEIPT 前置）');
   const cf1 = run(['confirm', 't11-dep-20260101', '--note', '用户：验收通过，可以合并'], repo);
   ok(cf1.status === 0 && cf1.stdout.includes('确认回执已落痕'), 'confirm：回执追加 confirmations.jsonl（ts/note）');
   ok(fs.readFileSync(path.join(t11dir, 'confirmations.jsonl'), 'utf8').split('\n').filter(Boolean).length === 1, 'confirm：confirmations.jsonl 恰 1 条 JSONL');
@@ -860,7 +860,7 @@ try {
   run(['lock', 'merge', '--release', '--session', 'ses_A'], repo);
 
   // ---- v2.80.0 渲染证据哨兵（RENDER_EVIDENCE_GATE 三路径夹具：样式 diff 无证据=红 / 补证据=绿 / 非任务上下文=绿）----
-  const RVE = path.resolve(import.meta.dirname, '../assets/harness/validate-render-evidence.sh');
+  const RVE = path.resolve(import.meta.dirname, '../packs/frontend/assets/harness/validate-render-evidence.sh');
   const rveRepo = path.join(tmp, 'rve-fixture');
   fs.mkdirSync(rveRepo, { recursive: true });
   sh(`git init -q -b task/t-rve ${JSON.stringify(rveRepo)}`);
@@ -874,7 +874,7 @@ try {
   // ---- v2.80.0 V 渲染证据提醒夹具（宿主全 handler 链式调用——host-faithful：真实 omp 逐个唤起注册 handler）----
   fs.mkdirSync(path.join(rveRepo, '.taskflow'), { recursive: true });
   fs.writeFileSync(path.join(rveRepo, '.taskflow', 'project.json'), JSON.stringify({ mechanisms: { TASKFLOW_GUARD: { version: '2.80.0' } } }));
-  const vgMod = await import('file://' + path.resolve(import.meta.dirname, '../assets/guard/taskflow-guard.js'));
+  const vgMod = await import('file://' + path.resolve(import.meta.dirname, '../packs/host-adapters/assets/guard/taskflow-guard.js'));
   const vgH = {};
   vgMod.default({ setLabel() {}, on: (ev, fn) => { (vgH[ev] ??= []).push(fn); } });
   const vgFire = async (toolName, input) => {
@@ -1708,7 +1708,7 @@ try {
 
 
   // ---- DEPLOY_GATE：preflight 真跑（--state-file 本地基线，不依赖 ssh）----
-  const dpScript = new URL('../assets/harness/deploy-preflight.mjs', import.meta.url).pathname;
+  const dpScript = new URL('../packs/deploy/assets/harness/deploy-preflight.mjs', import.meta.url).pathname;
   const dpRun = (dpArgs) => spawnSync('node', [dpScript, ...dpArgs], { cwd: repo, encoding: 'utf8' });
   const mainSha = execFileSync('git', ['-C', repo, 'rev-parse', 'main'], { encoding: 'utf8' }).trim();
   const stateOk = path.join(tmp, 'live-ok.json');
@@ -1723,7 +1723,7 @@ try {
   const depNoCfg = run(['deploy', '--branch', 'main'], repo);
   ok(depNoCfg.status === 1 && /缺 deploy 配置/.test(depNoCfg.stdout), 'deploy：无 project.json deploy 配置 → 拒绝 + 配置模板（不装即拒）');
   fs.mkdirSync(path.join(repo, 'scripts', 'harness'), { recursive: true });
-  fs.copyFileSync(new URL('../assets/harness/deploy-preflight.mjs', import.meta.url).pathname, path.join(repo, 'scripts', 'harness', 'deploy-preflight.mjs'));
+  fs.copyFileSync(new URL('../packs/deploy/assets/harness/deploy-preflight.mjs', import.meta.url).pathname, path.join(repo, 'scripts', 'harness', 'deploy-preflight.mjs'));
   const pjPath = path.join(tasksDir, 'project.json');
   const pjDeploy = fs.existsSync(pjPath) ? JSON.parse(fs.readFileSync(pjPath, 'utf8')) : {};
   pjDeploy.deploy = { server: '127.0.0.1', statePath: '/tmp/live.json', jarPath: path.join(tmp, 'fake.jar'), commands: [`echo deployed-ok > ${tmp}/deployed.txt`] };
@@ -1927,53 +1927,51 @@ try {
   const lpBad = lintRun();
   ok(lpBad.status === 1 && /版本不一致/.test(lpBad.stdout + lpBad.stderr), 'lint 版本一致性红路：SKILL version ≠ CHANGELOG 顶条 → 1（v2.39.0 缺条目事故棘轮）');
 
-  // ---- v2.43.0 PLAIN_SPEECH_GATE：门脚本执行夹具（硬规则 17——红/绿两路真跑）+ glossary 活性 ----
-  const psScript = path.join(skillRoot, 'assets', 'harness', 'validate-plain-speech.mjs');
+  // ---- v3.0.0 PLAIN_SPEECH_GATE 重写（F38/F39/F41）：禁用词表 + 结构检查 + 代号裸奔 + 可懂度抽检（红/绿真跑）----
+  const psScript = path.join(skillRoot, 'packs', 'briefing', 'assets', 'harness', 'validate-plain-speech.mjs');
+  // 红路①②③：自造词命中 + 首行非一句话结论 + 代号裸奔 + 缺可懂度抽检
   const badBrief = path.join(tmp, 'briefing-bad.md');
   fs.writeFileSync(badBrief, [
-    '# 部署安排',
-    '',
-    '本次走并集部署，血统门绿灯后执行。DEPLOY_GATE 内嵌于入口。',
-    '另外这个句子是一个特别长的句子用来触发超长句检测器它没有任何标点符号来断句所以会超过六十个字的阈值从而被机器打回要求拆成带主谓的因果短句让人能读懂',
-  ].join('\n'));
+    '本次部署先收口敞口，DEPLOY_GATE 绿后执行。', '另外第二段话。第三句。第四句。第五句超数。',
+  ].join('\n\n'));
   const psBad = spawnSync('node', [psScript, badBrief], { encoding: 'utf8' });
-  ok(psBad.status === 1 && /行话裸奔/.test(psBad.stderr) && /代号裸奔/.test(psBad.stderr) && /超长句/.test(psBad.stderr), 'PLAIN_SPEECH_GATE 红路：行话/代号裸奔+超长句 → 退出 1 且三类信号逐条点名');
+  ok(psBad.status === 1 && /自造词「敞口」/.test(psBad.stderr) && /自造词「收口」/.test(psBad.stderr) && /用传统术语/.test(psBad.stderr), 'PLAIN_SPEECH 红路①：自造词命中 → 红并给传统术语替换建议');
+  ok(psBad.status === 1 && /代号裸奔「DEPLOY_GATE」/.test(psBad.stderr), 'PLAIN_SPEECH 红路③：机制代号裸奔（无括号白话）→ 红');
+  ok(psBad.status === 1 && /检验问题/.test(psBad.stderr), 'PLAIN_SPEECH 红路④：文末缺「不看上下文也能懂的检验问题」节 → 红');
+  // 红路②：段落超 4 句
+  const p4Brief = path.join(tmp, 'briefing-p4.md');
+  fs.writeFileSync(p4Brief, ['一句话结论。', '', '一句。二句。三句。四句。五句。', '', '## 不看上下文也能懂的检验问题', '', '- 打开部署页能看到新版本号吗？'].join('\n'));
+  const psP4 = spawnSync('node', [psScript, p4Brief], { encoding: 'utf8' });
+  ok(psP4.status === 1 && /5 句（>4）/.test(psP4.stderr), 'PLAIN_SPEECH 红路②：单段 >4 句 → 红（一段一中心）');
+  // 绿路：一句话结论 + 代号带括号 + 传统术语 + 检验问题节
   const goodBrief = path.join(tmp, 'briefing-good.md');
   fs.writeFileSync(goodBrief, [
-    '# 部署安排：一次带上两个任务的改动',
-    '',
-    '本次走并集部署（把两个任务的改动合成一个包、一次部署全带上）。部署前先过 DEPLOY_GATE（部署协调门：防止两个任务互相覆盖部署）的检查，绿了才执行。',
+    '部署已完成，两个任务的改动一次上线。', '',
+    '部署前过了 DEPLOY_GATE（部署协调门：防止两个任务互相覆盖部署）检查，未登记的部署会在对账时被点名。', '',
+    '## 不看上下文也能懂的检验问题', '',
+    '- 打开部署记录页，能看到今天的版本号吗？',
   ].join('\n'));
   const psGood = spawnSync('node', [psScript, goodBrief], { encoding: 'utf8' });
-  ok(psGood.status === 0 && /✓/.test(psGood.stdout), 'PLAIN_SPEECH_GATE 绿路：行话带锚词白话、代号带括号、短句 → 退出 0');
-  const glPath = path.join(skillRoot, 'references', 'glossary.md');
-  const glRows = fs.readFileSync(glPath, 'utf8').split('\n').filter((l) => l.trim().startsWith('|') && l.split('|').length >= 5 && !/^\|\s*[-:]/.test(l) && !/行话/.test(l.split('|')[1] ?? 'x'));
-  ok(glRows.length >= 10, `PLAIN_SPEECH_GATE 词表活性：glossary.md 可解析 ${glRows.length} 行（≥10，三列非空）`);
-  ok(JSON.parse(fs.readFileSync(path.join(skillRoot, 'references', 'schemas', 'mechanisms.json'), 'utf8')).mechanisms.every((m) => typeof m.plain === 'string'), 'PLAIN_SPEECH_GATE 注册表接线：mechanisms.json 每机制带 plain 大白话（词表源，v3.0.0 F23 出 markdown）');
+  ok(psGood.status === 0 && /✓/.test(psGood.stdout), 'PLAIN_SPEECH 绿路：结论先行+代号带括号+传统术语+检验问题 → 0');
+  // 词表源活性：mechanisms.json 每机制带 plain 大白话（代号解释的抄写源）
+  ok(JSON.parse(fs.readFileSync(path.join(skillRoot, 'references', 'schemas', 'mechanisms.json'), 'utf8')).mechanisms.every((m) => typeof m.plain === 'string'), 'PLAIN_SPEECH 注册表接线：mechanisms.json 每机制带 plain 大白话（v3.0.0 F23 出 markdown）');
+  // 框线/表格段不按句子数检（表格段豁免回归锁）
   const frameBrief = path.join(tmp, 'briefing-frame.md');
   fs.writeFileSync(frameBrief, [
-    '# 状态汇报',
-    '',
-    '┌──────────┬──────────┐',
-    '│ 项       │ 结果                                                                                                              │',
-    '│ 自动化   │ 941/941 绿 + tsc 0                                                                                                │',
-    '├──────────┼──────────┤',
-    '│ 部署     │ 已完成   │',
-    '└──────────┴──────────┘',
+    '状态全绿。', '',
+    '| 项 | 结果 |', '| --- | --- |', '| 自动化 | 941/941 绿 |', '| 部署 | 已完成 |', '',
+    '## 不看上下文也能懂的检验问题', '', '- 跑一遍冒烟清单全过吗？',
   ].join('\n'));
   const psFrame = spawnSync('node', [psScript, frameBrief], { encoding: 'utf8' });
-  ok(psFrame.status === 0, 'PLAIN_SPEECH_GATE 框线表格豁免：终端框线行/全角竖线/对齐空格不当句子（2026-10-09 评分实测两轮误报回归锁）');
-  // 项目词表（v2.43.1 可选层）：.taskflow/glossary.md 从被检稿向上自动发现，项目词覆盖同名技能词
+  ok(psFrame.status === 0, 'PLAIN_SPEECH 表格段豁免：markdown 表格段不按句数检（结构误报回归锁）');
+  // 项目词表（白话层）：.taskflow/glossary.md 自动发现——项目行话进白话提示层（不再锚词豁免禁用词）
   const psProj = path.join(tmp, 'ps-proj');
   fs.mkdirSync(path.join(psProj, '.taskflow', 'ps-t1-20260101'), { recursive: true });
-  fs.writeFileSync(path.join(psProj, '.taskflow', 'glossary.md'), '# 项目词表\n\n| 行话 | 大白话 | 锚词 |\n| --- | --- | --- |\n| 签名册 | 部署记录表，每次上线记一行 | 部署记录表 |\n');
+  fs.writeFileSync(path.join(psProj, '.taskflow', 'glossary.md'), '# 项目词表\n\n| 行话 | 大白话 |\n| --- | --- |\n| 签名册 | 部署记录表，每次上线记一行 |\n');
   const pjBrief = path.join(psProj, '.taskflow', 'ps-t1-20260101', 'briefing-x.md');
-  fs.writeFileSync(pjBrief, '部署完成：签名册已登记。\n');
-  const pjBad = spawnSync('node', [psScript, pjBrief], { encoding: 'utf8' });
-  ok(pjBad.status === 1 && /签名册/.test(pjBad.stderr), 'PLAIN_SPEECH_GATE 项目词表红路：.taskflow/glossary.md 自动发现，项目行话（签名册）裸奔被抓');
-  fs.writeFileSync(pjBrief, '部署完成：签名册（部署记录表，每次上线记一行）已登记。\n');
-  const pjOk = spawnSync('node', [psScript, pjBrief], { encoding: 'utf8' });
-  ok(pjOk.status === 0 && /项目词表已合并/.test(pjOk.stdout), 'PLAIN_SPEECH_GATE 项目词表绿路：锚词命中即绿 + 输出注明合并层数');
+  fs.writeFileSync(pjBrief, ['部署完成：签名册（部署记录表，每次上线记一行）已登记。', '', '## 不看上下文也能懂的检验问题', '', '- 打开签名册能看到今天的版本行吗？'].join('\n'));
+  const pjOk = spawnSync('node', [psScript, pjBrief], { cwd: psProj, encoding: 'utf8' });
+  ok(pjOk.status === 0, 'PLAIN_SPEECH 项目词表：glossary.md 自动发现，项目行话带白话 → 0');
 
   // ---- v2.45.0 TASKFLOW_GUARD：mech 渲染 + mock pi 真执行夹具（硬规则 17）----
   const gproj = path.join(tmp, 'guard-proj');
@@ -2074,7 +2072,7 @@ try {
   for (const h of dgH['tool_call'] ?? []) { const r = await h({ toolName: 'write', input: { path: dpProj, content: dpContent({ tier: 'k8s-native', environments: 'dual', verify: 'x' }) } }, mkCtx()); if (r) dgOut = r; }
   ok(dgOut?.block == null && /三键（tier\/environments\/verify）必须经用户确认/.test(dgOut?.additionalContext ?? '') && !String(dgOut?.additionalContext).includes('middleware-shared'), '2.89.0 guard DP 降级：枚举未注入（模板原样）→ 只提醒不判值且话术不含枚举值（勿造第二份抄写）');
   // 渲染契约：模板带占位符、渲染副本枚举已注入且零占位残留
-  const gTpl = fs.readFileSync(path.resolve(import.meta.dirname, '../assets/guard/taskflow-guard.js'), 'utf8');
+  const gTpl = fs.readFileSync(path.resolve(import.meta.dirname, '../packs/host-adapters/assets/guard/taskflow-guard.js'), 'utf8');
   const gRen = fs.readFileSync(guardPath, 'utf8');
   ok(gTpl.includes('__DEPLOYMENT_ENUMS__') && !gRen.includes('__DEPLOYMENT_ENUMS__') && gRen.includes('"middleware-shared"') && gRen.includes('"self-contained"'), '2.89.0 guard 渲染契约：模板带占位符、渲染副本枚举已从 schema 注入且零残留');
 
@@ -2214,62 +2212,6 @@ try {
   //   其 v2.63.0 适配器测试节随之移除；活体守卫测试住 2.72.0/2.76.0 guard 节）
 
 
-  const paraBad = path.join(tmp, 'briefing-para.md');
-  fs.writeFileSync(paraBad, [
-    '# 状态',
-    '',
-    '────────────────────────────────',
-    '',
-    '这个功能已经完成了开发，测试也都全部通过了。部署按照流程走完了预检和上传，服务重启正常。验证的时候我们检查了页面表现和接口返回，数据都对得上。日志里没有报错，监控指标平稳。后续还需要你确认验收然后收尾。整个过程比较顺利没有遇到阻塞。另外文档也同步更新了。相关方的通知也发出去了。',
-  ].join('\n'));
-  const psPara = spawnSync('node', [psScript, paraBad], { encoding: 'utf8' });
-  ok(psPara.status === 1 && /装饰横幅/.test(psPara.stderr) && /段落堆叠/.test(psPara.stderr), 'PLAIN_SPEECH_GATE v2.46.0：装饰横幅线+段落堆叠（7 句/一坨）双检测红路');
-  const paraOk = path.join(tmp, 'briefing-para-ok.md');
-  fs.writeFileSync(paraOk, [
-    '# 状态：功能完成，待验收',
-    '',
-    '开发与测试全部完成，部署走完了预检、上传和重启，一切正常。',
-    '',
-    '验证结果：',
-    '- 页面表现与接口返回一致，数据对得上',
-    '- 日志零报错，监控指标平稳',
-    '',
-    '待你确认验收，随后进入收尾（移到历史区）。',
-  ].join('\n'));
-  const psParaOk = spawnSync('node', [psScript, paraOk], { encoding: 'utf8' });
-  ok(psParaOk.status === 0, 'PLAIN_SPEECH_GATE v2.46.0：同内容拆段+列表化后绿路（分段手段本身不触发检测）');
-  const coarseBad = path.join(tmp, 'briefing-coarse.md');
-  fs.writeFileSync(coarseBad, '# 盘点\n\n一个要留意的风险标记：四条都挂着敞口——代码在线上但还没合入主线，这个窗口期里任何人从主线构建部署都会把这四个修复悄悄覆盖掉（双包事故的同款形态），所以建议尽快真机验收，通过后再走收口（把尾巴全部处理完）。\n');
-  const psCoarse = spawnSync('node', [psScript, coarseBad], { encoding: 'utf8' });
-  ok(psCoarse.status === 1 && /超长句（句号级）/.test(psCoarse.stderr), 'PLAIN_SPEECH_GATE v2.46.1：冒号/破折号/括号串联的一「句」>80 字（细切拆成合格碎片的漏检盲区）→ 句号级检测红路（真样本实证）');
-  const quoteOk = path.join(tmp, 'briefing-quote.md');
-  fs.writeFileSync(quoteOk, '# 讨论\n\n原句是「走收口（合入主线）」，词条「收口」「敞口」在引号内=引述/列举场景，不判裸奔。\n');
-  const psQuote = spawnSync('node', [psScript, quoteOk], { encoding: 'utf8' });
-  ok(psQuote.status === 0, 'PLAIN_SPEECH_GATE v2.46.2 引号豁免：讨论行话本身的引述/列举（「」内词条）不判裸奔——自审实证的引述盲区');
-  // ---- v2.47.0 对抗性审查回归锁（攻击矩阵实证）----
-  const auditList = path.join(tmp, 'atk-listitem.md');
-  fs.writeFileSync(auditList, '# 汇报\n\n- 这个功能完成了开发，测试全部通过。部署走完了预检和上传，服务重启正常。验证检查了页面表现和接口返回，数据都对得上。日志没有报错，指标平稳。\n');
-  const atkList = spawnSync('node', [psScript, auditList], { encoding: 'utf8' });
-  ok(atkList.status === 1 && /列表项堆叠/.test(atkList.stderr), '对抗审查：列表项塞 4 句（规范每项 1–3 句）→ 红（列表行绕过段落检测的盲区）');
-  const auditFrame = path.join(tmp, 'atk-noframe.md');
-  const longP1 = '我们这轮迭代覆盖了登录、上报、分享三个主链路，回归测试全部通过。遗留的两个小问题已经登记在案，安排到下个迭代处理不影响本次发布。';
-  const longP2 = '性能方面对核心接口做了基准对比，响应时间都在预期范围之内。相比上一版本没有出现退化，个别接口还有小幅的改善。';
-  const longP3 = '安全扫描按计划完成，高危问题为零。中低危问题已经全部记录并排期，依赖升级会在维护窗口统一处理。';
-  const longP4 = '可用性方面邀请了两名真实用户做快速走查，反馈整体正向。操作路径比旧版本更清晰，唯一的建议是增加批量操作入口。';
-  const longP5 = '综合以上四个维度的结论，本次迭代满足发布标准。建议按计划推进上线流程，上线后持续观察一周核心指标。';
-  const longP6 = '数据库方面完成了一次索引优化，核心查询的执行计划有明显改善。慢查询数量下降了一个量级，变更已全部入库并留下回滚脚本。';
-  const longP7 = '文档与培训材料同步更新完毕，相关方都已通知到位。发布评审会议的纪要已经存档留底，后续行动项指派到人。';
-  fs.writeFileSync(auditFrame, `# 结论\n\n${longP1}\n\n${longP2}\n\n${longP3}\n\n${longP4}\n\n${longP5}\n\n${longP6}\n\n${longP7}\n`);
-  const atkFrame = spawnSync('node', [psScript, auditFrame], { encoding: 'utf8' });
-  ok(atkFrame.status === 1 && /无骨架/.test(atkFrame.stderr), '对抗审查：400+ 字纯段落流（每段独立合格、整体零结构）→ 无骨架红');
-  const auditHalfQ = path.join(tmp, 'atk-halfquote.md');
-  fs.writeFileSync(auditHalfQ, '# 汇报\n\n随后走"收口"流程，其余事项均已办结。\n');
-  const atkHalfQ = spawnSync('node', [psScript, auditHalfQ], { encoding: 'utf8' });
-  ok(atkHalfQ.status === 0, '对抗审查：半角双引号内的词条=引用场景 → 豁免不误拦（假红修复）');
-  const auditEmoji = path.join(tmp, 'atk-emoji.md');
-  fs.writeFileSync(auditEmoji, '# 📌 进度\n\n- 完成开发\n\n## ⚠️ 风险\n\n- 无\n');
-  const atkEmoji = spawnSync('node', [psScript, auditEmoji], { encoding: 'utf8' });
-  ok(atkEmoji.status === 1 && /emoji 标题滥用/.test(atkEmoji.stderr), '对抗审查：emoji 标题 2 个（规范 ≤1）→ 红');
 
   // ---- v2.58.0 MERGE_GATE：snapshot/mergegate 双门真跑（快照绿/红/刷新复绿 + 越界红/点名 + 兼容两路）----
   const mgRepo = path.join(tmp, 'mg-repo');
@@ -2588,7 +2530,7 @@ try {
   //    validate-plain-speech.mjs 渲染进项目=死产物：SKILL_ROOT 按脚本位置解析到项目根、读不存在的 references/glossary.md 恒红）
   ok(fs.existsSync(path.join(repo2, 'scripts/harness/validate-changelog.sh')) && fs.existsSync(path.join(repo2, 'scripts/harness/deploy-preflight.mjs')) && fs.existsSync(path.join(repo2, 'scripts/harness/credential-probe.mjs')) && fs.existsSync(path.join(repo2, 'scripts/design/extract-spec.js')) && fs.existsSync(path.join(repo2, '.omp/hooks/pre/taskflow-guard.js')), 'mech 渲染过滤（D1）：登记表在册产物照常渲染（changelog/preflight/凭证探针/提取器/guard 五落点齐，v2.62.0 DEPLOY_GATE 双产物）');
   ok(!fs.existsSync(path.join(repo2, 'scripts/harness/validate-plain-speech.mjs')), 'mech 渲染过滤（D1）：产物列「—」的技能内门（PLAIN_SPEECH_GATE）零渲染——旧版全家渲染把恒红死产物带进项目');
-  ok(fs.existsSync(path.join(skillRoot, 'assets', 'harness', 'validate-plain-speech.mjs')), 'mech 渲染过滤（D1）资产面：技能内门脚本住技能仓 assets/ 原位（SKILL_ROOT 语义成立），过滤只断渲染不删资产');
+  ok(fs.existsSync(path.join(skillRoot, 'packs', 'briefing', 'assets', 'harness', 'validate-plain-speech.mjs')), 'mech 渲染过滤（D1）资产面：技能内门脚本住技能仓包内原位（SKILL_ROOT 语义成立），过滤只断渲染不删资产');
   const psInst = run(['mech', 'install', 'PLAIN_SPEECH_GATE'], gproj2);
   ok(psInst.status === 0 && psInst.stdout.includes('无项目侧产物定义'), 'mech 渲染过滤（D1）：技能内门自身 install 早退（纯编排层提示，零渲染）');
   // ② changelog 门（标题行算数收口 + 触发词十三式）：「同类排查：」样板字写标题不再算满足（body 与触发词匹配面分离，
@@ -2604,13 +2546,13 @@ try {
   ok(cNewWordOk.status === 0, 'CLASS_SWEEP_GATE 十三式不误伤：新触发词条目正文补齐双行 → 绿（成行才算满足）');
   // ③ plain-speech 门：80 字窗改真扫描（解释括号不再要求紧邻代号首字符）+ 编号列表（1. 形态）入列表项约束
   const psWin = path.join(tmp, 'briefing-ps-win.md');
-  fs.writeFileSync(psWin, 'DEPLOY_GATE 是部署协调门（防止两个任务互相覆盖部署）。\n');
+  fs.writeFileSync(psWin, 'DEPLOY_GATE 是部署协调门（防止两个任务互相覆盖部署），本次部署已完成。\n\n## 不看上下文也能懂的检验问题\n\n- 打开部署页能看到新版本吗？\n');
   const psWinR = spawnSync('node', [psScript, psWin], { encoding: 'utf8' });
-  ok(psWinR.status === 0, 'PLAIN_SPEECH_GATE 80 字窗真扫描：代号后隔词出解释括号 → 绿（旧版只锚窗口首字符，「DEPLOY_GATE 是部署协调门（…）」误红）');
+  ok(psWinR.status === 0, 'PLAIN_SPEECH 12 字窗：代号后隔词出解释括号 → 绿（「DEPLOY_GATE 是部署协调门（…）」不算裸奔）');
   const psNum = path.join(tmp, 'briefing-ps-num.md');
-  fs.writeFileSync(psNum, '1. 第一句说明背景情况。第二句补充细节。第三句给出数据。第四句总结结论。\n');
+  fs.writeFileSync(psNum, '结论一句。\n\n1. 第一句说明背景。第二句补充细节。第三句给出数据。第四句总结。第五句超数。\n\n## 不看上下文也能懂的检验问题\n\n- 能对上吗？\n');
   const psNumR = spawnSync('node', [psScript, psNum], { encoding: 'utf8' });
-  ok(psNumR.status === 1 && /列表项堆叠/.test(psNumR.stderr), 'PLAIN_SPEECH_GATE 编号列表入检：编号项 4 句 → 红点名列表项堆叠（旧版只扫 -/* 项，编号项零约束）');
+  ok(psNumR.status === 1 && /句（>4）/.test(psNumR.stderr), 'PLAIN_SPEECH 编号项入检：编号项 5 句 → 红点名（v3 口径单段 ≤4 句，编号项同段纪律）');
   // ④ guard 三修：F-01 幽灵 worktree（空/缺 worktree 不进 realPath——realPath('') 解析到项目根=幽灵罩住全仓错归属）/
   //    F-02 花括号整行先展开再收集（bullet 正则逗号截断 docs/prd/{auth=真路径清单外误报）/ F-03 BLOCKER_RE 补 blocked·卡住
   const gIdxP = path.join(gproj, '.taskflow', 'index.json');
@@ -3088,7 +3030,7 @@ try {
     sh('git add -A && git commit -qm init', d);
     fs.writeFileSync(path.join(d, '.taskflow', 'project.json'), J({ key: name, git: true, deploy: { server: '127.0.0.1', statePath: `/tmp/unused-${name}.json`, jarPath: '/tmp/does-not-matter.jar', jarProbe: `echo ${'c'.repeat(32)}`, commands: [`echo deployed-ok > ${tmp}/${name}-deployed.txt`] } }));
     fs.mkdirSync(path.join(d, 'scripts', 'harness'), { recursive: true });
-    fs.copyFileSync(new URL('../assets/harness/deploy-preflight.mjs', import.meta.url).pathname, path.join(d, 'scripts', 'harness', 'deploy-preflight.mjs'));
+    fs.copyFileSync(new URL('../packs/deploy/assets/harness/deploy-preflight.mjs', import.meta.url).pathname, path.join(d, 'scripts', 'harness', 'deploy-preflight.mjs'));
     sh('git add scripts && git commit -qm harness', d); // 先入 main：防后续任务分支 git add -A 把它带进分支、checkout main 时消失（r4 实证）
     const state = path.join(tmp, `${name}-live-state.json`);
     const setState = (commit, version) => fs.writeFileSync(state, JSON.stringify({ schema: 'live-deploy-state/1', jar: { commit, version, branch: 'main' } }));
@@ -3105,7 +3047,7 @@ try {
   // B1 多义观测（r2 复用：c4-a/b/f/g 四任务分支均并入 main 且 active）→ deploy main 血统多命中 → ⚠ 不写（拒绝猜），exit 0 不阻断
   fs.writeFileSync(path.join(r2, '.taskflow', 'project.json'), J({ key: 'r2proj', git: true, deploy: { server: '127.0.0.1', statePath: '/tmp/unused-live.json', jarPath: '/tmp/does-not-matter.jar', jarProbe: `echo ${'b'.repeat(32)}`, commands: [`echo deployed-ok > ${tmp}/r2-deployed.txt`] } }));
   fs.mkdirSync(path.join(r2, 'scripts', 'harness'), { recursive: true });
-  fs.copyFileSync(new URL('../assets/harness/deploy-preflight.mjs', import.meta.url).pathname, path.join(r2, 'scripts', 'harness', 'deploy-preflight.mjs'));
+  fs.copyFileSync(new URL('../packs/deploy/assets/harness/deploy-preflight.mjs', import.meta.url).pathname, path.join(r2, 'scripts', 'harness', 'deploy-preflight.mjs'));
   const r2State = path.join(tmp, 'r2-live-state.json');
   const r2MainSha = execFileSync('git', ['-C', r2, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
   fs.writeFileSync(r2State, JSON.stringify({ schema: 'live-deploy-state/1', jar: { commit: r2MainSha, version: '0.9.0', branch: 'main' } }));
@@ -3471,7 +3413,7 @@ try {
   {
     const repoRoot = path.resolve(import.meta.dirname, '..');
     const mech = run(['mechanisms'], tmp);
-    const guardMod = await import('file://' + path.join(repoRoot, 'assets', 'guard', 'taskflow-guard.js'));
+    const guardMod = await import('file://' + path.join(repoRoot, 'packs', 'host-adapters', 'assets', 'guard', 'taskflow-guard.js'));
     const manifest = guardMod.GATE_MANIFEST;
     const mechRows = mech.stdout.split('\n').filter((l) => l.includes('｜开关：'));
     ok(mech.status === 0 && Array.isArray(manifest) && manifest.length === 18, `2.85.0 T8 mechanisms：GATE_MANIFEST 注册表 18 项（实际 ${Array.isArray(manifest) ? manifest.length : '非数组'}）`);
@@ -3517,7 +3459,7 @@ try {
     const sm = await import('file://' + path.join(repoRoot, 'scripts', 'taskflow-state-machine.mjs'));
     const illegal = sm.TRANSITIONS.filter((r) => r.to !== 'archive/').filter((r) => !kernel.STATE_LEGAL.some(([f, t]) => f === r.from && t === r.to));
     ok(illegal.length === 0 && sm.STATES === kernel.STATES, `2.86.0 内核对账：TRANSITIONS（除 archive/ 物理归层）∈ kernel.STATE_LEGAL 且 STATES 同源${illegal.length ? `（首违：${illegal[0].from}→${illegal[0].to}）` : ''}`);
-    const guardSrc2 = fs.readFileSync(path.join(repoRoot, 'assets', 'guard', 'taskflow-guard.js'), 'utf8');
+    const guardSrc2 = fs.readFileSync(path.join(repoRoot, 'packs', 'host-adapters', 'assets', 'guard', 'taskflow-guard.js'), 'utf8');
     const tfSrc2 = fs.readFileSync(path.join(repoRoot, 'scripts', 'tf.mjs'), 'utf8');
     const dupDef = ['J20_WORD_RE', 'J20_CODE_RE', 'EXT_FAMILY', 'j20Scan', 'j20CodeLines'].filter((k) => new RegExp(`(const|function) ${k}\\b`).test(guardSrc2) || new RegExp(`(const|function) ${k}\\b`).test(tfSrc2));
     ok(dupDef.length === 0, `2.86.0 单源唯一：kernel 外零本地定义${dupDef.length ? `（残留：${dupDef.join('、')}）` : ''}`);
@@ -3663,7 +3605,7 @@ try {
     const v3home = path.join(tmp, 'v3-tfhome');
     const v3run = (args) => runEnv(args, v3, { TF_HOST: 'none', TF_TASKFLOW_HOME: v3home });
     const i1 = v3run(['init', '--host', 'none']);
-    ok(i1.status === 0 && fs.existsSync(path.join(v3, '.taskflow', 'project.json')) && fs.existsSync(path.join(v3, '.taskflow', 'profile.json')) && fs.existsSync(path.join(v3, '.taskflow', 'conventions.md')), 'v3 init：三件套落盘（project.json/profile.json/conventions.md）');
+    ok(i1.status === 0 && fs.existsSync(path.join(v3, '.taskflow', 'project.json')) && fs.existsSync(path.join(v3, '.taskflow', 'profile.json')) && fs.existsSync(path.join(v3, '.taskflow', 'conventions.md')), 'v3 init（SCAFFOLD 命令族）：三件套落盘（project.json/profile.json/conventions.md）');
     const v3pj = JSON.parse(fs.readFileSync(path.join(v3, '.taskflow', 'project.json'), 'utf8'));
     ok(v3pj.git === true && v3pj.deploy.form === 'none', 'v3 init：project.json 含 git:true + deploy.form:none');
     const v3conv = fs.readFileSync(path.join(v3, '.taskflow', 'conventions.md'), 'utf8');
@@ -3736,7 +3678,7 @@ try {
     try { finalT = JSON.parse(fs.readFileSync(path.join(cproj, '.taskflow', cid, 'task.json'), 'utf8')); parseOk = true; } catch { parseOk = false; }
     ok(parseOk && p1.status === 0 && p2.status === 0, 'v3 原子并发：两进程 checkpoint 均成功');
     const notes = (finalT?.checkpoints ?? []).map((c) => c.summary);
-    ok(parseOk && notes.includes('甲') && notes.includes('乙'), `v3 原子并发：终态合法 JSON 且两笔记录都在（实际 ${JSON.stringify(notes)}；tmp+rename 免半截 JSON）`);
+    ok(parseOk && notes.includes('甲') && notes.includes('乙'), `v3 原子并发（ATOMIC_WRITE）：终态合法 JSON 且两笔记录都在（实际 ${JSON.stringify(notes)}；tmp+rename 免半截 JSON）`);
   }
   // adapter host=none 分支：ls 不扫计划目录 / 埋点不写 / mech TASKFLOW_GUARD 降级
   {
@@ -3797,7 +3739,7 @@ try {
     // 门咬合台账（F34）：mergegate 红 → meta/gate-hits.jsonl 落痕；doctor 报表
     const mg = irun(['mergegate', iid]);
     const ghP = path.join(iproj, '.taskflow', 'meta', 'gate-hits.jsonl');
-    ok(mg.status === 1 && fs.existsSync(ghP) && fs.readFileSync(ghP, 'utf8').includes('"gate":"mergegate"'), 'v3 门咬合台账：mergegate 红路 → meta/gate-hits.jsonl 落痕（ts/gate/result/taskId）');
+    ok(mg.status === 1 && fs.existsSync(ghP) && fs.readFileSync(ghP, 'utf8').includes('"gate":"mergegate"'), 'v3 门咬合台账（GATE_HITS）：mergegate 红路 → meta/gate-hits.jsonl 落痕（ts/gate/result/taskId）');
     const dGh = irun(['doctor']);
     ok(dGh.stdout.includes('门咬合统计') && dGh.stdout.includes('mergegate'), 'v3 doctor：门咬合统计报表（红/黄计数+卸载候选判据）');
     // 复发台账（F27）：meta/recurrence.json 在档 → 报表打印；缺省=静默
@@ -3806,6 +3748,29 @@ try {
     const dRc = irun(['doctor']);
     ok(dRc.stdout.includes('复发台账') && dRc.stdout.includes('静默滚回'), 'v3 doctor：复发台账报表（每类事故最近复发时间）');
   }
+
+  // ---- v3.0.0 CARRIER_SKILLS：五载体实体化安装 + skills 别名/包源解析（F07/F43，验证 §5/§6；独立夹具）----
+  {
+    const cprojC = path.join(tmp, 'carrier-proj');
+    fs.mkdirSync(cprojC, { recursive: true });
+    sh('git init -q -b main && git config user.email t@t && git config user.name t && echo x > r.md && git add -A && git commit -qm init', cprojC);
+    const crunC = (args, extra = {}) => runEnv(args, cprojC, { TF_HOST: 'none', TF_TASKFLOW_HOME: path.join(tmp, 'v3-tfhome5'), ...extra });
+    crunC(['init', '--host', 'none']);
+    const pl = crunC(['packs', 'list']);
+    ok(pl.status === 0 && pl.stdout.includes('frontend') && pl.stdout.includes('carrier') && pl.stdout.includes('懒加载'), 'v3 packs list：八包清单 + 懒加载声明');
+    ok(/changelog-gates（token: 决策组合门）✓启用/.test(pl.stdout), 'v3 packs list：profile 启用态渲染（changelog-gates 缺省启用）');
+    const carTarget = path.join(tmp, 'car-skills');
+    const ci = crunC(['packs', 'install', 'carrier', '--all', '--target', carTarget]);
+    const five = ['scope-assessment', 'impact-analysis', 'data-boundary', 'conflict-triage', 'page-forensics'];
+    ok(ci.status === 0 && five.every((n) => fs.existsSync(path.join(carTarget, n, 'SKILL.md'))), 'v3 packs install carrier --all：五载体技能落目标目录（CARRIER_SKILLS 实体化）');
+    const carProf = JSON.parse(fs.readFileSync(path.join(cprojC, '.taskflow', 'profile.json'), 'utf8'));
+    ok(Array.isArray(carProf?.carriers?.installed) && five.every((n) => carProf.carriers.installed.includes(n)), 'v3 packs install：profile.carriers.installed 登记五项');
+    const skBefore = crunC(['skills', '冲突分级']);
+    ok(skBefore.status === 1 && /conflict-triage（.*冲突分级/.test(skBefore.stdout) && skBefore.stdout.includes('packs install carrier'), 'v3 skills 别名：中文领域词「冲突分级」命中 conflict-triage；未装 → 缺席点名 + packs:// 安装源指路');
+    const skAfter = crunC(['skills', '冲突分级'], { TF_SKILL_DIRS: carTarget });
+    ok(skAfter.status === 0 && /✓ conflict-triage/.test(skAfter.stdout), 'v3 skills 别名：装后检测转绿（目标目录在场即命中）');
+  }
+
 
   process.exitCode = failures ? 1 : 0; // 失败≠0：堵住链式调用「grep 匹配到失败文案也算成功」的放行洞
   console.log(failures ? `\n${failures} 项断言失败` : '\n全部通过');

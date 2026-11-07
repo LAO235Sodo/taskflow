@@ -1,0 +1,28 @@
+{
+  "token": "DEPLOY_GATE",
+  "name": "部署协调门（唯一入口+实况对账）",
+  "triggers": ["部署", "发版", "上线", "升级环境"],
+  "assets": [
+    "assets/harness/deploy-preflight.mjs",
+    "assets/harness/credential-probe.mjs"
+  ],
+  "install_targets": {
+    "scripts/harness/deploy-preflight.mjs": "assets/harness/deploy-preflight.mjs",
+    "scripts/harness/credential-probe.mjs": "assets/harness/credential-probe.mjs"
+  },
+  "variants": {
+    "jar": [
+      "scripts/harness/deploy-preflight.mjs",
+      "scripts/harness/credential-probe.mjs"
+    ],
+    "generic": []
+  },
+  "docs": "PACK.md",
+  "fixtures": ["tf.test.mjs"],
+  "touch": ["PACK.md", "references/entry-routes.md"],
+  "plain": "部署只能从唯一入口走：部署前对账线上版本、检查等验收任务让位，部署后登记新版本指纹（jar 形态带 ssh/md5 实况对账）",
+  "mechanisms": [
+    { "token": "DEPLOY_ENTRY", "name": "部署唯一入口", "products": [], "plain": "部署唯一入口命令：所有部署必须从它走，绕过它等于没登记，对账检查必红" },
+    { "token": "DEPLOYMENT_PROFILE", "name": "project.json schema 单源", "products": [], "plain": "project.json 的配置字典只有一个出处：哪些节合法、deploy 形态怎么填、什么形态对应什么验证档次" }
+  ]
+}

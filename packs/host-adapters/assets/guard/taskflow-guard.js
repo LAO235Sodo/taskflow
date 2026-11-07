@@ -75,10 +75,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import os from 'node:os'; // v2.54.1：编辑边界门波浪号路径展开（编辑工具展开 ~ 而本层原不展开=清单内路径误报越界，另一 agent 会话 4 次误报实证）
-// v2.86.0 单源共享内核（渲染副本由 inlineSharedDeps 内联自包含——下方 import 行渲染时不保留）
-import { STATES, STATE_LEGAL, J20_WORD_RE, J20_CODE_RE, j20CodeLines, j20Scan, EXT_FAMILY } from '../shared/kernel.mjs';
+// v2.86.0 单源共享内核（渲染副本由 inlineSharedDeps 内联自包含——下方 import 行渲染时不保留；v3.0.0 住 host-adapters 包，共享内核仍在技能仓 assets/shared/ 单源，相对深度随包调整——import 行尾禁注释，内联正则锚行尾）
+import { STATES, STATE_LEGAL, J20_WORD_RE, J20_CODE_RE, j20CodeLines, j20Scan, EXT_FAMILY } from '../../../../assets/shared/kernel.mjs';
 // v2.87.0 宿主适配层（注入落点/会话 id/本会话标注的运行时合同单点——渲染时同样内联）
-import { injectPrepend, sessIdOf, inSessionMark } from '../shared/host-adapter.mjs';
+import { injectPrepend, sessIdOf, inSessionMark } from '../../../../assets/shared/host-adapter.mjs';
 
 // DP deployment 落档校验枚举（v2.89.0，DEPLOYMENT_PROFILE 单源）：真源=技能 references/schemas/project.schema.json，
 // mech install 渲染期把 __DEPLOYMENT_ENUMS__ 替换为 schema 枚举字面量——模板零枚举抄写。typeof 守卫使未注入的

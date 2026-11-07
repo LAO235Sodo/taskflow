@@ -222,3 +222,7 @@ taskflow/
 ## License
 
 [MIT](LICENSE)
+
+> v3.0.0：全局数据根 `TF_TASKFLOW_HOME`（缺省 `~/.local/state/taskflow`）——跨安装路径可移植；详见「安装」节。
+
+> TF_HOME 抽象（v3.0.0）：全局数据根环境变量 `TF_TASKFLOW_HOME`（缺省 `~/.local/state/taskflow`）——跨安装路径/跨宿主可移植；旧 `~/.config/opencode/taskflow/` 首触达自动迁移（只读保留）。

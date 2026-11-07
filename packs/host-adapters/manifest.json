@@ -1,0 +1,16 @@
+{
+  "token": "TASKFLOW_GUARD",
+  "name": "宿主防护层（guard 扩展，omp 专属）",
+  "triggers": ["守门", "guard", "宿主扩展"],
+  "assets": [
+    "assets/guard/taskflow-guard.js",
+    "pi/taskflow.ts"
+  ],
+  "install_targets": {
+    ".omp/hooks/pre/taskflow-guard.js": "assets/guard/taskflow-guard.js"
+  },
+  "docs": "PACK.md",
+  "fixtures": ["tf.test.mjs"],
+  "touch": ["PACK.md", "references/entry-routes.md"],
+  "plain": "宿主层的防护栏：状态栏常显任务进度、拦危险命令、压缩会话时自动带接力线索（仅 omp 宿主；其余宿主降级纯纪律档）"
+}

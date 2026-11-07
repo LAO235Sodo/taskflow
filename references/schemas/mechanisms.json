@@ -1,263 +1,223 @@
 {
-  "generatedAt": "2026-11-07T04:54:50.232Z",
-  "source": "data.md(过渡)",
+  "generatedAt": "2026-11-07T05:58:10.624Z",
+  "source": "packs(8)+core",
   "mechanisms": [
     {
-      "token": "PROTOTYPE_STALE",
-      "name": "PROTOTYPE_STALE",
-      "pack": null,
-      "def": "templates/spec.md 产物链节",
+      "token": "三层路径盘点",
+      "name": "不可行宣称三通道盘点",
+      "pack": "briefing",
+      "def": "PACK.md（packs/briefing/）",
       "touch": [
-        "new-task.md",
-        "merge.md",
-        "templates/spec.md",
-        "prototype.md"
+        "packs/briefing/PACK.md",
+        "references/entry-routes.md"
       ],
       "triggers": [],
       "products": [],
-      "fixture": "—（实现/派发门禁，prose 触点；无 CLI 断言面）",
-      "plain": "原型没有用户确认记录就往下做实现——流程直接拒绝，防止做完才发现方向早错了"
+      "fixture": "—（随包主 token 夹具承载）",
+      "plain": "要说「做不到/没有路径」之前，把正规通道/权限面通道/绕过通道三条路并列呈报——合不合规归用户拍板，模型只标注风险"
     },
     {
-      "token": "--deployed",
-      "name": "--deployed",
-      "pack": null,
-      "def": "data.md deploy 字段",
+      "token": "合规哲学",
+      "name": "合规标注归用户",
+      "pack": "briefing",
+      "def": "PACK.md（packs/briefing/）",
       "touch": [
-        "merge.md"
+        "packs/briefing/PACK.md",
+        "references/entry-routes.md"
       ],
       "triggers": [],
       "products": [],
-      "fixture": "tf.test.mjs",
-      "plain": "把「代码已部署到线上」写进任务档案的动作，任务状态同时翻到「等验收」"
+      "fixture": "—（随包主 token 夹具承载）",
+      "plain": "合规性判断归用户：模型只标注风险，禁替用户否决路径——用户所处环境的合规标准可能与常规不同"
     },
     {
-      "token": "LEASE",
-      "name": "LEASE",
-      "pack": null,
-      "def": "data.md activeLease 字段",
+      "token": "PLAIN_SPEECH_GATE",
+      "name": "呈报落稿门（说人话+结构化双层）",
+      "pack": "briefing",
+      "def": "PACK.md（packs/briefing/）",
       "touch": [
-        "checkpoint.md",
-        "resume.md"
+        "packs/briefing/PACK.md",
+        "references/entry-routes.md"
       ],
-      "triggers": [],
-      "products": [],
-      "fixture": "I9",
-      "plain": "会话之间的「我正在用这个任务」登记，防止两个会话同时改一个任务"
-    },
-    {
-      "token": "PARK",
-      "name": "PARK",
-      "pack": null,
-      "def": "data.md 状态机表 parked 两行 + parkedReason/parkedAt 字段行",
-      "touch": [
-        "resume.md",
-        "tf.mjs",
-        "tf.test.mjs"
+      "triggers": [
+        "呈报",
+        "简报",
+        "方案呈报",
+        "验收简报",
+        "部署清单"
       ],
-      "triggers": [],
       "products": [],
       "fixture": "tf.test.mjs",
-      "plain": "给「先放放」带原因的正式状态：G 门/体检/stale 不再空跑悬挂任务，且搁置与遗忘可区分"
+      "plain": "正式呈报先落稿过「说人话」检测：术语首现要带大白话，禁代号裸奔和超长句"
     },
     {
-      "token": ".owner.json",
-      "name": ".owner.json",
-      "pack": null,
-      "def": "data.md I10 行",
+      "token": "CARRIER_SKILLS",
+      "name": "五载体技能（能力接口）",
+      "pack": "carrier",
+      "def": "PACK.md（packs/carrier/）",
       "touch": [
-        "new-task.md",
-        "resume.md"
+        "packs/carrier/PACK.md",
+        "references/entry-routes.md"
       ],
-      "triggers": [],
-      "products": [],
-      "fixture": "I10",
-      "plain": "worktree 属主凭证文件，记录哪个进程在哪个目录干活"
-    },
-    {
-      "token": "接管仪式",
-      "name": "接管仪式",
-      "pack": null,
-      "def": "resume.md 第 8 步",
-      "touch": [
-        "resume.md",
-        "checkpoint.md"
+      "triggers": [
+        "范围评估",
+        "影响面",
+        "数据边界",
+        "冲突分级",
+        "页面取证"
       ],
-      "triggers": [],
       "products": [],
       "fixture": "tf.test.mjs",
-      "plain": "原属主进程已死时，新会话接手任务前的一套登记动作：改属主、刷新登记、清点桌面"
+      "plain": "五个可装可卸的分析技能：范围评估、影响面、数据边界、冲突分级、页面取证——装不装由项目 profile 一次拍板"
     },
     {
-      "token": "STUCK升级门",
-      "name": "STUCK升级门",
-      "pack": null,
-      "def": "merge.md 第 3 步",
+      "token": "CLASS_SWEEP_GATE",
+      "name": "同类排查门",
+      "pack": "changelog-gates",
+      "def": "PACK.md（packs/changelog-gates/）",
       "touch": [
-        "merge.md",
-        "split.md",
-        "prototype.md"
-      ],
-      "triggers": [],
-      "products": [],
-      "fixture": "—（merge 门禁，prose 触点；打转保护无 CLI 断言面）",
-      "plain": "同一个问题修 3 轮还不过，强制停下来让用户拍板换路，不许默默试第 4 轮"
-    },
-    {
-      "token": "MERGE_LOCK",
-      "name": "MERGE_LOCK",
-      "pack": null,
-      "def": "merge.md 第 5 步",
-      "touch": [
-        "merge.md"
-      ],
-      "triggers": [],
-      "products": [],
-      "fixture": "—（由 lock 命令测试承载，token 本身无断言面）",
-      "plain": "合并动作的排队锁：两个会话同时要合并时一个排队，防止互相踩"
-    },
-    {
-      "token": "REQ_BASELINE",
-      "name": "REQ_BASELINE",
-      "pack": null,
-      "def": "templates/spec.md「需求基线」节",
-      "touch": [
-        "new-task.md",
-        "resume.md",
-        "merge.md",
-        "templates/spec.md"
-      ],
-      "triggers": [],
-      "products": [],
-      "fixture": "I12",
-      "plain": "spec 里必须写清需求出自哪份 PRD 文档哪条，防止需求来源失传"
-    },
-    {
-      "token": "req-confirm",
-      "name": "req-confirm",
-      "pack": null,
-      "def": "data.md goalHash/reqChanges 字段",
-      "touch": [
-        "SKILL.md",
-        "resume.md",
-        "merge.md"
-      ],
-      "triggers": [],
-      "products": [],
-      "fixture": "tf.test.mjs",
-      "plain": "需求口径变更的登记命令：把「谁拍板改了什么」写进档案，刷新需求指纹"
-    },
-    {
-      "token": "问答管线",
-      "name": "问答管线",
-      "pack": null,
-      "def": "references/qa.md",
-      "touch": [
-        "SKILL.md",
-        "qa.md",
-        "domain.md"
-      ],
-      "triggers": [],
-      "products": [],
-      "fixture": "—（会话行为管线；机械面=lint 触点可达，真实会话审计承载）",
-      "plain": "用户问代码/领域问题时，先复述「我理解你在问什么」再探索作答的固定流程"
-    },
-    {
-      "token": "services.json",
-      "name": "services.json",
-      "pack": null,
-      "def": "data.md「services.json」节（服务端口租约）",
-      "touch": [
-        "new-task.md",
-        "resume.md",
-        "merge.md"
-      ],
-      "triggers": [],
-      "products": [],
-      "fixture": "I14",
-      "plain": "本地服务端口租约表：防止两个会话的开发服务抢同一个端口"
-    },
-    {
-      "token": "需求变更门",
-      "name": "需求变更门",
-      "pack": null,
-      "def": "SKILL.md 反馈分类（隐性升级行）",
-      "touch": [
-        "SKILL.md",
-        "merge.md"
-      ],
-      "triggers": [],
-      "products": [],
-      "fixture": "—（SKILL 拍板门；落痕由 req-confirm/reqChanges fixture 承载）",
-      "plain": "验收标准和 PRD 原口径冲突时，必须先呈报「原口径→新口径」让用户拍板才许动工"
-    },
-    {
-      "token": "STYLE_SOURCE_GATE",
-      "name": "STYLE_SOURCE_GATE",
-      "pack": null,
-      "def": "references/style-source.md（真源结构/双门/大白话模板/延迟初始化）",
-      "touch": [
-        "new-task.md",
-        "merge.md",
-        "prototype.md",
-        "SKILL.md 硬规则 20"
+        "packs/changelog-gates/PACK.md",
+        "references/entry-routes.md"
       ],
       "triggers": [],
       "products": [
-        "scripts/harness/validate-style-source-gate.sh"
+        "scripts/harness/validate-changelog.sh"
       ],
-      "fixture": "tf.test.mjs",
-      "plain": "样式真源门：已定稿的样式要改之前，必须用大白话呈报「现在→改成→为什么」让用户拍板并留痕"
+      "fixture": "—（随包主 token 夹具承载）",
+      "plain": "修一个 bug 前先答三问——上游输入干净吗、下游要不要同步、同类还有几处；答完留痕才许动手修"
+    },
+    {
+      "token": "DOC_SYNC_GATE",
+      "name": "文档同步门",
+      "pack": "changelog-gates",
+      "def": "PACK.md（packs/changelog-gates/）",
+      "touch": [
+        "packs/changelog-gates/PACK.md",
+        "references/entry-routes.md"
+      ],
+      "triggers": [],
+      "products": [
+        "scripts/harness/validate-changelog.sh"
+      ],
+      "fixture": "—（随包主 token 夹具承载）",
+      "plain": "功能代码改了，收尾必须回答「文档跟了吗」——更新了哪条写哪条，确实没变写一句理由，缺了收尾红灯"
     },
     {
       "token": "决策组合门",
-      "name": "决策组合门",
-      "pack": null,
-      "def": "SKILL.md 硬规则 16①",
+      "name": "收尾门族（决策组合/同类排查/文档同步/基线/规格表串接）",
+      "pack": "changelog-gates",
+      "def": "PACK.md（packs/changelog-gates/）",
       "touch": [
-        "SKILL.md",
-        "new-task.md",
-        "merge.md",
-        "assets/harness/"
+        "packs/changelog-gates/PACK.md",
+        "references/entry-routes.md"
       ],
-      "triggers": [],
+      "triggers": [
+        "收尾",
+        "CHANGELOG",
+        "组合评估",
+        "同类排查",
+        "文档同步"
+      ],
       "products": [
-        "scripts/harness/validate-decision-combo-gate.sh",
-        "scripts/harness/validate-changelog.sh"
+        "scripts/harness/validate-changelog.sh",
+        "scripts/harness/validate-decision-combo-gate.sh"
       ],
       "fixture": "tf.test.mjs",
-      "plain": "新改动和既有拍板决策拼在一起可能产生没人解释过的界面状态，这道门强制逐条评估这些组合"
+      "plain": "任务收尾的机械检查：新改动和既有拍板拼出的新状态要逐条评估、修 bug 前扫同类、功能改了文档要跟着改"
     },
     {
-      "token": "感知层验收",
-      "name": "感知层验收",
-      "pack": null,
-      "def": "SKILL.md 硬规则 16②",
+      "token": "DEPLOY_ENTRY",
+      "name": "部署唯一入口",
+      "pack": "deploy",
+      "def": "PACK.md（packs/deploy/）",
       "touch": [
-        "SKILL.md",
-        "merge.md",
-        "prototype-selfcheck.md"
+        "packs/deploy/PACK.md",
+        "references/entry-routes.md"
       ],
       "triggers": [],
       "products": [],
-      "fixture": "—（自查维度 prose；项目侧测试断言承载）",
-      "plain": "界面行为验收不能只测数据对不对，还要测每个状态用户能不能看到解释它的文案"
+      "fixture": "—（随包主 token 夹具承载）",
+      "plain": "部署唯一入口命令：所有部署必须从它走，绕过它等于没登记，对账检查必红"
+    },
+    {
+      "token": "DEPLOYMENT_PROFILE",
+      "name": "project.json schema 单源",
+      "pack": "deploy",
+      "def": "PACK.md（packs/deploy/）",
+      "touch": [
+        "packs/deploy/PACK.md",
+        "references/entry-routes.md"
+      ],
+      "triggers": [],
+      "products": [],
+      "fixture": "—（随包主 token 夹具承载）",
+      "plain": "project.json 的配置字典只有一个出处：哪些节合法、deploy 形态怎么填、什么形态对应什么验证档次"
+    },
+    {
+      "token": "DEPLOY_GATE",
+      "name": "部署协调门（唯一入口+实况对账）",
+      "pack": "deploy",
+      "def": "PACK.md（packs/deploy/）",
+      "touch": [
+        "packs/deploy/PACK.md",
+        "references/entry-routes.md"
+      ],
+      "triggers": [
+        "部署",
+        "发版",
+        "上线",
+        "升级环境"
+      ],
+      "products": [
+        "scripts/harness/deploy-preflight.mjs",
+        "scripts/harness/credential-probe.mjs"
+      ],
+      "fixture": "tf.test.mjs",
+      "plain": "部署只能从唯一入口走：部署前对账线上版本、检查等验收任务让位，部署后登记新版本指纹（jar 形态带 ssh/md5 实况对账）"
+    },
+    {
+      "token": "REQ_BASELINE",
+      "name": "需求基线溯源",
+      "pack": "docs-prd",
+      "def": "PACK.md（packs/docs-prd/）",
+      "touch": [
+        "packs/docs-prd/PACK.md",
+        "references/entry-routes.md"
+      ],
+      "triggers": [],
+      "products": [],
+      "fixture": "—（随包主 token 夹具承载）",
+      "plain": "spec 里必须写清需求出自哪份 PRD 文档哪条，防止需求来源失传"
+    },
+    {
+      "token": "REQ_ANCHOR_GATE",
+      "name": "需求基线对照门（PRD 锚）",
+      "pack": "docs-prd",
+      "def": "PACK.md（packs/docs-prd/）",
+      "touch": [
+        "packs/docs-prd/PACK.md",
+        "references/entry-routes.md"
+      ],
+      "triggers": [
+        "PRD",
+        "需求基线",
+        "验收锚"
+      ],
+      "products": [
+        "scripts/harness/validate-baseline-anchor-gate.sh",
+        "scripts/harness/validate-changelog.sh"
+      ],
+      "fixture": "tf.test.mjs",
+      "plain": "每条验收标准必须挂 PRD 条目锚：挂不上就登记草案并经用户确认，防止需求口径静默漂移"
     },
     {
       "token": "DESIGN_SPEC_EXTRACT",
-      "name": "DESIGN_SPEC_EXTRACT",
-      "pack": null,
-      "def": "SKILL.md 硬规则 19",
+      "name": "原型规格表提取门",
+      "pack": "frontend",
+      "def": "PACK.md（packs/frontend/）",
       "touch": [
-        "SKILL.md",
-        "prototype.md",
-        "new-task.md",
-        "split.md",
-        "merge.md",
-        "prototype-selfcheck.md",
-        "domain.md",
-        "templates/spec.md",
-        "templates/subtask-spec.md"
+        "packs/frontend/PACK.md",
+        "references/entry-routes.md"
       ],
       "triggers": [],
       "products": [
@@ -265,171 +225,317 @@
         "scripts/harness/validate-changelog.sh",
         "scripts/design/extract-spec.js"
       ],
-      "fixture": "tf.test.mjs",
+      "fixture": "—（随包主 token 夹具承载）",
       "plain": "原型定稿后机器逐元素提取规格表（位置/颜色/间距），实现只认规格表、禁止凭记忆转述原型"
     },
     {
-      "token": "DEP_ASK_GATE",
-      "name": "DEP_ASK_GATE",
-      "pack": null,
-      "def": "SKILL.md 硬规则 22",
-      "touch": [
-        "SKILL.md",
-        "new-task.md",
-        "domain.md"
-      ],
-      "triggers": [],
-      "products": [],
-      "fixture": "—（问答门 prose 触点；检测面 = tf.mjs skills exit code 承载）",
-      "plain": "外部依赖先检测再用：缺了必须列清单问用户装不装，禁止默默降级照跑"
-    },
-    {
       "token": "APP_PAGE_BASELINE",
-      "name": "APP_PAGE_BASELINE",
-      "pack": null,
-      "def": "SKILL.md 硬规则 21",
+      "name": "现状基线门",
+      "pack": "frontend",
+      "def": "PACK.md（packs/frontend/）",
       "touch": [
-        "SKILL.md",
-        "prototype.md",
-        "new-task.md",
-        "prototype-selfcheck.md",
-        "style-source.md",
-        "merge.md",
-        "templates/spec.md",
-        "templates/subtask-spec.md"
+        "packs/frontend/PACK.md",
+        "references/entry-routes.md"
       ],
       "triggers": [],
       "products": [
         "scripts/harness/validate-app-baseline-gate.sh",
         "scripts/design/extract-app-baseline.js"
       ],
-      "fixture": "tf.test.mjs",
+      "fixture": "—（随包主 token 夹具承载）",
       "plain": "改现有页面前先机器提取线上现状快照，原型必须基于现状做增量，禁止从零重画整页"
     },
     {
-      "token": "DEPLOY_GATE",
-      "name": "DEPLOY_GATE",
-      "pack": null,
-      "def": "references/deploy-gate.md（细则唯一载体：预检/基线登记/租约/让位/验收即合并；v2.42.0 四件套=部署唯一入口 deploy+conventions 接线+I16 敞口+I17 实况对账）",
+      "token": "RENDER_EVIDENCE_GATE",
+      "name": "渲染证据门",
+      "pack": "frontend",
+      "def": "PACK.md（packs/frontend/）",
       "touch": [
-        "SKILL.md",
-        "merge.md",
-        "deploy-gate.md",
-        "tf.mjs deploy（分发区）"
+        "packs/frontend/PACK.md",
+        "references/entry-routes.md"
       ],
       "triggers": [],
       "products": [
-        "scripts/harness/deploy-preflight.mjs",
-        "scripts/harness/credential-probe.mjs"
+        "scripts/harness/validate-render-evidence.sh"
       ],
-      "fixture": "tf.test.mjs",
-      "plain": "部署协调门：防止两个任务互相覆盖部署的一组检查（线上现行版本已包含、等验收者让位、事后对账）"
+      "fixture": "—（随包主 token 夹具承载）",
+      "plain": "改了样式就必须在任务档案交真实渲染的截图或量测记录，防「指标全绿但页面没人看过」"
     },
     {
-      "token": "DEPLOY_ENTRY",
-      "name": "DEPLOY_ENTRY",
-      "pack": null,
-      "def": "SKILL.md 硬规则 23（v2.42.0 四件套①：部署唯一入口）",
+      "token": "PROTOTYPE_STALE",
+      "name": "原型失效门",
+      "pack": "frontend",
+      "def": "PACK.md（packs/frontend/）",
       "touch": [
-        "SKILL.md",
-        "merge.md",
-        "data.md",
-        "tf.mjs deploy（分发区）"
+        "packs/frontend/PACK.md",
+        "references/entry-routes.md"
       ],
       "triggers": [],
       "products": [],
-      "fixture": "tf.test.mjs",
-      "plain": "部署唯一入口命令：所有部署必须从它走，绕过它等于没登记，对账检查必红"
+      "fixture": "—（随包主 token 夹具承载）",
+      "plain": "原型没有用户确认记录就往下做实现——流程直接拒绝，防止做完才发现方向早错了"
     },
     {
-      "token": "DEPLOYMENT_PROFILE",
-      "name": "DEPLOYMENT_PROFILE",
-      "pack": null,
-      "def": "references/schemas/project.schema.json（project.json JSON Schema 真身：已知节白名单+deployment 三键枚举+verify minLength+x-deployment-grades 分级注解，v2.89.0）",
+      "token": "感知层验收",
+      "name": "感知层验收维度",
+      "pack": "frontend",
+      "def": "PACK.md（packs/frontend/）",
       "touch": [
-        "merge.md",
-        "deploy-gate.md",
-        "new-task.md"
+        "packs/frontend/PACK.md",
+        "references/entry-routes.md"
       ],
       "triggers": [],
       "products": [],
-      "fixture": "tf.test.mjs",
-      "plain": "project.json 的配置字典只有一个出处：哪些节合法、deployment 三键怎么填、什么形态对应什么验证档次都照它说话——改枚举只改 schema 一处，doctor 和两道门同时变"
+      "fixture": "—（随包主 token 夹具承载）",
+      "plain": "界面行为验收不能只测数据对不对，还要测每个状态用户能不能看到解释它的文案"
     },
     {
-      "token": "PLAIN_SPEECH_GATE",
-      "name": "PLAIN_SPEECH_GATE",
-      "pack": null,
-      "def": "SKILL.md 硬规则 24 + references/plain-speech.md（双层要求/骨架选型/呈报稿模板唯一载体）",
+      "token": "STYLE_SOURCE_GATE",
+      "name": "前端视觉门族（规格表/样式真源/现状基线/渲染证据）",
+      "pack": "frontend",
+      "def": "PACK.md（packs/frontend/）",
       "touch": [
-        "SKILL.md",
-        "qa.md",
-        "resume.md",
-        "merge.md",
-        "deploy-gate.md",
-        "new-task.md",
-        "induction.md",
-        "plain-speech.md",
-        "glossary.md"
+        "packs/frontend/PACK.md",
+        "references/entry-routes.md"
       ],
-      "triggers": [],
-      "products": [],
+      "triggers": [
+        "前端视觉",
+        "原型",
+        "样式",
+        "页面基线",
+        "渲染证据"
+      ],
+      "products": [
+        "scripts/design/extract-spec.js",
+        "scripts/design/extract-app-baseline.js",
+        "scripts/harness/validate-design-spec-gate.sh",
+        "scripts/harness/validate-style-source-gate.sh",
+        "scripts/harness/validate-app-baseline-gate.sh",
+        "scripts/harness/validate-render-evidence.sh"
+      ],
       "fixture": "tf.test.mjs",
-      "plain": "面向用户输出门：正式呈报先落稿过「说人话」检测，行话没解释或句子太长机器打回，绿了才给人看"
+      "plain": "前端改样式的四道检查：先机器提取现状和规格表，改动只认规格表，定稿样式有唯一真源，改了样式要真渲染证据"
     },
     {
       "token": "TASKFLOW_GUARD",
-      "name": "TASKFLOW_GUARD",
-      "pack": null,
-      "def": "references/taskflow-guard.md（细则唯一载体：十五功能/部署墙+编辑边界两套档位/零干扰边界/卸载）",
+      "name": "宿主防护层（guard 扩展，omp 专属）",
+      "pack": "host-adapters",
+      "def": "PACK.md（packs/host-adapters/）",
       "touch": [
-        "taskflow-guard.md",
-        "deploy-gate.md",
-        "split.md"
+        "packs/host-adapters/PACK.md",
+        "references/entry-routes.md"
       ],
-      "triggers": [],
+      "triggers": [
+        "守门",
+        "guard",
+        "宿主扩展"
+      ],
       "products": [
         ".omp/hooks/pre/taskflow-guard.js"
       ],
       "fixture": "tf.test.mjs",
-      "plain": "宿主防护层：把 taskflow 关键规则从「模型记得做」降到 omp extension 宿主层——状态栏常显进行中/等你验收/已上线超24小时未合并（v2.56.0 人话化）、簿记参数调用即红、压缩摘要自动带接力线索、每轮注入输出规范（术语首现后跟括号大白话+项目词表）、部署特征命令拦截、派发 spec 机械注入（凭记忆转述失效）、越界编辑拦截、子代理报告（task-result）含阻塞/blocker/卡点字样返回人话三问提醒（v2.61.0 来源限定：普通对话/图例/自家提醒不触发；声明可能猜错、不拦操作）、词表反馈沉淀（检测「看不懂」类反馈计数、词表改写消账、逐轮催+压缩兜底，v2.57.0）"
+      "plain": "宿主层的防护栏：状态栏常显任务进度、拦危险命令、压缩会话时自动带接力线索（仅 omp 宿主；其余宿主降级纯纪律档）"
     },
     {
-      "token": "CLASS_SWEEP_GATE",
-      "name": "CLASS_SWEEP_GATE",
-      "pack": null,
-      "def": "SKILL.md 硬规则 25 + references/testing.md §十（扩散三问/触发点/产出契约/与 §八分工——细则唯一载体）",
+      "token": "DATA_MODEL_GATE",
+      "name": "数据模型对照门",
+      "pack": "jvm-data",
+      "def": "PACK.md（packs/jvm-data/）",
       "touch": [
-        "SKILL.md",
-        "merge.md",
-        "testing.md",
-        "taskflow-guard.md",
-        "new-task.md"
+        "packs/jvm-data/PACK.md",
+        "references/entry-routes.md"
       ],
-      "triggers": [],
+      "triggers": [
+        "数据模型",
+        "表结构",
+        "DDL",
+        "实体口径"
+      ],
+      "products": [
+        "scripts/design/extract-data-model.js",
+        "scripts/harness/validate-data-model-gate.sh"
+      ],
+      "fixture": "tf.test.mjs",
+      "plain": "动数据结构前先把表和实体的现状机器提取成对照表，拍板后才动，收尾核对真源已刷新"
+    },
+    {
+      "pack": null,
+      "token": "--deployed",
+      "name": "--deployed",
+      "def": "data.md deploy 字段",
+      "touch": [
+        "merge.md"
+      ],
       "products": [],
       "fixture": "tf.test.mjs",
-      "plain": "同类排查门：修一个 bug 前先答三问——上游输入干净吗、下游要不要同步、同类还有几处；答完留痕才许动手修"
+      "plain": "把「代码已部署到线上」写进任务档案的动作，任务状态同时翻到「等验收」"
     },
     {
+      "pack": null,
+      "token": "LEASE",
+      "name": "LEASE",
+      "def": "data.md activeLease 字段",
+      "touch": [
+        "checkpoint.md",
+        "resume.md"
+      ],
+      "products": [],
+      "fixture": "I9",
+      "plain": "会话之间的「我正在用这个任务」登记，防止两个会话同时改一个任务"
+    },
+    {
+      "pack": null,
+      "token": "PARK",
+      "name": "PARK",
+      "def": "data.md 状态机表 parked 两行 + parkedReason/parkedAt 字段行",
+      "touch": [
+        "resume.md",
+        "tf.mjs",
+        "tf.test.mjs"
+      ],
+      "products": [],
+      "fixture": "tf.test.mjs",
+      "plain": "给「先放放」带原因的正式状态：G 门/体检/stale 不再空跑悬挂任务，且搁置与遗忘可区分"
+    },
+    {
+      "pack": null,
+      "token": ".owner.json",
+      "name": ".owner.json",
+      "def": "data.md I10 行",
+      "touch": [
+        "new-task.md",
+        "resume.md"
+      ],
+      "products": [],
+      "fixture": "I10",
+      "plain": "worktree 属主凭证文件，记录哪个进程在哪个目录干活"
+    },
+    {
+      "pack": null,
+      "token": "接管仪式",
+      "name": "接管仪式",
+      "def": "resume.md 第 8 步",
+      "touch": [
+        "resume.md",
+        "checkpoint.md"
+      ],
+      "products": [],
+      "fixture": "tf.test.mjs",
+      "plain": "原属主进程已死时，新会话接手任务前的一套登记动作：改属主、刷新登记、清点桌面"
+    },
+    {
+      "pack": null,
+      "token": "STUCK升级门",
+      "name": "STUCK升级门",
+      "def": "merge.md 第 3 步",
+      "touch": [
+        "merge.md",
+        "split.md",
+        "prototype.md"
+      ],
+      "products": [],
+      "fixture": "—（merge 门禁，prose 触点；打转保护无 CLI 断言面）",
+      "plain": "同一个问题修 3 轮还不过，强制停下来让用户拍板换路，不许默默试第 4 轮"
+    },
+    {
+      "pack": null,
+      "token": "MERGE_LOCK",
+      "name": "MERGE_LOCK",
+      "def": "merge.md 第 5 步",
+      "touch": [
+        "merge.md"
+      ],
+      "products": [],
+      "fixture": "—（由 lock 命令测试承载，token 本身无断言面）",
+      "plain": "合并动作的排队锁：两个会话同时要合并时一个排队，防止互相踩"
+    },
+    {
+      "pack": null,
+      "token": "req-confirm",
+      "name": "req-confirm",
+      "def": "data.md goalHash/reqChanges 字段",
+      "touch": [
+        "SKILL.md",
+        "resume.md",
+        "merge.md"
+      ],
+      "products": [],
+      "fixture": "tf.test.mjs",
+      "plain": "需求口径变更的登记命令：把「谁拍板改了什么」写进档案，刷新需求指纹"
+    },
+    {
+      "pack": null,
+      "token": "问答管线",
+      "name": "问答管线",
+      "def": "references/qa.md",
+      "touch": [
+        "SKILL.md",
+        "qa.md",
+        "domain.md"
+      ],
+      "products": [],
+      "fixture": "—（会话行为管线；机械面=lint 触点可达，真实会话审计承载）",
+      "plain": "用户问代码/领域问题时，先复述「我理解你在问什么」再探索作答的固定流程"
+    },
+    {
+      "pack": null,
+      "token": "services.json",
+      "name": "services.json",
+      "def": "data.md「services.json」节（服务端口租约）",
+      "touch": [
+        "new-task.md",
+        "resume.md",
+        "merge.md"
+      ],
+      "products": [],
+      "fixture": "I14",
+      "plain": "本地服务端口租约表：防止两个会话的开发服务抢同一个端口"
+    },
+    {
+      "pack": null,
+      "token": "需求变更门",
+      "name": "需求变更门",
+      "def": "SKILL.md 反馈分类（隐性升级行）",
+      "touch": [
+        "SKILL.md",
+        "merge.md"
+      ],
+      "products": [],
+      "fixture": "—（SKILL 拍板门；落痕由 req-confirm/reqChanges fixture 承载）",
+      "plain": "验收标准和 PRD 原口径冲突时，必须先呈报「原口径→新口径」让用户拍板才许动工"
+    },
+    {
+      "pack": null,
+      "token": "DEP_ASK_GATE",
+      "name": "DEP_ASK_GATE",
+      "def": "SKILL.md 硬规则 22",
+      "touch": [
+        "SKILL.md",
+        "new-task.md",
+        "domain.md"
+      ],
+      "products": [],
+      "fixture": "—（问答门 prose 触点；检测面 = tf.mjs skills exit code 承载）",
+      "plain": "外部依赖先检测再用：缺了必须列清单问用户装不装，禁止默默降级照跑"
+    },
+    {
+      "pack": null,
       "token": "MERGE_GATE",
       "name": "MERGE_GATE",
-      "pack": null,
       "def": "references/merge.md 第 5 步（快照门+越界门+渲染证据门接线，细则唯一载体）+ tf.mjs snapshot/mergegate 命令（门一文件级分类：黄=免重审/红=命中读写集逐文件重审，v2.59.0；无快照 fail-closed v2.81.0）",
       "touch": [
         "merge.md",
         "tf.mjs",
         "tf.test.mjs"
       ],
-      "triggers": [],
       "products": [],
       "fixture": "tf.test.mjs",
       "plain": "合并三门：①main 在你审查后动过没——动过但没碰你的读写集=只同步+刷新快照（免重审），碰了=逐文件重审再合，没拍快照=红（缺档不放行）；②你的改动超出声明的文件范围=红；③改了样式却没交渲染证据=红"
     },
     {
+      "pack": null,
       "token": "STALE_CHECK",
       "name": "STALE_CHECK",
-      "pack": null,
       "def": "merge.md 第 5 步（合并落定后全量扫接线）+ resume.md 第 5 步（接管/resume 对账接线，细则唯一载体）+ tf.mjs stale 命令",
       "touch": [
         "merge.md",
@@ -437,59 +543,41 @@
         "tf.mjs",
         "tf.test.mjs"
       ],
-      "triggers": [],
       "products": [],
       "fixture": "tf.test.mjs",
       "plain": "在途任务的影响面体检：主线改过的文件和你在做的任务有没有重叠，重叠=你的假设过期了，先重验再动工"
     },
     {
+      "pack": null,
       "token": "DISPATCH_OVERLAP",
       "name": "DISPATCH_OVERLAP",
-      "pack": null,
       "def": "split.md 隔离判定表（场景① 并行前置预检，细则唯一载体）+ tf.mjs overlap 命令",
       "touch": [
         "split.md",
         "tf.mjs",
         "tf.test.mjs"
       ],
-      "triggers": [],
       "products": [],
       "fixture": "tf.test.mjs",
       "plain": "并行开工前的地盘检查：两个子任务要改同一批文件就不许并行，先查出来再派活"
     },
     {
+      "pack": null,
       "token": "可行性门",
       "name": "可行性门",
-      "pack": null,
       "def": "references/new-task.md 第 3 步（三问+红线清单，细则唯一载体）",
       "touch": [
         "new-task.md",
         "stages.md"
       ],
-      "triggers": [],
       "products": [],
       "fixture": "—（prose 门无脚本；lint 触点可达承载）",
       "plain": "开工前三问：需求有没有着落、改动能不能本仓库闭环、依赖齐不齐——把注定卡死的需求拦在建工作目录之前"
     },
     {
-      "token": "找茬自审",
-      "name": "找茬自审",
       "pack": null,
-      "def": "references/domain.md「找茬自审」段（三类高危决策+自答三问，细则唯一载体）",
-      "touch": [
-        "domain.md",
-        "new-task.md",
-        "stages.md"
-      ],
-      "triggers": [],
-      "products": [],
-      "fixture": "—（prose 门无脚本；lint 触点可达承载）",
-      "plain": "高危决策（跨模块/并发幂等不变量/不可逆）确认前自己挑自己的错：最可能错在哪、没说出口的假设、没管的边界"
-    },
-    {
       "token": "施工纪律",
       "name": "施工纪律",
-      "pack": null,
       "def": "references/split.md「施工纪律」块（粒度红线/依赖图排序/垂直切片/验证锚点+内聚豁免，细则唯一载体）",
       "touch": [
         "split.md",
@@ -497,101 +585,101 @@
         "templates/subtask-spec.md",
         "stages.md"
       ],
-      "triggers": [],
       "products": [],
       "fixture": "—（prose 门无脚本；lint 触点可达承载）",
       "plain": "写实现步骤的四条规矩：别一步摊太大、先地基后楼层、每步做完系统都能跑、隔几步设个验证点"
     },
     {
-      "token": "DOC_SYNC_GATE",
-      "name": "DOC_SYNC_GATE",
       "pack": null,
-      "def": "SKILL.md 硬规则 26 + qa.md 第 2 段统一源路由（写侧读侧细则）",
+      "token": "TF_HOME",
+      "name": "全局数据根",
+      "def": "scripts/tf.mjs（TF_TASKFLOW_HOME 抽象+L0 迁移）",
       "touch": [
-        "SKILL.md",
-        "merge.md",
-        "qa.md"
+        "tf.mjs",
+        "references/data.md",
+        "README.md"
       ],
-      "triggers": [],
       "products": [],
       "fixture": "tf.test.mjs",
-      "plain": "功能代码改了，收尾必须回答「文档跟了吗」——更新了哪条写哪条，确实没变写一句理由，缺了收尾红灯；边界问题先查项目功能地图，没有的查完代码补上"
+      "plain": "跨安装路径的全局数据位置：环境变量可搬，旧位置自动迁移只读保留"
     },
     {
-      "token": "REQ_ANCHOR_GATE",
-      "name": "REQ_ANCHOR_GATE",
       "pack": null,
-      "def": "SKILL.md 硬规则 27 + references/merge.md 第 3 步（--spec 五检查+门红分流表，细则唯一载体）+ templates/spec.md「基线外条目草案」节",
+      "token": "CONFIRM_RECEIPT",
+      "name": "确认回执门",
+      "def": "scripts/tf.mjs confirm 命令 + accept/mergegate 前置",
       "touch": [
-        "SKILL.md",
-        "new-task.md",
-        "merge.md",
-        "templates/spec.md",
-        "templates/subtask-spec.md"
-      ],
-      "triggers": [],
-      "products": [
-        "scripts/harness/validate-baseline-anchor-gate.sh",
-        "scripts/harness/validate-changelog.sh"
-      ],
-      "fixture": "tf.test.mjs",
-      "plain": "每条验收都要回答出自 PRD 哪一条，答不出就先问用户要不要新增 PRD 条目，不许默默做了不留档"
-    },
-    {
-      "token": "RENDER_EVIDENCE_GATE",
-      "name": "RENDER_EVIDENCE_GATE",
-      "pack": null,
-      "def": "SKILL.md 硬规则 11（视觉变更判定不由模型自判段，2026-10-27 看板字体失调两次打回沉淀）",
-      "touch": [
-        "merge.md",
-        "validate-changelog.sh",
         "tf.mjs",
-        "tf.test.mjs"
+        "references/data.md"
       ],
-      "triggers": [],
-      "products": [
-        "scripts/harness/validate-render-evidence.sh"
-      ],
+      "products": [],
       "fixture": "tf.test.mjs",
-      "plain": "渲染证据哨兵：改了样式就必须在任务档案交真实渲染的截图或量测记录，防「几何指标全绿但页面没人看过」"
+      "plain": "用户验收确认的原话留档：没有回执就不许把任务翻成已合并"
     },
     {
-      "token": "RELEASE_CHAIN",
-      "name": "RELEASE_CHAIN",
       "pack": null,
-      "def": "tf.mjs release 命令（发版十步链单入口：前置 fail-fast/版本双点自动改/lint/回归/commit/push/六路径同步/HEAD 对账/机制刷新/审计提示，managed-skills/taskflow-release-sync 配方固化，v2.90.0）",
+      "token": "GATE_HITS",
+      "name": "门咬合台账",
+      "def": "scripts/tf.mjs appendGateHit + doctor 报表",
+      "touch": [
+        "tf.mjs",
+        "references/data.md"
+      ],
+      "products": [],
+      "fixture": "tf.test.mjs",
+      "plain": "每道门红黄拦截的记录本：长期从不咬合的门是卸载候选"
+    },
+    {
+      "pack": null,
+      "token": "SCAFFOLD",
+      "name": "脚手架命令",
+      "def": "scripts/tf.mjs init/new/checkpoint/rollback",
+      "touch": [
+        "tf.mjs",
+        "references/new-task.md"
+      ],
+      "products": [],
+      "fixture": "tf.test.mjs",
+      "plain": "建档四命令：初始化、建任务、存档、回退都由脚本保证格式正确"
+    },
+    {
+      "pack": null,
+      "token": "ATOMIC_WRITE",
+      "name": "原子写",
+      "def": "scripts/tf.mjs writeTaskJsonAtomic（tmp+rename）",
+      "touch": [
+        "tf.mjs",
+        "references/data.md"
+      ],
+      "products": [],
+      "fixture": "tf.test.mjs",
+      "plain": "任务档案落盘先写临时文件再改名：并发写也不会出现半个文件"
+    },
+    {
+      "pack": null,
+      "token": "找茬自审",
+      "name": "找茬自审",
+      "def": "references/domain.md「找茬自审」段",
+      "touch": [
+        "domain.md",
+        "new-task.md"
+      ],
+      "products": [],
+      "fixture": "—（prose 门：判定归编排层，lint 触点可达承载）",
+      "plain": "高危决策确认前自己挑自己的错：最可能错在哪、没说出口的假设、没管的边界"
+    },
+    {
+      "pack": null,
+      "token": "RELEASE_CHAIN",
+      "name": "发版链",
+      "def": "scripts/tf.mjs release 命令（v3 简化链）",
       "touch": [
         "README.md",
-        "tf.mjs",
-        "tf.test.mjs"
+        "tf.mjs"
       ],
-      "triggers": [],
       "products": [],
       "fixture": "tf.test.mjs",
-      "plain": "发版十步打包成一条链：改完代码写好 CHANGELOG 条目后一条命令完成版本双点、校验、提交推送、四实体仓同步与项目侧机制刷新——漏步靠机器不靠记性（同步欠账实证：chore 提交跳过六副本同步，靠发版后审计才抓到）"
-    },
-    {
-      "token": "DATA_MODEL_GATE",
-      "name": "DATA_MODEL_GATE",
-      "pack": null,
-      "def": "SKILL.md 硬规则 28 + references/data-model.md（细则唯一载体：分诊判定/真源 lock-file/单源双形态/依赖启发式三级/mappings 四类/对照表七列/收尾行三段/已知边界）",
-      "touch": [
-        "SKILL.md",
-        "new-task.md",
-        "merge.md",
-        "domain.md",
-        "stages.md",
-        "data-model.md",
-        "templates/spec.md",
-        "templates/subtask-spec.md"
-      ],
-      "triggers": [],
-      "products": [
-        "scripts/harness/validate-data-model-gate.sh",
-        "scripts/design/extract-data-model.js"
-      ],
-      "fixture": "tf.test.mjs",
-      "plain": "每个任务先答一句「动不动数据模型」留痕在 spec；涉才走完整流程——机器提取现状列对照表、你拍板才动工；改完收尾写清同步了什么（迁移/契约/消费方/DDL 其余定义处）并刷新 docs/data-model 真源（表间依赖一并提取）"
+      "plain": "发版打包成一条链：改完代码写好 CHANGELOG 顶条目后一条命令完成版本写入、校验、提交、打标签与推送"
     }
   ]
 }

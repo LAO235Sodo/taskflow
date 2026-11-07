@@ -1,0 +1,17 @@
+{
+  "token": "DATA_MODEL_GATE",
+  "name": "数据模型对照门",
+  "triggers": ["数据模型", "表结构", "DDL", "实体口径"],
+  "assets": [
+    "assets/design/extract-data-model.js",
+    "assets/harness/validate-data-model-gate.sh"
+  ],
+  "install_targets": {
+    "scripts/design/extract-data-model.js": "assets/design/extract-data-model.js",
+    "scripts/harness/validate-data-model-gate.sh": "assets/harness/validate-data-model-gate.sh"
+  },
+  "docs": "PACK.md",
+  "fixtures": ["tf.test.mjs"],
+  "touch": ["PACK.md", "references/entry-routes.md"],
+  "plain": "动数据结构前先把表和实体的现状机器提取成对照表，拍板后才动，收尾核对真源已刷新"
+}

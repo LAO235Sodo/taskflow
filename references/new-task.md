@@ -90,3 +90,5 @@ grep -qx '.taskflow/' <主仓库根>/.git/info/exclude 2>/dev/null \
     前端 UI 任务加验（DESIGN_SPEC_EXTRACT，硬规则 19）：已拍板原型 → `.taskflow/<id>/design/spec-extract.json` 规格表必须已提取在档——缺 = 派发门禁拒绝（子任务 spec 只能附规格表，编排层凭记忆转述原型 = 违规）；`validate-design-spec-gate.sh --spec` 在 merge 阶段一复核挂链。
     改现有页面任务加验（APP_PAGE_BASELINE，硬规则 21）：产物链「现状基线」行必须已提取在档（schema=app-baseline/1（Android）/ design-spec-extract/1（web，extract-spec.js 指向运行中的真实站点），或「不适用——新增页面」带理由）——缺 = 派发门禁拒绝（原型 = 基线 + 显式 delta，凭记忆重画现状 = 违规）；`validate-app-baseline-gate.sh --spec` 在 merge 阶段复核挂链。
    数据模型任务加验（DATA_MODEL_GATE，硬规则 28）：spec 分诊行在档；分诊涉及 → `docs/data-model/` 真源已刷新（schema 头合法）+ spec「数据模型对照表」节在档 + 拍板列已填——缺 = 派发门禁拒绝（拍板未填禁动工，与 merge 阶段三双设）；分诊不涉及 = 一行理由即过。
+
+> v3.0.0：建档由脚手架命令（SCAFFOLD）保证——`tf.mjs init`（项目初始化/升级）与 `tf.mjs new "<标题>"`（占号+模板渲染+类型裁剪+worktree）落盘，编排层不再手写 JSON；本文件描述建档流程的编排层语义。

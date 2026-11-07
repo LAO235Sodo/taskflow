@@ -216,28 +216,13 @@
       "plain": "写实现步骤的四条规矩：别一步摊太大、先地基后楼层、每步做完系统都能跑、隔几步设个验证点"
     },
     {
-      "token": "RENDER_EVIDENCE_GATE",
-      "name": "RENDER_EVIDENCE_GATE",
-      "def": "SKILL.md 硬规则 11（视觉变更判定不由模型自判段，2026-10-27 看板字体失调两次打回沉淀）",
-      "touch": [
-        "merge.md",
-        "validate-changelog.sh",
-        "tf.mjs",
-        "tf.test.mjs"
-      ],
-      "products": [
-        "scripts/harness/validate-render-evidence.sh"
-      ],
-      "fixture": "tf.test.mjs",
-      "plain": "渲染证据哨兵：改了样式就必须在任务档案交真实渲染的截图或量测记录，防「几何指标全绿但页面没人看过」"
-    },
-    {
       "token": "TF_HOME",
       "name": "全局数据根",
       "def": "scripts/tf.mjs（TF_TASKFLOW_HOME 抽象+L0 迁移）",
       "touch": [
-        "data.md",
-        "tf.mjs"
+        "tf.mjs",
+        "references/data.md",
+        "README.md"
       ],
       "products": [],
       "fixture": "tf.test.mjs",
@@ -248,8 +233,8 @@
       "name": "确认回执门",
       "def": "scripts/tf.mjs confirm 命令 + accept/mergegate 前置",
       "touch": [
-        "data.md",
-        "tf.mjs"
+        "tf.mjs",
+        "references/data.md"
       ],
       "products": [],
       "fixture": "tf.test.mjs",
@@ -260,9 +245,8 @@
       "name": "门咬合台账",
       "def": "scripts/tf.mjs appendGateHit + doctor 报表",
       "touch": [
-        "data.md",
         "tf.mjs",
-        "templates/conventions.md"
+        "references/data.md"
       ],
       "products": [],
       "fixture": "tf.test.mjs",
@@ -273,7 +257,8 @@
       "name": "脚手架命令",
       "def": "scripts/tf.mjs init/new/checkpoint/rollback",
       "touch": [
-        "tf.mjs"
+        "tf.mjs",
+        "references/new-task.md"
       ],
       "products": [],
       "fixture": "tf.test.mjs",
@@ -284,12 +269,36 @@
       "name": "原子写",
       "def": "scripts/tf.mjs writeTaskJsonAtomic（tmp+rename）",
       "touch": [
-        "data.md",
-        "tf.mjs"
+        "tf.mjs",
+        "references/data.md"
       ],
       "products": [],
       "fixture": "tf.test.mjs",
       "plain": "任务档案落盘先写临时文件再改名：并发写也不会出现半个文件"
+    },
+    {
+      "token": "找茬自审",
+      "name": "找茬自审",
+      "def": "references/domain.md「找茬自审」段",
+      "touch": [
+        "domain.md",
+        "new-task.md"
+      ],
+      "products": [],
+      "fixture": "—（prose 门：判定归编排层，lint 触点可达承载）",
+      "plain": "高危决策确认前自己挑自己的错：最可能错在哪、没说出口的假设、没管的边界"
+    },
+    {
+      "token": "RELEASE_CHAIN",
+      "name": "发版链",
+      "def": "scripts/tf.mjs release 命令（v3 简化链）",
+      "touch": [
+        "README.md",
+        "tf.mjs"
+      ],
+      "products": [],
+      "fixture": "tf.test.mjs",
+      "plain": "发版打包成一条链：改完代码写好 CHANGELOG 顶条目后一条命令完成版本写入、校验、提交、打标签与推送"
     }
   ]
 }
