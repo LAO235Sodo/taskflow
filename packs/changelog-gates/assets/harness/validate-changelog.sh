@@ -39,7 +39,7 @@ grep -q 'commits' "$CHANGELOG" || MISSING="$MISSING commits"
 # 已知边界（复验残留，记边界不修）：代码围栏内行首 ## 会切块产生幽灵块（误报方向，与组合门同款暴露）；
 # 首个 ^## 之前的卷首文字不进任何块（preamble 半边盲区，真实性低）；锚点行被手工删除时本检查扫全文件而组合门降级豁免
 # （口径相反，仅人为破坏可达——锚点是受管区契约，删锚点=拆门，doctor/组合门另有把关）。
-SWEEP_ANCHOR_LINE="$(grep -n '^## .*决策组合门落地' "$CHANGELOG" | head -1 | cut -d: -f1)" || true # head -1=最新锚点：锚点迁移史下 tail -1 会把受管区扩到机械化之前、迁移条目自触发（项目侧 2026-10-13/10-17/11-01 三度补丁，上游根治）
+SWEEP_ANCHOR_LINE="$(grep -n '^## .*决策组合门落地' "$CHANGELOG" | head -1 | cut -d: -f1)" || true # head -1=最新锚点：锚点迁移史下 tail -1 会把受管区扩到机械化之前、迁移条目自触发（项目侧 2026-10-13/10-17/11-01 三度补丁，上游彻底修复）
 SWEEP_INPUT="$CHANGELOG"
 SWEEP_TMP_FILE=""
 if [ -n "$SWEEP_ANCHOR_LINE" ]; then
@@ -68,7 +68,7 @@ fi
 # 须含「文档同步：」行（列明更新的 PRD/design/functional-map 条目；行为/契约零变更写「文档同步：不适用——理由」）。
 # 延迟激活（对齐 STYLE_SOURCE_GATE 哲学）：锚点条目「## <日期> — 文档同步门落地」不存在 = 未激活，
 # 全部豁免只 WARN 提示（存量项目升级零破坏；显式插入锚点=显式接受强制）。
-DOC_ANCHOR_LINE="$(grep -n '^## .*文档同步门落地' "$CHANGELOG" | head -1 | cut -d: -f1)" || true # head -1=最新锚点（同 :42 三度事故根治；单锚点项目两写等价）
+DOC_ANCHOR_LINE="$(grep -n '^## .*文档同步门落地' "$CHANGELOG" | head -1 | cut -d: -f1)" || true # head -1=最新锚点（同 :42 三度事故彻底修复；单锚点项目两写等价）
 if [ -z "$DOC_ANCHOR_LINE" ]; then
   warn "文档同步门未激活——在 docs/CHANGELOG.md 顶部插入锚点条目「## <日期> — 文档同步门落地」后启用（插入即接受强制，锚点之上新条目受检）"
 else

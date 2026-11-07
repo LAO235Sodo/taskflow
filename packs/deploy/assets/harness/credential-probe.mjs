@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 线上凭证探针（部署后兜底，凭证门约定第三道；细则 references/deploy-gate.md 凭证门约定节）。
+ * 线上凭证探针（部署后兜底，凭证门约定第三道；细则 packs/deploy/deploy-gate.md 凭证门约定节）。
  * 用法: node scripts/harness/credential-probe.mjs --base-url <线上入口URL>
  *       --base-url 必填（线上入口属项目侧事实，不进模板缺省；自签证书场景由 curl -sk 放行）。
  * 逻辑: GET / 收集 /assets/*.js → 逐个收集二级 chunk 引用 → 对 deploy/frontend-credentials.json

@@ -71,8 +71,8 @@ deploy 入口门禁（预检）绿后追加输出一行「验证分级」：读 
 - `node tf.mjs mech install DEPLOY_GATE`：渲染 `scripts/harness/deploy-preflight.mjs`、`scripts/harness/credential-probe.mjs` 入项目 + conventions 补记（部署协调四件套节）+ AGENTS 红线镜像 + 采纳登记（doctor 采纳对账产物存在性）。**已装项目升级到 2.40.0+ 行为须重跑一次 `mech install DEPLOY_GATE --yes` 刷新项目侧脚本快照**（渲染是快照不是引用；已装版本漂移刷新属确认闸场景，未带 `--yes` 拒绝落盘并打印将覆盖文件清单，v2.65.0）。**渲染是快照不是引用——项目侧定制 deploy-preflight/credential-probe 必须上游化或迁项目自有文件，整文件覆盖已有文件须过 `--yes` 确认闸（清单先行，不再静默）**（v2.62.0 教训：进程清点段本地定制未上游化，mech 刷新即静默删段；v2.65.0 机械闸收口）。
 - **延迟加载**：项目未装时门降级通过，首个部署触点（merge.md 第 6 步）识别并呈报一次安装建议——禁静默降级、禁未问先装（硬规则 22 同款纪律）。
 - **首次采集基线**：人工核实线上实况（systemctl cat 拿 EnvironmentFile → jar md5 → 签名册），以 `--record`（含 `--jar-path`）补录；基线缺位时预检红属预期，不许为绿灯编造基线。
-- **部署清单呈报走 PLAIN_SPEECH_GATE（硬规则 24）**：部署命令清单是五类正式呈报之一——落 `.taskflow/<id>/briefing-部署清单.md` 过 `validate-plain-speech.mjs` 后再呈报用户；清单里 DEPLOY_GATE/让位/敞口等词必须带大白话括号（词表 references/glossary.md），用户要能一眼看懂每条命令会做什么、哪步可回滚。
-- **宿主侧加固（TASKFLOW_GUARD，v2.45.0）**：部署墙是本门在宿主层的延伸——omp extension（`.omp/hooks/pre/taskflow-guard.js`）拦 bash 工具里的 rsync/scp 部署特征与 ssh+systemctl restart，提示必经 deploy 入口；默认警告模式，项目观察稳定后 `TF_WALL=enforce` 切硬拦。检测归脚本、强制归宿主——绕过入口在物理层失效（细则 references/taskflow-guard.md）。
+- **部署清单呈报走 PLAIN_SPEECH_GATE（硬规则 24）**：部署命令清单是五类正式呈报之一——落 `.taskflow/<id>/briefing-部署清单.md` 过 `validate-plain-speech.mjs` 后再呈报用户；清单里 DEPLOY_GATE/让位/敞口等词必须带大白话括号（词表住项目 `.taskflow/glossary.md`，模板 templates/glossary.md），用户要能一眼看懂每条命令会做什么、哪步可回滚。
+- **宿主侧加固（TASKFLOW_GUARD，v2.45.0）**：部署墙是本门在宿主层的延伸——omp extension（`.omp/hooks/pre/taskflow-guard.js`）拦 bash 工具里的 rsync/scp 部署特征与 ssh+systemctl restart，提示必经 deploy 入口；默认警告模式，项目观察稳定后 `TF_WALL=enforce` 切硬拦。检测归脚本、强制归宿主——绕过入口在物理层失效（细则 packs/host-adapters/taskflow-guard.md）。
 
 ## fixture
 

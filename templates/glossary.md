@@ -1,7 +1,8 @@
 # 行话对照表（PLAIN_SPEECH_GATE 词表源）
 
-> validate-plain-speech.mjs 解析本表 + data.md 机制登记表 **token 列（仅 ASCII 代号）** + <项目根>/.taskflow/glossary.md，作为呈报稿检测词表；登记表「大白话」列是**人工抄写源**（解释从这里抄，不自动进词表——2026-10-10 对抗审查实证声明与实现不符，本行已对齐实现）。
-> 维护规则：新行话进 SKILL.md/references 时必须同步登记一行；「锚词」= 检测时呈报稿同段落出现任一锚词即视为已解释（宁可漏放行、不可误拦——红灯必须准）。
+> 项目侧词表模板：复制到 <项目>/.taskflow/glossary.md 后按项目行话维护。
+> validate-plain-speech.mjs 检测时从被检稿向上发现 <项目根>/.taskflow/glossary.md（白话层，非禁用层）；机制代号的解释真源 = references/schemas/mechanisms.json 各机制 `plain` 字段（人工抄写源，不自动进词表）。本模板是种子词条，项目按行话增删。
+> 维护规则：新行话进 SKILL.md/references 时同步登记项目词表一行；「锚词」= 检测时呈报稿同段落出现任一锚词即视为已解释（宁可漏放行、不可误拦——红灯必须准）。
 
 | 行话 | 大白话 | 锚词（任一命中即算已解释） |
 | --- | --- | --- |

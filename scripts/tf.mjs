@@ -22,7 +22,7 @@
 //   其余命令只读（v2.59.0 新增 stale=在途影响面漂移检查 / overlap=并行派发写集求交，均不改任何状态）。叙事与损坏 JSON 修复仍归编排层。
 // 退出码契约：0 = 正常/全绿；1 = doctor 发现差异（ls 仅在自身运行失败时非 0）。
 // 词汇与文档一致（统一词汇，模型转述零翻译）：游离 / 对账 / 漏网 / 补登 / 等验收。
-// 自造词 → 传统术语对照唯一源：references/terminology.md（新自造词先入表再用；文档/输出首现写「自造词（传统术语）」）。
+// 自造词处理：能用传统术语直呼的直接直呼（扳机=触发器、搁置=挂起、归层=归档）；确需自造时首现写「自造词（传统术语）」，禁造无对照的词。
 // prose 禁复述不变量范围/命令数/模板数（lint 事实禁改写清单强制）——清单真相源：data.md 表 / 本文件分发区 / templates/ 目录。
 
 import { execFileSync, spawnSync } from 'node:child_process';
@@ -841,7 +841,7 @@ function doctor(args = []) {
       console.log('\n## 复发台账（同类事故复发监控）');
       for (const c of rc.classes) {
         if (!c?.name) continue;
-        console.log(`- ${c.name}：最近复发 ${c.lastRecurredAt ?? '—'}${c.count ? `（累计 ${c.count} 次）` : ''}${c.remedy ? `｜修法：${trunc(c.remedy, 40)}` : ''}`); // v3.0.0：「根治」全仓禁词——复发监控只说修法
+        console.log(`- ${c.name}：最近复发 ${c.lastRecurredAt ?? '—'}${c.count ? `（累计 ${c.count} 次）` : ''}${c.remedy ? `｜修法：${trunc(c.remedy, 40)}` : ''}`); // v3.0.0：全仓禁用该词（见 lint 10b）——复发监控只说修法
       }
     }
   }
@@ -1838,11 +1838,11 @@ function deployCmd(args = []) {
   if (!fs.existsSync(pre)) { console.log('⚠ 缺 scripts/harness/deploy-preflight.mjs（DEPLOY_GATE 未装）→ node tf.mjs mech install DEPLOY_GATE 后重试'); return 1; }
   // v2.66.0 部署分支防呆：commands 含 main 检出断言（branch --show-current … 'main'）的项目，部署命令锁死从
   // main 构建——--branch 传任务分支=静默空转（构建 main 同内容镜像，实物不变；2026-10-16
-  // 误部署实证：镜像 tag/构建检出都取 main，实物 md5 对账才抓出）。拒绝并指引 merge-first（deploy-gate.md「部署分支语义」）。
+  // 误部署实证：镜像 tag/构建检出都取 main，实物 md5 对账才抓出）。拒绝并指引 merge-first（packs/deploy/deploy-gate.md「部署分支语义」）。
   const branchCmds = webOnly ? dep.webCommands : dep.commands;
   const mainLocked = (branchCmds ?? []).some((c) => /branch --show-current[^']*'main'/.test(c));
   if (branch !== 'main' && mainLocked) {
-    console.log(`⛔ 部署分支防呆：本项目 deploy commands 锁死从 main 构建（含 main 检出断言）——--branch ${branch} 会静默空转（构建 main 同内容镜像，实物不变）。先 merge 部署分支进 main（merge --no-ff，前置=merge 审查通过），再跑 deploy --branch main --version <V>（merge-first 流程，细则 references/deploy-gate.md「部署分支语义」）。`);
+    console.log(`⛔ 部署分支防呆：本项目 deploy commands 锁死从 main 构建（含 main 检出断言）——--branch ${branch} 会静默空转（构建 main 同内容镜像，实物不变）。先 merge 部署分支进 main（merge --no-ff，前置=merge 审查通过），再跑 deploy --branch main --version <V>（merge-first 流程，细则 packs/deploy/deploy-gate.md「部署分支语义」）。`);
     return 1;
   }
   // ① lock deploy 互斥（部署全程窗口；失败/中止路径同样释放，ttl 1800 兜底孤儿锁）
@@ -1854,7 +1854,7 @@ function deployCmd(args = []) {
   const pf = execFileSyncNode(pfArgs, mainRoot);
   if (pf.stdout?.trim()) console.log(pf.stdout.trim());
   if (pf.stderr?.trim()) console.error(pf.stderr.trim());
-  if (pf.status !== 0) { console.log('⛔ 预检红——deploy 入口拒绝部署（并集优先：先 merge 线上任务分支再构建；细则 references/deploy-gate.md）'); return fin(1); }
+  if (pf.status !== 0) { console.log('⛔ 预检红——deploy 入口拒绝部署（并集优先：先 merge 线上任务分支再构建；细则 packs/deploy/deploy-gate.md）'); return fin(1); }
   { const sch = loadProjectSchema(); if (sch) console.log(verifyGradeRow(tasksDir, sch)); } // 验证分级（DEPLOYMENT_PROFILE，纯信息不拦）
   // ③ dry-run：门禁绿即止，打印将执行的命令（v2.53.0 加固：--web-only 无 webCommands 拒绝回退——旧版静默跑整条 jar 链还称「jar 沿用基线」；配置了 webCommands 且未带 --web-only 时显式提醒防半部署）
   if (webOnly && !(Array.isArray(dep.webCommands) && dep.webCommands.length)) {
@@ -3855,7 +3855,7 @@ const MECH_PROSE = {
     newFile: (d) => `# CHANGELOG\n\n## ${d} — 部署协调门落地\n\n- 本条为门锚点：之上为受管区（新条目插这里），之下历史条目祖父豁免\n- 条目格式：做了什么 / 涉及文件 / commits；部署类条目须含「预检：」行（node scripts/harness/deploy-preflight.mjs 结果，或「预检：不适用——理由」）\n`,
     insertBody: '- 门锚点（mech install 补写）：之上为受管区，之下历史条目祖父豁免\n',
     convMarkers: ['## 机制：部署协调门（mech install'],
-    convText: (d) => `\n## 机制：部署协调门（mech install 生成 ${d}）\n\n- **部署前必跑**：\`node scripts/harness/deploy-preflight.mjs --branch <部署分支>\`——实况核验（实测服务器 jar md5 与基线比对，不符=红：未登记部署/手工动包）+ 血统门（live-state 基线的线上 commit ⊆ 部署分支）；红 = **并集优先**：先 merge 线上任务分支再构建部署，拒绝直接上（DEPLOY_GATE，硬规则 23；2026-09-29 治理被静默滚回等四起覆盖事故拍板）\n- **部署收尾必跑登记**：\`--record --branch ... --commit ... --jar-md5 ... --version ... --jar-path <服务器jar路径>\` 更新 live-state——不登记的部署 = 下次预检必红（实况核验 md5 必不符）；web-only 部署收尾 \`--record --web-only --web-version ...\`（jar 沿用基线，禁手抄四件套）\n- **租约与让位 + 验收即合并**：部署租约由 \`tf.mjs deploy\` 入口自管（ttl 1800）——**无需也不应先手动 lock deploy，手动持锁后跑入口会撞自己的锁（2026-10-09 实证）**；锁为本地 clone 级——跨用户/跨机并行互不可见，跨机场景靠实况核验+血统门兜底并人工协调；任一任务 verifying 期间非并集/非本体的部署让位（其分支不在部署分支血统 = 预检红）；用户回「验收通过」= 立即 merge main + main 重建替换包\n- 细则唯一载体：技能 references/deploy-gate.md（项目适配 --server/--state-path/--state-file）\n`,
+    convText: (d) => `\n## 机制：部署协调门（mech install 生成 ${d}）\n\n- **部署前必跑**：\`node scripts/harness/deploy-preflight.mjs --branch <部署分支>\`——实况核验（实测服务器 jar md5 与基线比对，不符=红：未登记部署/手工动包）+ 血统门（live-state 基线的线上 commit ⊆ 部署分支）；红 = **并集优先**：先 merge 线上任务分支再构建部署，拒绝直接上（DEPLOY_GATE，硬规则 23；2026-09-29 治理被静默滚回等四起覆盖事故拍板）\n- **部署收尾必跑登记**：\`--record --branch ... --commit ... --jar-md5 ... --version ... --jar-path <服务器jar路径>\` 更新 live-state——不登记的部署 = 下次预检必红（实况核验 md5 必不符）；web-only 部署收尾 \`--record --web-only --web-version ...\`（jar 沿用基线，禁手抄四件套）\n- **租约与让位 + 验收即合并**：部署租约由 \`tf.mjs deploy\` 入口自管（ttl 1800）——**无需也不应先手动 lock deploy，手动持锁后跑入口会撞自己的锁（2026-10-09 实证）**；锁为本地 clone 级——跨用户/跨机并行互不可见，跨机场景靠实况核验+血统门兜底并人工协调；任一任务 verifying 期间非并集/非本体的部署让位（其分支不在部署分支血统 = 预检红）；用户回「验收通过」= 立即 merge main + main 重建替换包\n- 细则唯一载体：技能 packs/deploy/deploy-gate.md（项目适配 --server/--state-path/--state-file）\n`,
     convLog: '✓ conventions.md 补记（部署协调四件套）',
     agMarkers: ['## 部署协调门（taskflow mech install'],
     agText: () => `\n## 部署协调门（taskflow mech install 生成）\n\n- 部署前必跑 scripts/harness/deploy-preflight.mjs 预检（实况核验 md5 不符=基线不可信先补正；血统门红=并集优先：先 merge 线上任务分支再构建）；部署收尾必跑 --record（含 --jar-path，web-only 用 --record --web-only 沿用基线 jar）；部署租约由 tf.mjs deploy 入口自管（ttl 1800，无需手动 lock——手动持锁会撞自己的锁）；verifying 期间非并集/非本体部署让位（预检机械拦）；验收通过=立即合并 main + main 重建替换包（DEPLOY_GATE）\n`,
@@ -3970,7 +3970,7 @@ function mechCmd(args = []) {
   // 渲染源：assets/harness/*.sh（__ASSET_EXTS__ 注入 → scripts/harness）+ assets/design/*.js（提取器工具 → scripts/design）
   // 渲染清单按登记表语义过滤（2026-10-13 审查 D1）：union(全部机制「采纳产物」列) = 允许落项目的产物集；产物列为
   // 「—」的技能内门（PLAIN_SPEECH_GATE/MERGE_GATE/STALE_CHECK 等）不渲染——门脚本住技能仓 assets/ 由 SKILL_ROOT 原位
-  // 运行，渲染进项目=死产物（SKILL_ROOT 按脚本位置解析到项目根 → 读不存在的 references/glossary.md → 对任何输入恒红）。
+  // 运行，渲染进项目=死产物（SKILL_ROOT 按脚本位置解析到项目根 → 读不存在的 templates/glossary.md → 对任何输入恒红）。
   // 依据=登记表产物列（真源，与 doctor 采纳对账同谓词），非文件名黑名单：新机制登记产物路径即自动获得渲染资格，
   // 漏登记=渲染不出——与「产物缺失=漂移」同一张账；已装项目的旧渲染副本不在此清除（孤儿清除是收尾手工步骤）。
   // v2.65.0 确认闸前置：渲染计划只读先算（会写哪些文件/哪些是整文件覆盖），闸过才落盘——闸判定与写路径共用同一份计划，禁止两份渲染实现。
@@ -4266,7 +4266,7 @@ function lintCmd(args = []) {
     ['references/checkpoint.md', '轻量'],
     ['references/domain.md', '可视化载体'],
     ['SKILL.md', '不审查，不合并'],
-    ['SKILL.md', '需求变更门'],
+    ['references/entry-routes.md', '需求变更'], // v3.0.0：需求变更门细则住 entry-routes 反馈分类行 + docs-prd 包（核心 SKILL 收敛）
     ['templates/spec.md', '需求基线'],
     ['references/resume.md', '需求锚定'],
     ['references/data.md', '不变量'], // v3.0.0（F23）：机制登记表出走 data.md（真源=mechanisms.json，由 I20 承载）——承重锚改「不变量」表头
@@ -4364,15 +4364,34 @@ function lintCmd(args = []) {
     const cv = fs.readFileSync(clTopP, 'utf8').match(/^##\s+(\S+)\s+—/m);
     if (sv && cv && sv[1] !== cv[1]) { console.log(`⛔ lint：版本不一致——SKILL.md version ${sv[1]} ≠ CHANGELOG 顶条目 ${cv[1]} → 补 CHANGELOG 条目（每版本 Why/规则/机械面/组合评估）或对齐版本号`); bad++; }
   }
-  // 10) 简介版本串：SKILL.md description 尾部「版本 <v>」↔ frontmatter version（v2.56.3；用户 2026-10-11 拍板技能简介可见版本号——简介与 version 两处手写易漂移，lint 机械锁定）
+  // 10) v3.0.0 核心收敛四规则（F10/F11/F16/F26/3.5）：description ≤150 字符且不含「版本」；SKILL ≤60 行；核心栈词黑名单 0 命中；
+  //     SKILL 无路由表（表格头）无入口编号引用（R\d+ 单向对账——路由唯一载体=entry-routes.md）。
   if (fs.existsSync(skillVerP)) {
     const skillTxt10 = fs.readFileSync(skillVerP, 'utf8');
-    const dv10 = skillTxt10.match(/^version:\s*(\S+)/m);
     const dline10 = skillTxt10.split('\n').find((l) => l.startsWith('description:'));
-    if (dv10 && dline10) {
-      const inDesc10 = dline10.match(/版本\s*(\d+(?:\.\d+)+)/);
-      if (!inDesc10) { console.log(`⛔ lint：description 未携带版本串 → 尾部补「版本 ${dv10[1]}。」（技能简介可见版本号——用户 2026-10-11 拍板）`); bad++; }
-      else if (inDesc10[1] !== dv10[1]) { console.log(`⛔ lint：description 版本串 ${inDesc10[1]} ≠ version ${dv10[1]} → 升版本时两处同步改`); bad++; }
+    if (dline10) {
+      const desc10 = dline10.replace(/^description:\s*/, '').replace(/^["']|["']$/g, '');
+      if (desc10.includes('版本') || /\d+\.\d+\.\d+/.test(desc10)) { console.log('⛔ lint：description 含版本号/版本字样 → 移除（版本只在 frontmatter version；F11）'); bad++; }
+      if (Array.from(desc10).length > 150) { console.log(`⛔ lint：description ${Array.from(desc10).length} 字符 > 150 → 收敛（F11）`); bad++; }
+    }
+    const lineCount10 = skillTxt10.split('\n').length;
+    if (lineCount10 > 60) { console.log(`⛔ lint：SKILL.md ${lineCount10} 行 > 60 → 核心只做路由，细则住包（F26/3.5）`); bad++; }
+    const STACK_RE = /Android|adb|uiautomator|@TableName|@Entity|JVM|jar|md5|ssh|PRD|docs\/prd|docs\/ui|omp|opencode|科室|医院/i;
+    const stackHit10 = skillTxt10.split('\n').map((l, i) => (STACK_RE.test(l) ? `${i + 1}` : null)).filter(Boolean);
+    if (stackHit10.length) { console.log(`⛔ lint：SKILL.md 栈词黑名单命中（行 ${stackHit10.join(',')}）→ 核心零栈私货，栈词住包（通用性）`); bad++; }
+    if (/\bR\d{2}\b/.test(skillTxt10)) { console.log('⛔ lint：SKILL.md 含入口编号引用（R\\d+）→ 路由唯一载体=references/entry-routes.md，核心不引编号（F10 单向对账）'); bad++; }
+    if (/^\|.*(入口id|判定id|话术样例)/m.test(skillTxt10)) { console.log('⛔ lint：SKILL.md 含路由表格 → 表格路由只住 entry-routes.md（F10）'); bad++; }
+  }
+  // 10b) v3.0.0 全仓禁词（G 词；复发监控只说修法；例外=CHANGELOG.md 历史叙事，不随仓分发）——命中字面用 G 词常量拼装
+  {
+    const banP = ['SKILL.md', 'README.md', ...refs, ...fs.readdirSync(path.join(root, '..', 'templates')).map((f) => `templates/${f}`)];
+    const packsWalk = (d) => { const out = []; for (const e of fs.readdirSync(d, { withFileTypes: true })) { const p = path.join(d, e.name); if (e.isDirectory()) out.push(...packsWalk(p)); else if (/\.(md|mjs|json|js|sh)$/.test(e.name)) out.push(p); } return out; };
+    if (fs.existsSync(path.join(root, '..', 'packs'))) for (const p of packsWalk(path.join(root, '..', 'packs'))) banP.push(path.relative(path.join(root, '..'), p));
+    banP.push('scripts/tf.mjs', 'scripts/tf.test.mjs', 'scripts/gen-mechanisms.mjs', 'scripts/mechanisms-core.json');
+    for (const f of banP) {
+      const fp = path.join(root, '..', f);
+      if (!fs.existsSync(fp) || !/\.(md|mjs|json|js|sh)$/.test(f)) continue;
+      if (fs.readFileSync(fp, 'utf8').includes('根' + '治')) { console.log(`⛔ lint：${f} 含禁词「根${''}治」→ 用「彻底修复/修法」（复发台账零复发例外暂不开放）`); bad++; }
     }
   }
   // 11) 挂接对账（v2.70.0，JVM 可达性模型）：references/entry-routes.md 注册表 = root set，「指向/载体」= 边，

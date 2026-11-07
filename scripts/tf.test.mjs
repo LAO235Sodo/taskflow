@@ -640,7 +640,7 @@ try {
   const i6flat = i6cnt.stdout.replace(/\n/g, ' ');
   ok(/基线同步（I6） (基线|主干) .*(落后|领先).*[1-9][0-9]* 个提交/.test(i6flat), 'doctor I6：量化落后提交数（冲突税机械可见）');
 
-  // ---- v2.21.0 自洽根治：doctor --self 三源一致 / accept --pass / takeover / lint 三新检查 ----
+  // ---- v2.21.0 自洽收口：doctor --self 三源一致 / accept --pass / takeover / lint 三新检查 ----
   // 造一个落后的 origin/main（远端跟踪 ref 先命中场景）：本地合并未 push 时 accept --pass 不得误拒
   sh('git update-ref refs/remotes/origin/main main~1', repo); // 指向 t11 分支分叉前的旧提交
   // doctor --self：真实 spec 三源一致绿；--data 副本缺行红（I7/I8 类「只活在代码里」漂移在提交时刻红灯）
@@ -741,25 +741,29 @@ try {
   ok(!tfmjsSrc.includes('验证通过'), 'v2.52.0 机器输出面：tf.mjs 源零「验证通过」残留（convText/agText 渲染源——四路独立证实第 6 处漏网）');
   ok(tfmjsSrc.includes('用户回「验收通过」'), 'v2.52.0 机器输出面：convText 教用户回「验收通过」（渲染进新项目 conventions 的口径）');
 
-  // ---- v2.56.3 lint 检查 #10：description 版本串 ↔ version 字段（用户 2026-10-11 拍板技能简介可见版本号——红绿三路真跑，硬规则 17）----
-  const mkDescVer = (name, desc) => {
+  // ---- v3.0.0 lint 核心收敛规则（F10/F11/3.5）：description 无版本/≤150；SKILL ≤60 行；栈词黑名单；无 R 编号/路由表——红绿真跑 ----
+  const mkDescVer = (name, desc, extraBody = '') => {
     const fr = path.join(tmp, name);
     for (const d of ['references', 'references/schemas', 'templates', 'scripts']) fs.mkdirSync(path.join(fr, d), { recursive: true });
     fs.writeFileSync(path.join(fr, 'scripts', 'tf.mjs'), '// INVARIANTS\n');
-    fs.writeFileSync(path.join(fr, 'SKILL.md'), `---\nname: x\nversion: 9.9.9\ndescription: "${desc}"\n---\n\nx\n\n不审查，不合并；需求变更门\n`);
+    fs.writeFileSync(path.join(fr, 'SKILL.md'), `---\nname: x\nversion: 9.9.9\ndescription: "${desc}"\n---\n\nx\n\n不审查，不合并；需求变更门\n${extraBody}`);
     fs.writeFileSync(path.join(fr, 'README.md'), '');
     fs.writeFileSync(path.join(fr, 'references', 'resume.md'), 'GOODTOKEN\n\n需求锚定\n');
     fs.writeFileSync(path.join(fr, 'references', 'schemas', 'mechanisms.json'), mkMechJson([mechRow({ touch: ['`resume.md`', 'references/resume.md'] })]));
     fs.writeFileSync(path.join(fr, 'references', 'data.md'), '# data\n\n## 不变量\n\n状态机（唯一事实源\n判定纪律锚行：JDISC-ANCHOR-X7\n');
-    fs.writeFileSync(path.join(fr, 'references', 'entry-routes.md'), MIN_ER); // 最小注册表夹具（挂接对账不因缺失红淹没本节红绿语义）
+    fs.writeFileSync(path.join(fr, 'references', 'entry-routes.md'), MIN_ER);
     return run(['lint', '--root', fr], repo);
   };
-  const dvMiss = mkDescVer('fake-descver-miss', '管理长任务。');
-  ok(dvMiss.status === 1 && dvMiss.stdout.includes('description 未携带版本串'), 'lint #10 红：简介缺版本串被点名（边界值：完全缺失——升版忘改简介的真实漂移形态）');
-  const dvDiff = mkDescVer('fake-descver-diff', '管理长任务。版本 9.9.8。');
-  ok(dvDiff.status === 1 && dvDiff.stdout.includes('description 版本串 9.9.8 ≠ version 9.9.9'), 'lint #10 红：简介版本串与 version 字段不一致被点名（等价类：有串但旧版本）');
-  const dvOk = mkDescVer('fake-descver-ok', '管理长任务。版本 9.9.9。');
-  ok(dvOk.status === 0, 'lint #10 绿：简介版本串与 version 字段一致 → 全绿');
+  const dvOk = mkDescVer('fake-descver-ok', '管理长任务。');
+  ok(dvOk.status === 0, 'lint v3 绿：description 不含版本（版本只在 frontmatter）→ 全绿');
+  const dvVer = mkDescVer('fake-descver-ver', '管理长任务。版本 9.9.9。');
+  ok(dvVer.status === 1 && dvVer.stdout.includes('description 含版本号'), 'lint v3 红：description 含版本字样（F11——简介可见版本号的旧拍板作废）');
+  const dvLong = mkDescVer('fake-descver-long', '管理长任务。'.repeat(20));
+  ok(dvLong.status === 1 && dvLong.stdout.includes('> 150'), 'lint v3 红：description >150 字符（F11 收敛）');
+  const dvRRef = mkDescVer('fake-descver-rref', '管理长任务。', '路由见 R01。\n');
+  ok(dvRRef.status === 1 && dvRRef.stdout.includes('入口编号引用'), 'lint v3 红：SKILL 含 R 编号引用（F10 单向对账——路由唯一载体=entry-routes）');
+  const dvStack = mkDescVer('fake-descver-stack', '管理长任务。', '部署 jar 包到服务器。\n');
+  ok(dvStack.status === 1 && dvStack.stdout.includes('栈词黑名单'), 'lint v3 红：SKILL 栈词命中（核心零栈私货——jar 属 deploy 包）');
 
   // ---- v2.71.0 D2/A3/A7：挂接对账载体侧变异 + 惰性锚词 + 双引号孤儿提取（--root 夹具真跑）----
   const mkLintRoot = (name) => {
@@ -3068,7 +3072,7 @@ try {
   const depF1 = run(['deploy', '--branch', 'main', '--version', '2.0.0', '--state-file', r3.state], r3.d);
   const depF1Tj = JSON.parse(fs.readFileSync(path.join(r3.d, '.taskflow', f1id, 'task.json'), 'utf8'));
   ok(depF1.status === 0 && /active → verifying/.test(depF1.stdout), `v2.71.0 F1 merge-first 端到端：deploy --branch main → 部署事件翻转 active→verifying${depF1.status ? ' ← ' + depF1.stdout + depF1.stderr : ''}`);
-  ok(depF1Tj.status === 'verifying' && !!depF1Tj.deploy?.deployedAt, 'v2.71.0 F1：顶层 status 翻 verifying + deployedAt 落档（旧链路「永不翻转」断链根治）');
+  ok(depF1Tj.status === 'verifying' && !!depF1Tj.deploy?.deployedAt, 'v2.71.0 F1：顶层 status 翻 verifying + deployedAt 落档（旧链路「永不翻转」断链修复）');
   ok(depF1Tj.deploy.version === '2.0.0' && depF1Tj.deploy.rollbackPoint === r3MainSha.slice(0, 7), 'v2.71.0 F1：deploy.version/rollbackPoint 真值入档（live-state 镜像，rollbackPoint 兜底=部署 commit 短哈希）');
   ok(JSON.parse(fs.readFileSync(path.join(r3.d, '.taskflow', 'index.json'), 'utf8')).tasks.find((x) => x.id === f1id)?.status === 'verifying', 'v2.71.0 F1：index 行机械同步（写路径单源）');
   const r3Evt = fs.readFileSync(path.join(r3.d, '.taskflow', 'events.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l)).pop();

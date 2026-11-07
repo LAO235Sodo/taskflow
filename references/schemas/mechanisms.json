@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-07T05:58:10.624Z",
+  "generatedAt": "2026-11-07T06:20:23.763Z",
   "source": "packs(8)+core",
   "mechanisms": [
     {
@@ -431,7 +431,7 @@
       "touch": [
         "merge.md",
         "split.md",
-        "prototype.md"
+        "packs/frontend/prototype.md"
       ],
       "products": [],
       "fixture": "—（merge 门禁，prose 触点；打转保护无 CLI 断言面）",
@@ -455,9 +455,9 @@
       "name": "req-confirm",
       "def": "data.md goalHash/reqChanges 字段",
       "touch": [
-        "SKILL.md",
-        "resume.md",
-        "merge.md"
+        "references/merge.md",
+        "references/resume.md",
+        "tf.mjs"
       ],
       "products": [],
       "fixture": "tf.test.mjs",
@@ -469,9 +469,8 @@
       "name": "问答管线",
       "def": "references/qa.md",
       "touch": [
-        "SKILL.md",
-        "qa.md",
-        "domain.md"
+        "references/qa.md",
+        "references/domain.md"
       ],
       "products": [],
       "fixture": "—（会话行为管线；机械面=lint 触点可达，真实会话审计承载）",
@@ -497,8 +496,8 @@
       "name": "需求变更门",
       "def": "SKILL.md 反馈分类（隐性升级行）",
       "touch": [
-        "SKILL.md",
-        "merge.md"
+        "references/merge.md",
+        "references/entry-routes.md"
       ],
       "products": [],
       "fixture": "—（SKILL 拍板门；落痕由 req-confirm/reqChanges fixture 承载）",
@@ -510,9 +509,8 @@
       "name": "DEP_ASK_GATE",
       "def": "SKILL.md 硬规则 22",
       "touch": [
-        "SKILL.md",
-        "new-task.md",
-        "domain.md"
+        "references/new-task.md",
+        "references/domain.md"
       ],
       "products": [],
       "fixture": "—（问答门 prose 触点；检测面 = tf.mjs skills exit code 承载）",
@@ -567,8 +565,7 @@
       "name": "可行性门",
       "def": "references/new-task.md 第 3 步（三问+红线清单，细则唯一载体）",
       "touch": [
-        "new-task.md",
-        "stages.md"
+        "new-task.md"
       ],
       "products": [],
       "fixture": "—（prose 门无脚本；lint 触点可达承载）",
@@ -582,8 +579,7 @@
       "touch": [
         "split.md",
         "new-task.md",
-        "templates/subtask-spec.md",
-        "stages.md"
+        "templates/subtask-spec.md"
       ],
       "products": [],
       "fixture": "—（prose 门无脚本；lint 触点可达承载）",

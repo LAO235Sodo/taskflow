@@ -17,7 +17,7 @@
 - **K 验收期提醒**：等验收任务在档时 push/merge 先提醒合并时序（不拦）；
 - **T 技能加载埋点**：skill:// 读取计数（`tf.mjs skills --usage` 报表，仅 omp 有埋点文件）；
 - **H blocker 三问提醒**：子代理报告含 blocker 特征时注入同类排查三问（来源限定）；
-- 越界编辑警告 / 派发 spec 机械注入 / 环境变量开关面见 `references/taskflow-guard.md`（v3 保留）与 `mechanisms` 命令输出。
+- 越界编辑警告 / 派发 spec 机械注入 / 环境变量开关面见 `packs/host-adapters/taskflow-guard.md`（v3 保留）与 `mechanisms` 命令输出。
 
 ## 包内资产
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// deploy-preflight.mjs — 部署预检 + 线上基线登记（DEPLOY_GATE 机制产物；细则 references/deploy-gate.md）
+// deploy-preflight.mjs — 部署预检 + 线上基线登记（DEPLOY_GATE 机制产物；细则 packs/deploy/deploy-gate.md）
 // 背景：2026-09-29 单日四起部署覆盖事故（治理静默滚回/签名册互相覆盖/版本撞号/假部署）——
 //       多会话各自从自己分支构建部署同一台服务器，谁后上谁生效，git 不可见。本脚本把「线上是什么」
 //       变成机器登记（live-state 基线），把「并集优先」从救火动作变成部署前强制步骤。
@@ -296,12 +296,12 @@ if (!PROC_PROBE) {
 //    构建时内联空串、上线即「未配置 XX」白屏——git 对此不可见，部署前拦在构建源。
 //    **CWD 相对语义（与②的定位分工，勿「统一」）**：②查簿记（.taskflow 恒在主仓库）走 git-common-dir；
 //    ④查「本次构建将用哪份检出」走 CWD——任务 worktree 内跑 preflight 查的就是该 worktree 自己的 .env
-//    （分支部署等价命令链必须在任务工作树内跑 preflight，细则 references/deploy-gate.md 凭证门约定节）。
+//    （分支部署等价命令链必须在任务工作树内跑 preflight，细则 packs/deploy/deploy-gate.md 凭证门约定节）。
 //    清单 deploy/frontend-credentials.json（CWD 相对固定路径，envPath 可选缺省 frontend/.env，同样 CWD 相对；
 //    chunkHint 本段忽略——部署后探针消费）。只判在位性，不做值格式校验（格式门误杀真值先例：企微 corpid 非 ww 前缀）。
 const credManifestP = path.resolve('deploy', 'frontend-credentials.json');
 if (!existsSync(credManifestP)) {
-  console.log('ℓ 凭证门: 未配置清单(deploy/frontend-credentials.json)——跳过（前端项目建议登记键清单，细则 references/deploy-gate.md 凭证门约定节）');
+  console.log('ℓ 凭证门: 未配置清单(deploy/frontend-credentials.json)——跳过（前端项目建议登记键清单，细则 packs/deploy/deploy-gate.md 凭证门约定节）');
 } else {
   let credManifest = null;
   try {

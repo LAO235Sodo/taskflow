@@ -18,7 +18,7 @@
 - **触发**：任务触碰**已存在页面**（改功能/改样式/加区块）→ 原型制作之前必须机械提取现状基线；新增页面 = 产物链「现状基线」行写「不适用——新增页面」+ 从同类现状页取样（结构/组件/token 沿用）
 - **提取**：Android 跑 `scripts/design/extract-app-baseline.js`（mech install 后住项目；**未装时用技能仓 `assets/design/extract-app-baseline.js` 同样可跑——安装只影响收尾门禁**，安装提醒见 new-task 第 8 步延迟初始化；`--mode device` = adb 截图 + uiautomator 结构树，可叠加 `--layouts/--values` 做静态 token 解析合并；`--mode static` = 纯离线布局 XML + values 解析）；web 项目用 `extract-spec.js` 打开**运行中的真实站点**提取（同一工具、换目标即基线提取器；产物 schema 仍为 design-spec-extract/1，落 `baseline/` 目录即基线——基线门两种 schema 头都认）
 - **产物**：`.taskflow/<id>/design/baseline/baseline-<page>.json`（schema=app-baseline/1：结构树 + @color/@dimen/@string 解析值 + device 模式截图）——**只住任务档案，不建全局基线库**：App 代码是活的，快照库会重制造过时问题（2026-09-27 用户拍板「系统的页面才是最新的」）；现状永远立项现提
-- **双源结构**：App 现状基线 = 「长什么样」唯一事实（主源）；已定稿原型/规格表（docs/ui/style-source/）= 「决定了什么」意图记录（可作输入起点）。冲突 = 呈报用户裁决：App 未留痕漂移 → 补 STYLE_SOURCE_GATE 门一拍板；原型过时 → 真源回写/重提取——细则 `references/style-source.md`「双源结构」
+- **双源结构**：App 现状基线 = 「长什么样」唯一事实（主源）；已定稿原型/规格表（docs/ui/style-source/）= 「决定了什么」意图记录（可作输入起点）。冲突 = 呈报用户裁决：App 未留痕漂移 → 补 STYLE_SOURCE_GATE 门一拍板；原型过时 → 真源回写/重提取——细则 `packs/frontend/style-source.md`「双源结构」
 - **small 档**：同样必提——改现有页是「捏造感」高发区，无裁剪
 
 ## ① 需求质询（先故事后原型，硬前置）
@@ -46,7 +46,7 @@
 - **标注层**：业务注释随交互可见（受众=非技术同事时必备）
 - **样式同源**：项目有样式库文档（② A）→ 样式只从其取（token 唯一取色处）；项目无 → 本步裁决在 ⑤ 回写建档
 - **业务语言**：按项目 conventions「UI 语言」类约定全文自查（grep 工程词残留）；无该项目约定的按其等价规矩
-- 载体选档与门禁：指针 domain.md「可视化呈报硬规则」；呈报前自查指针 `references/prototype-selfcheck.md`
+- 载体选档与门禁：指针 domain.md「可视化呈报硬规则」；呈报前自查指针 `packs/frontend/prototype-selfcheck.md`
 - 形态先例：单文件 HTML（零依赖、离线、双击即开）适合非技术评审
 
 ## ④ 交付与迭代回路
@@ -70,4 +70,4 @@
 - 正：智慧门店管理后台原型（2026-09-22/23，v1→v3.2）——五步全跑通、非技术评审好评、styleguide 首版即其裁决沉淀。**此为先例，非全称证明**——推广依据是链路与 taskflow 产物链/门禁的咬合，不是单案例成功
 - 反：纯文字 UI 方案可被打回——实证见 domain.md「可视化呈报硬规则」节
 
-> **定稿迁移（STYLE_SOURCE_GATE）**：原型获用户拍板定稿后，定稿稿 + spec-extract*.json 规格表迁入 `docs/ui/style-source/`（全局真源）；后续任何修改过门一（大白话拍板，references/style-source.md）。
+> **定稿迁移（STYLE_SOURCE_GATE）**：原型获用户拍板定稿后，定稿稿 + spec-extract*.json 规格表迁入 `docs/ui/style-source/`（全局真源）；后续任何修改过门一（大白话拍板，packs/frontend/style-source.md）。

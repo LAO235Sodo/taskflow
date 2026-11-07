@@ -10,7 +10,7 @@
 #            或「样式拍板：语义中性——<理由>」（如纯重命名/注释——廉价合法通道，防静默绕闸）
 #   --diff  merge/收尾完备性：git diff 命中真源文件 → HEAD 提交信息或暂存 diff 须含「样式拍板」字样
 # 降级通过：无 .taskflow / 项目无 docs/ui/style-source/（STYLE_SOURCE_GATE 未初始化——延迟加载语义，
-#           初始化引导见 references/style-source.md）/ CHANGELOG 无锚点（门未启用，祖父豁免）。
+#           初始化引导见 packs/frontend/style-source.md）/ CHANGELOG 无锚点（门未启用，祖父豁免）。
 # 退出码：0 通过/降级；1 违规。兼容 macOS bash 3.2。
 set -euo pipefail
 
@@ -38,7 +38,7 @@ if [ ! -d "$TASKFLOW_DIR" ]; then
 fi
 # 延迟加载：真源未初始化 = 门不生效（初始化走 node tf.mjs mech install STYLE_SOURCE_GATE + 真源迁移）
 if [ ! -d "$SRC_DIR" ] || [ ! -f "$SRC_DIR/STYLE_DECISIONS.md" ]; then
-  warn "$SRC_DIR 未初始化（STYLE_SOURCE_GATE 延迟加载：首个前端样式任务触点引导初始化，见 taskflow references/style-source.md）→ 门降级通过"
+  warn "$SRC_DIR 未初始化（STYLE_SOURCE_GATE 延迟加载：首个前端样式任务触点引导初始化，见 taskflow packs/frontend/style-source.md）→ 门降级通过"
   exit 0
 fi
 

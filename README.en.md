@@ -18,7 +18,7 @@ Intent is auto-detected. There are no action words to memorize.
 
 ---
 
-![taskflow demo](assets/demo-en.gif)
+![taskflow demo](docs/media/demo-en.gif)
 
 ## Table of Contents
 
