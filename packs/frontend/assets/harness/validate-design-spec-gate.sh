@@ -29,7 +29,9 @@ BT='`'  # 反引号经变量传递（GNU grep ERE 中 \` 是 buffer 锚——202
 # 前端视觉资产判定（与代码扩展名解耦：逻辑代码 ext 不触发，结构/样式资产才触发）
 FE_RE='(^|/)res/(layout|layout-[^/]*|values|values-[^/]*|drawable|drawable-[^/]*|color|menu|anim|font|xml)/|\.(vue|tsx|jsx|css|scss|sass|less|qml)$'
 
-fail() { echo "⛔ [spec-gate] $*" >&2; exit 1; }
+# v3.0.1（F34 审查补全）：门咬合台账——红退出时落痕 .taskflow/meta/gate-hits.jsonl（ts/gate/result/taskId），doctor 流程审计报表数据源
+_tf_gate_hit() { d="${ROOT}/.taskflow/meta"; mkdir -p "$d" 2>/dev/null || return 0; printf '{"ts":"%s","gate":"spec-gate","result":"red","taskId":%s}\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${TASKID:-null}" >> "$d/gate-hits.jsonl" 2>/dev/null || true; }
+fail() { _tf_gate_hit; echo "⛔ [spec-gate] $*" >&2; exit 1; }
 warn() { echo "⚠ [spec-gate] $*" >&2; }
 
 if [ ! -d "$TASKFLOW_DIR" ]; then

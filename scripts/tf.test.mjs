@@ -3776,6 +3776,48 @@ try {
     ok(skAfter.status === 0 && /✓ conflict-triage/.test(skAfter.stdout), 'v3 skills 别名：装后检测转绿（目标目录在场即命中）');
   }
 
+  // ══════════ v3.0.1 对抗性审查修复回归 ══════════
+  {
+    const aproj = path.join(tmp, 'adv-fix-proj');
+    fs.mkdirSync(aproj, { recursive: true });
+    sh('git init -q -b main && git config user.email t@t && git config user.name t && echo x > r.md && git add -A && git commit -qm init', aproj);
+    const arun = (args) => runEnv(args, aproj, { TF_HOST: 'none', TF_TASKFLOW_HOME: path.join(tmp, 'adv-tfh') });
+    arun(['init', '--host', 'none']);
+    // 修复①：标题含引号/反斜杠 → 安全注入（旧版渲染非法 JSON + 失败路径泄漏 worktree/分支/占号）
+    const quoteTitle = '带"引号"与\\反斜杠的标题';
+    const aq = arun(['new', quoteTitle, '--tier', 'small']);
+    const aqId = '带-引号-与-反斜杠的标题-' + new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    ok(aq.status === 0, `审查修复① new：含引号标题安全建档（exit=${aq.status}${aq.status ? ' ← ' + aq.stdout.slice(0, 120) : ''}）`);
+    const aqT = JSON.parse(fs.readFileSync(path.join(aproj, '.taskflow', aqId, 'task.json'), 'utf8'));
+    ok(aqT.title === quoteTitle, '审查修复① new：标题含引号原样落 task.json（JSON.stringify 注入往返无损）');
+    // 修复①泄漏面（语义升级）：同名同日不再「先占号后拒绝」——目录已在=号已用，安全顺延 -2，零拒绝-泄漏窗口
+    fs.mkdirSync(path.join(aproj, '.taskflow', aqId), { recursive: true });
+    fs.writeFileSync(path.join(aproj, '.taskflow', aqId, 'task.json'), '{}');
+    const aDup = arun(['new', quoteTitle, '--tier', 'small']);
+    ok(aDup.status === 0 && aDup.stdout.includes(`${aqId}-2`), '审查修复① new：目录已在的同名标题安全顺延 -2（不再先占号后拒绝——泄漏窗口消除）');
+    ok(fs.readFileSync(path.join(aproj, '.taskflow', aqId, 'task.json'), 'utf8') === '{}', '审查修复① new：顺延路径零副作用（既有目录内容不被覆盖）');
+    // 修复⑤：rollback 对已并入分支（无 baseCommit 锚）→ 指路 revert-plan（旧版 merge-base 塌缩误报「无可回滚物」）
+    arun(['new', '塌缩任务', '--tier', 'small']);
+    const collId = '塌缩任务-' + new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    const collWt = JSON.parse(fs.readFileSync(path.join(aproj, '.taskflow', collId, 'task.json'), 'utf8')).worktree;
+    fs.writeFileSync(path.join(collWt, 'coll.txt'), 'z\n');
+    sh('git add -A && git commit -qm coll', collWt);
+    sh(`git merge -q --no-ff task/${collId} -m merge-coll`, aproj);
+    const rb2 = arun(['rollback', collId]);
+    ok(rb2.status === 1 && rb2.stdout.includes('revert-plan'), `审查修复⑤ rollback：已并入分支（无 baseCommit）→ revert-plan 指路（旧版误报无可回滚物；实际输出=${rb2.stdout.slice(0, 80).replace(/\n/g, ' ')}）`);
+    // 修复②：渲染出的 shell 门红退出落 gate-hits 台账（F34 全门族覆盖）
+    arun(['mech', 'install', '决策组合门', '--yes']);
+    const clP2 = path.join(aproj, 'docs', 'CHANGELOG.md');
+    fs.mkdirSync(path.join(aproj, 'docs'), { recursive: true });
+    fs.writeFileSync(clP2, '# CHANGELOG\n\n## 2026-01-01 — 修复 bug：台账探针\n\n- 涉及文件：`src/a.ts`\n\n## 决策组合门落地\n\n- 锚点\n');
+    spawnSync('bash', [path.join(aproj, 'scripts', 'harness', 'validate-changelog.sh')], { cwd: aproj, encoding: 'utf-8' });
+    const ghLedger = path.join(aproj, '.taskflow', 'meta', 'gate-hits.jsonl');
+    ok(fs.existsSync(ghLedger) && fs.readFileSync(ghLedger, 'utf8').includes('"gate":"changelog"'), '审查修复② 门咬合台账：渲染侧 validate-changelog.sh 红退出落痕（F34 全门族——此前仅 tf.mjs mergegate）');
+    // 修复⑥：lint R\d+ 强度（R123/R9 逃逸口封死）
+    const dvR123 = mkDescVer('fake-r123', '管理长任务。', '见 R123 与 R9。\n');
+    ok(dvR123.status === 1 && dvR123.stdout.includes('入口编号引用'), '审查修复⑥ lint：R123/R9 形态入口编号引用 → 红（旧正则 R\\d{2} 漏检）');
+  }
+
 
   process.exitCode = failures ? 1 : 0; // 失败≠0：堵住链式调用「grep 匹配到失败文案也算成功」的放行洞
   console.log(failures ? `\n${failures} 项断言失败` : '\n全部通过');

@@ -29,7 +29,8 @@ grep -qx '.taskflow/' <主仓库根>/.git/info/exclude 2>/dev/null \
 
 4. 更新 L0 全局注册表 `$TF_TASKFLOW_HOME/projects.json`（缺省 `~/.local/state/taskflow`；旧路径 `~/.config/opencode/taskflow/` 首触达自动迁移，旧文件只读保留）。
 5. **生成项目约定**：读 `templates/conventions.md`，引导问答生成 `.taskflow/conventions.md`（推送/部署节奏、验证清单、完成定义、**确认档位**（detailed 缺省 / batch 低影响合并组末确认——高影响门永不豁免）、环境端口注意、禁止事项；用户答不全的小节保留占位，后续随时补）。已存在则跳过。
-6. **同步红线摘要到项目根 AGENTS.md**：从 conventions.md 提炼红线（推送/部署/端口/禁忌各一两条）写入项目根 `AGENTS.md` 的「项目运行约定」节——AGENTS.md 会被 OpenCode 自动注入每个会话，保证不看文档也不忘规矩。AGENTS.md 已存在则追加/更新该节，**不覆盖用户已有内容**；不存在则创建。
+6. **同步红线摘要到宿主红线载体**（v3.0.0 宿主中立，经 host adapter 判定）：从 conventions.md 提炼红线（推送/部署/端口/禁忌各一两条）——opencode 宿主写项目根 `AGENTS.md`（每会话自动注入）；claude 宿主写 `CLAUDE.md`；其余宿主仅住 conventions.md（纯纪律档）。已存在则追加/更新「项目运行约定」节，**不覆盖用户已有内容**；不存在则创建。
+
 7. 告知用户：已完成初始化（AGENTS.md 建议提交进 git，团队共享同一套规矩）。
 
 之后每次任何动作结束时刷新 `project.json.lastActiveAt` 和 L0 注册表。

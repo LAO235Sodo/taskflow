@@ -8,7 +8,7 @@
   "type": __TYPE__,
   "branch": __BRANCH__,
   "worktree": __WORKTREE__,
-  "baseBranch": "__BASEBRANCH__",
+  "baseBranch": __BASEBRANCH__,
   "createdAt": "__TS__",
   "lastActiveAt": "__TS__",
   "sessionID": null,

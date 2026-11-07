@@ -29,7 +29,9 @@ GATE_ANCHOR="样式真源门落地"
 SRC_DIR="docs/ui/style-source"
 BT='`'
 
-fail() { echo "⛔ [style-gate] $*" >&2; exit 1; }
+# v3.0.1（F34 审查补全）：门咬合台账——红退出时落痕 .taskflow/meta/gate-hits.jsonl（ts/gate/result/taskId），doctor 流程审计报表数据源
+_tf_gate_hit() { d="${ROOT}/.taskflow/meta"; mkdir -p "$d" 2>/dev/null || return 0; printf '{"ts":"%s","gate":"style-gate","result":"red","taskId":%s}\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${TASKID:-null}" >> "$d/gate-hits.jsonl" 2>/dev/null || true; }
+fail() { _tf_gate_hit; echo "⛔ [style-gate] $*" >&2; exit 1; }
 warn() { echo "⚠ [style-gate] $*" >&2; }
 
 if [ ! -d "$TASKFLOW_DIR" ]; then

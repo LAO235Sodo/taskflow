@@ -8,7 +8,9 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 # --repo <path>（v2.77.2）：验证目标检出——worktree 任务传任务 worktree 路径，缺省=脚本所在主仓库。
 # 实证：恒读 $ROOT/docs/CHANGELOG.md 使 worktree 任务条目不可见（2026-10-24 某任务临时副本法绕过实证）。
 REPO="$ROOT"
-fail() { echo "⛔ [changelog] $*" >&2; exit 1; }
+# v3.0.1（F34 审查补全）：门咬合台账——红退出时落痕 .taskflow/meta/gate-hits.jsonl（ts/gate/result/taskId），doctor 流程审计报表数据源
+_tf_gate_hit() { d="${ROOT}/.taskflow/meta"; mkdir -p "$d" 2>/dev/null || return 0; printf '{"ts":"%s","gate":"changelog","result":"red","taskId":%s}\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${TASKID:-null}" >> "$d/gate-hits.jsonl" 2>/dev/null || true; }
+fail() { _tf_gate_hit; echo "⛔ [changelog] $*" >&2; exit 1; }
 warn() { echo "⚠ [changelog] $*" >&2; }
 while [ $# -gt 0 ]; do
   case "$1" in

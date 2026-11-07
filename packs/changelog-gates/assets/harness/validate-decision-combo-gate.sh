@@ -21,7 +21,9 @@ GATE_ANCHOR="决策组合门落地"
 ASSET_EXTS='__ASSET_EXTS__'  # mech install 注入（project.json assetExts，'|' 分隔）
 BT='`'  # 反引号经变量传递（GNU grep ERE 中 \` 是 buffer 锚，字面量必须绕开——2026-09-27 审查实证）
 
-fail() { echo "⛔ [combo-gate] $*" >&2; exit 1; }
+# v3.0.1（F34 审查补全）：门咬合台账——红退出时落痕 .taskflow/meta/gate-hits.jsonl（ts/gate/result/taskId），doctor 流程审计报表数据源
+_tf_gate_hit() { d="${ROOT}/.taskflow/meta"; mkdir -p "$d" 2>/dev/null || return 0; printf '{"ts":"%s","gate":"combo-gate","result":"red","taskId":%s}\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${TASKID:-null}" >> "$d/gate-hits.jsonl" 2>/dev/null || true; }
+fail() { _tf_gate_hit; echo "⛔ [combo-gate] $*" >&2; exit 1; }
 warn() { echo "⚠ [combo-gate] $*" >&2; }
 
 if [ ! -d "$DECISIONS_DIR" ]; then

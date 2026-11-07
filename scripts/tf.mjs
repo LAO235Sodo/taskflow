@@ -3422,34 +3422,44 @@ function newCmd(args = []) {
   let id = null;
   for (let k = 0; k < 10; k++) {
     const cand = k === 0 ? `${slug}-${ymd}` : `${slug}-${ymd}-${k + 1}`;
+    if (fs.existsSync(path.join(tasksDir, cand))) continue; // 任务目录已在（历史同名）=该号已用，跳过——审查修复①补：占号前查目录，杜绝「占了号才发现目录已存在」的泄漏序
     try { fs.closeSync(fs.openSync(path.join(resDir, cand), 'wx')); id = cand; break; } catch { /* 已占，试下一号 */ }
   }
-  if (!id) { console.log('⚠ 占号失败：连续 10 个号被占——请人工核查 .taskflow/.reservations/'); return 1; }
-  if (fs.existsSync(path.join(tasksDir, id))) { console.log(`⚠ 任务目录已存在：${id}（同名任务？换标题或先归档旧的）`); return 1; }
-  // worktree（git 项目缺省建；--no-worktree / 非 git / git:false 关）：分支 task/<id>，路径 ../<repo名>-<id>（new-task.md 约定）
+  if (!id) { console.log('⚠ 占号失败：连续 10 个号被占（登记+任务目录全查）——请人工核查 .taskflow/.reservations/ 或换标题'); return 1; }
+  // 渲染+校验（v3.0.1 审查修复）：①标题经「带引号占位整体替换」注入（含 "/\ 控制字符的标题不再产出非法 JSON）；
+  // ②预校验（占位 null）先于 worktree 创建——失败路径零泄漏（此前先建 worktree 后渲染，坏标题泄漏 worktree/分支/占号）；
+  // ③worktree 成建后二遍从模板渲染实值落盘（两遍独立渲染，不做字符串二次替换——值碰撞不可能）
+  const skillRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+  const renderTask = (br, wt, bb) => fs.readFileSync(path.join(skillRoot, 'templates', 'task.json'), 'utf8')
+    .replaceAll('__ID__', id)
+    .replaceAll('"__TITLE__"', JSON.stringify(title.trim())) // 带引号占位整体替换——任意标题安全注入
+    .replaceAll('__TIER__', tier)
+    .replaceAll('__TYPE__', JSON.stringify(type ?? null))
+    .replaceAll('__BRANCH__', JSON.stringify(br))
+    .replaceAll('__WORKTREE__', JSON.stringify(wt))
+    .replaceAll('__BASEBRANCH__', JSON.stringify(bb))
+    .replaceAll('__TS__', new Date().toISOString());
+  const releaseReservation = () => { try { fs.rmSync(path.join(resDir, id), { force: true }); } catch { /* 尽力 */ } };
+  let t;
+  try { t = JSON.parse(renderTask(null, null, 'main')); }
+  catch (e) { releaseReservation(); console.log(`⛔ 建档校验失败（标题含引号/控制字符致档案非法：${e.message}）——已拦截未落盘，换标题或去引号后重试`); return 1; }
+  for (const f of ['id', 'title', 'status', 'tier']) if (!t[f]) { releaseReservation(); console.log(`⛔ 渲染产物 schema 校验失败（缺 ${f}）`); return 1; }
+  if (t.status !== 'active') { releaseReservation(); console.log('⛔ 渲染产物 schema 校验失败（status 必须 active）'); return 1; }
+  // worktree（git 项目缺省建；--no-worktree / 非 git / git:false 关）：分支 task/<id>，路径 ../<repo名>-<id>（new-task.md 约定）——预校验通过后才建（失败零泄漏）
   let branch = null, worktree = null, baseBranch = null;
   const wantWt = isGit && pj.git !== false && !args.includes('--no-worktree');
   if (wantWt) {
     const mainRef = resolveMainRef(mainRoot);
-    if (!mainRef) { console.log('⚠ 主分支不可解析（origin/main、main、master 均无）——加 --no-worktree 或先建主分支'); return 1; }
+    if (!mainRef) { releaseReservation(); console.log('⚠ 主分支不可解析（origin/main、main、master 均无）——加 --no-worktree 或先建主分支'); return 1; }
     branch = `task/${id}`;
     worktree = path.resolve(mainRoot, '..', `${path.basename(mainRoot)}-${id}`);
     baseBranch = mainRef;
     const ok = git(['worktree', 'add', '-b', branch, worktree, mainRef], mainRoot, true);
-    if (ok === null) { console.log(`⚠ worktree 创建失败：${worktree}（已存在？分支 ${branch} 已有？）→ 核对后重跑，或 --no-worktree`); return 1; }
+    if (ok === null) { releaseReservation(); console.log(`⚠ worktree 创建失败：${worktree}（已存在？分支 ${branch} 已有？）→ 核对后重跑，或 --no-worktree`); return 1; }
   }
-  // 渲染 task.json（templates/task.json 占位替换 + schema 校验）
-  const skillRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-  const ts = new Date().toISOString();
-  const raw = fs.readFileSync(path.join(skillRoot, 'templates', 'task.json'), 'utf8')
-    .replaceAll('__ID__', id).replaceAll('__TITLE__', title.trim()).replaceAll('__TIER__', tier)
-    .replaceAll('__TYPE__', JSON.stringify(type ?? null))
-    .replaceAll('__BRANCH__', JSON.stringify(branch)).replaceAll('__WORKTREE__', JSON.stringify(worktree))
-    .replaceAll('__BASEBRANCH__', baseBranch ?? 'main').replaceAll('__TS__', ts);
-  let t;
-  try { t = JSON.parse(raw); } catch (e) { console.log(`⛔ 渲染产物 schema 校验失败（task.json 非法 JSON：${e.message}）——模板损坏？`); return 1; }
-  for (const f of ['id', 'title', 'status', 'tier']) if (!t[f]) { console.log(`⛔ 渲染产物 schema 校验失败（缺 ${f}）`); return 1; }
-  if (t.status !== 'active') { console.log('⛔ 渲染产物 schema 校验失败（status 必须 active）'); return 1; }
+  let raw;
+  try { raw = renderTask(branch, worktree, baseBranch ?? 'main'); t = JSON.parse(raw); }
+  catch (e) { console.log(`⛔ 建档校验失败（${e.message}）`); return 1; }
   // 渲染 spec.md：--type 裁剪（profile.task_types[type].spec_sections 白名单；无类型=全节）
   const specTmpl = fs.readFileSync(path.join(skillRoot, 'templates', 'spec.md'), 'utf8');
   let spec = specTmpl.replaceAll('<任务标题>', title.trim()).replaceAll('<任务id>', id);
@@ -3475,7 +3485,7 @@ function newCmd(args = []) {
   fs.mkdirSync(path.join(tasksDir, id), { recursive: true });
   writeTaskJsonAtomic(path.join(tasksDir, id, 'task.json'), t);
   fs.writeFileSync(path.join(tasksDir, id, 'spec.md'), spec);
-  // index 登记 + L0 刷新
+  const ts = t.createdAt ?? new Date().toISOString(); // 与渲染产物同源（审查修复重排后补——首版漏定义致 new 崩溃）
   const indexPath = path.join(tasksDir, 'index.json');
   const idx = readJson(indexPath) ?? { tasks: [] };
   if (!Array.isArray(idx.tasks)) idx.tasks = [];
@@ -3542,10 +3552,19 @@ function rollbackCmd(args = []) {
   if (!t.branch) { console.log(`ℹ ${id} 未建分支——无可回滚物（档案模式/attached 任务；文本改动手工反向修改+checkpoint 留痕）`); return 0; }
   if (!git(['-C', mainRoot, 'rev-parse', '--verify', `refs/heads/${t.branch}`], mainRoot, true)) { console.log(`⚠ ${id} 分支 ${t.branch} 不存在（已删？已并入后清理？）——无可回滚物；已合并任务的撤销走 node tf.mjs revert-plan ${id}`); return 0; }
   const mainRef = resolveMainRef(mainRoot);
-  const base = t.baseCommit ?? (mainRef ? git(['-C', mainRoot, 'merge-base', mainRef, t.branch], mainRoot, true) : null); // 无基线锚 → 回退 merge-base（首锚前零提交的等价区间）
+  const base = t.baseCommit ?? (mainRef ? git(['-C', mainRoot, 'merge-base', mainRef, t.branch], mainRoot, true) : null); // 无基线锚 → merge-base 兜底
+  // v3.0.1 审查修复：兜底 merge-base 对「已并入分支」塌缩到分支 tip（误报无可回滚物）——已并入判定改用主干独立推进量：
+  // branch..mainRef 计数 >0 且分支可达自主干历史之外（有 merge 提交跨越）= 已并入；零提交新分支该计数可为正（他人提交）但
+  // 分支 tip==merge-base 且无任务提交——两者用「任务侧独有提交」区分：已并入任务的提交住 main 历史（log mainRef --grep 不可靠），
+  // 故以 isAnc 分流 + 分支独立提交数兜底：commits 空 ∧ main 领先分支>0 ∧ 分支非 main tip ⇒ 视为已并入塌缩，指路 revert-plan。
+  const aheadOfBranch = mainRef ? Number(git(['-C', mainRoot, 'rev-list', '--count', `${t.branch}..${mainRef}`], mainRoot, true) ?? 0) : 0;
   const logOut = base ? (git(['-C', mainRoot, 'log', '--no-merges', '--oneline', `${base}..${t.branch}`], mainRoot, true) ?? '') : '';
   const commits = logOut.split('\n').filter(Boolean).map((l) => ({ sha: l.split(' ')[0], subject: l.slice(l.indexOf(' ') + 1) }));
-  if (!commits.length) { console.log(`ℹ ${id} 分支 ${t.branch} 在基线 ${(base ?? '?').slice(0, 7)} 之后无提交——无可回滚物`); return 0; } // 先于并入判定：零提交新分支==基线 tip，是 main 祖先但无物可回（误判源）
+  if (!commits.length) {
+    const collapsed = mainRef && aheadOfBranch > 0 && isAnc(mainRoot, t.branch, mainRef) && t.branch !== mainRef;
+    if (collapsed) { console.log(`⚠ ${id} 分支已并入 ${mainRef}（无 baseCommit 锚，merge-base 塌缩掩蔽了任务提交）——在途 rollback 不适用，走 node tf.mjs revert-plan ${id}（Saga 补偿：逐条 git revert -m 1）`); return 1; }
+    console.log(`ℹ ${id} 分支 ${t.branch} 在基线 ${(base ?? '?').slice(0, 7)} 之后无提交——无可回滚物`); return 0; // 零提交新分支==基线 tip，无物可回
+  }
   if (mainRef && isAnc(mainRoot, t.branch, mainRef)) { console.log(`⚠ ${id} 分支已并入 ${mainRef}——在途 rollback 不适用，走 node tf.mjs revert-plan ${id}（Saga 补偿：逐条 git revert -m 1）`); return 1; }
   // 工作树：任务 worktree 优先；缺失则临时挂（回退完保留，清点归编排层）
   let wt = t.worktree && fs.existsSync(t.worktree) ? t.worktree : null;
@@ -3947,7 +3966,7 @@ function mechCmd(args = []) {
   // 其余宿主无守门通道：TASKFLOW_GUARD 降级纯纪律档（conventions 红线 + doctor），不渲染不落盘。
   const guardOuts = guardTargets(HOST);
   if (token === 'TASKFLOW_GUARD' && !guardOuts.length) {
-    console.log('ℹ 本宿主无守门通道（adapter: none）——已降级纯纪律档：conventions「禁止事项」红线 + doctor 体检承载同等约束，不渲染 guard 产物');
+    console.log(`ℹ 本宿主（${HOST}）无守门通道——已降级纯纪律档：conventions「禁止事项」红线${redlineFile(HOST) ? ` + 宿主红线载体 ${redlineFile(HOST)} 摘要` : ''} + doctor 体检承载同等约束，不渲染 guard 产物（红线载体由 host adapter 判定）`);
     return 0;
   }
   // v3.0.0（F20）deploy 形态分档：jar 专属资产（ssh/md5 对账/血统门）只在 project.json deploy.form==='jar' 安装；
@@ -4380,7 +4399,7 @@ function lintCmd(args = []) {
     const STACK_RE = /Android|adb|uiautomator|@TableName|@Entity|JVM|jar|md5|ssh|PRD|docs\/prd|docs\/ui|omp|opencode|科室|医院/i;
     const stackHit10 = skillTxt10.split('\n').map((l, i) => (STACK_RE.test(l) ? `${i + 1}` : null)).filter(Boolean);
     if (stackHit10.length) { console.log(`⛔ lint：SKILL.md 栈词黑名单命中（行 ${stackHit10.join(',')}）→ 核心零栈私货，栈词住包（通用性）`); bad++; }
-    if (/\bR\d{2}\b/.test(skillTxt10)) { console.log('⛔ lint：SKILL.md 含入口编号引用（R\\d+）→ 路由唯一载体=references/entry-routes.md，核心不引编号（F10 单向对账）'); bad++; }
+    if (/\bR\d+\b/.test(skillTxt10)) { console.log('⛔ lint：SKILL.md 含入口编号引用（R\\d+）→ 路由唯一载体=references/entry-routes.md，核心不引编号（F10 单向对账）'); bad++; }
     if (/^\|.*(入口id|判定id|话术样例)/m.test(skillTxt10)) { console.log('⛔ lint：SKILL.md 含路由表格 → 表格路由只住 entry-routes.md（F10）'); bad++; }
   }
   // 10b) v3.0.0 全仓禁词（G 词；复发监控只说修法；例外=CHANGELOG.md 历史叙事，不随仓分发）——命中字面用 G 词常量拼装

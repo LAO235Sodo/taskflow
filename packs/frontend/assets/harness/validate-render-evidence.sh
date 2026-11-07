@@ -7,7 +7,9 @@
 #   --task 缺省=当前分支名(task/<id>)推导;--base 缺省=main。归档后重放按 --base 指定历史基线。
 set -euo pipefail
 
-fail() { echo "⛔ [render-evidence] $*" >&2; exit 1; }
+# v3.0.1（F34 审查补全）：门咬合台账——红退出时落痕 .taskflow/meta/gate-hits.jsonl（ts/gate/result/taskId），doctor 流程审计报表数据源
+_tf_gate_hit() { d="${REPO}/.taskflow/meta"; mkdir -p "$d" 2>/dev/null || return 0; printf '{"ts":"%s","gate":"render-evidence","result":"red","taskId":%s}\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${TASKID:-null}" >> "$d/gate-hits.jsonl" 2>/dev/null || true; }
+fail() { _tf_gate_hit; echo "⛔ [render-evidence] $*" >&2; exit 1; }
 pass() { echo "✓ [render-evidence] $*"; }
 
 REPO=""

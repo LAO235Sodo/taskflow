@@ -33,7 +33,9 @@ ID_RE='[FU]S?-[A-Z]{2,8}-[0-9]+'
 GATE_ANCHOR='基线对照门落地'
 CHANGELOG="docs/CHANGELOG.md"
 
-fail() { echo "⛔ [baseline-gate] $*" >&2; exit 1; }
+# v3.0.1（F34 审查补全）：门咬合台账——红退出时落痕 .taskflow/meta/gate-hits.jsonl（ts/gate/result/taskId），doctor 流程审计报表数据源
+_tf_gate_hit() { d="${ROOT}/.taskflow/meta"; mkdir -p "$d" 2>/dev/null || return 0; printf '{"ts":"%s","gate":"baseline-gate","result":"red","taskId":%s}\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${TASKID:-null}" >> "$d/gate-hits.jsonl" 2>/dev/null || true; }
+fail() { _tf_gate_hit; echo "⛔ [baseline-gate] $*" >&2; exit 1; }
 warn() { echo "⚠ [baseline-gate] $*" >&2; }
 sha1_12() { if command -v sha1sum >/dev/null 2>&1; then sha1sum | cut -c1-12; else shasum | cut -c1-12; fi; }
 
