@@ -167,7 +167,9 @@ while IFS= read -r row; do
   fi
   DRAFT_TARGETS="$DRAFT_TARGETS$t_id "
   # 升格判定：预填 ID 出现在分支 diff 新增行（登记时预填空号，升格检查因此完全机械）
-  if printf '%s\n' "$DIFF_PATCH" | grep '^+' | grep -qF "$t_id"; then
+  # SIGPIPE 修复（zuxuan-two-code-trend-20261101）：-q 命中即退会让上游 grep 在大 diff 上吃 SIGPIPE，
+  # set -o pipefail 下整条管线返回 141 → 升格判定假阴性；改 -c 消费全量输入（退出码语义同 ≥1 匹配）
+  if printf '%s\n' "$DIFF_PATCH" | grep '^+' | grep -cF "$t_id" > /dev/null; then
     :
   else
     red "草案 $d_id 未升格（B3）——分支 diff 新增行无预填条目 ${t_id}（补 PRD 正式条目含出处 iter-comment，或用户拍板豁免留痕）"

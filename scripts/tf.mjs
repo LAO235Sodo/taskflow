@@ -152,7 +152,15 @@ function tasksDirUnder(mainRoot) {
 // 任务档案目录（根层优先，archive/ 兜底）——全仓高频同款三元的单一化
 const taskDirOf = (tasksDir, id) => (fs.existsSync(path.join(tasksDir, id)) ? path.join(tasksDir, id) : path.join(tasksDir, 'archive', id));
 // 主 ref 解析（v2.69.0 从 mergegate/stale 抽取共用）：本地优先（与 snapshotCmd 同源——合并动作落本地 main，origin 滞后窗口门会瞎，dogfood 自证）
-const resolveMainRef = (mainRoot) => ['main', 'master', 'origin/main'].find((r) => git(['-C', mainRoot, 'rev-parse', '--verify', r], mainRoot, true)) ?? null;
+// project.json.mainRef 优先（2026-11-02 zuxuan-two-code-trend-20261101）：非 main/master 命名主分支项目（如 pl5ViewV2 的 main_view2-qx）
+// 若不声明，resolve 到陈旧本地 main 会把主线自身历史卷进越界 diff（实证：mergegate 假红 P3DigitsServiceImpl 等主线文件）
+const resolveMainRef = (mainRoot) => {
+  try {
+    const pj = JSON.parse(fs.readFileSync(path.join(mainRoot, '.taskflow', 'project.json'), 'utf8'));
+    if (pj.mainRef && git(['-C', mainRoot, 'rev-parse', '--verify', pj.mainRef], mainRoot, true)) return pj.mainRef;
+  } catch { /* project.json 缺失/坏档走回退链 */ }
+  return ['main', 'master', 'origin/main'].find((r) => git(['-C', mainRoot, 'rev-parse', '--verify', r], mainRoot, true)) ?? null;
+};
 // 「分支已并入主 ref」判定（v2.69.0 抽取，accept --pass 前置门与 gates 共用）：
 // 合并事实 = 分支可达自**任一**主 ref（origin/main 可能落后于本地 main——本地合并未 push 时先命中它会误拒，2026-09-23 实证）；
 // baseBranch（任务集成的基线分支，如 origin/main-view2）同为合法主 ref 候选——非 main 命名主分支项目缺它必误拒（2026-09-24 实证）。
@@ -1847,7 +1855,7 @@ function snapshotCmd(args = []) {
   if (!id) { console.error('用法：node tf.mjs snapshot <task-id>\n审查呈报落稿后拍 main 快照：当前主分支 HEAD 哈希写入 task.json.mergeSnapshot（mergegate 合并前比对——main 挪了=红灯回同步重审）。'); return 1; }
   const { isGit, mainRoot, tasksDir } = locate();
   if (!isGit) { console.error('⚠ 非 git 项目无快照可拍'); return 1; }
-  const mainRef = ['main', 'master', 'origin/main'].find((r) => git(['-C', mainRoot, 'rev-parse', '--verify', r], mainRoot, true)); // v2.58.0 本地优先：合并动作落本地 main——origin 滞后（已合未推）时 origin 优先会把门拍瞎（dogfood 自证）；doctor:657 为祖先判定场景、语义不同注记不动
+  const mainRef = resolveMainRef(mainRoot); // v2.58.0 本地优先 + project.json.mainRef 优先（2026-11-02 非 main 命名主分支适配）；doctor:657 为祖先判定场景、语义不同注记不动
   if (!mainRef) { console.error('⚠ 主分支不可解析（origin/main、main、master 均无）'); return 1; }
   const t = loadTasks(tasksDir).find((x) => x.id === id);
   if (!t) { console.error(`⚠ 任务不存在：${id}`); return 1; }
