@@ -1,0 +1,16 @@
+{
+  "$schema": "public-hygiene/1",
+  "note": "公开仓卫生词表（PUBLIC_HYGIENE_GATE 唯一黑名单源，v2.92.0）。本文件是敏感标识串唯一合法居所——扫描引擎对本文件自豁免；新增红线=在此追加条目，禁在门脚本/文档里散抄模式（词表单源原则）。pattern 为 JS 正则（不含定界符），缺省区分大小写，需忽略大小写显式写 flags:\"i\"；level: block=阻断（release 前置红灯）/ warn=提示人工确认；hint=替换建议（命中输出原样展示）。维护纪律见 references/public-hygiene.md。",
+  "terms": [
+    { "pattern": "dx-snap-share|dx_e2e|dxsnap", "level": "block", "type": "项目名", "hint": "改 <project>/<test-project> 占位" },
+    { "pattern": "五羊|本田|wuyang|honda", "flags": "i", "level": "block", "type": "公司名", "hint": "删除或改公司泛称（如「某主机厂」）" },
+    { "pattern": "\\b260607\\b", "level": "block", "type": "个人工号/用户路径", "hint": "改环境变量或 <win-user> 占位（v2.91.2 先例：TF_RELEASE_WIN_USER）" },
+    { "pattern": "172\\.16\\.\\d+\\.\\d+", "level": "block", "type": "内网IP", "hint": "改文档保留段 192.0.2.x 或删除" },
+    { "pattern": "wuyang-honda\\.com|oa\\.wuyang|plm\\.wuyang", "flags": "i", "level": "block", "type": "内部域名", "hint": "改 example.com 或删除" },
+    { "pattern": "\\bsk-[A-Za-z0-9_-]{16,}", "level": "block", "type": "疑似API密钥", "hint": "凭据永不入仓——删除并按 public-hygiene.md §事故处置视同泄漏" },
+    { "pattern": "(password|passwd|pwd|secret|token|api[_-]?key)\\s*[:=]\\s*['\"][^'\"\\s]{16,}", "flags": "i", "level": "block", "type": "疑似凭据赋值", "hint": "改占位符（如 <token>）；确为测试假值用 hygiene-ok 豁免并说明" },
+    { "pattern": "BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY", "level": "block", "type": "私钥块", "hint": "私钥永不入仓——立即按泄漏处置" },
+    { "pattern": "整车|素性|品安|段确|品技", "level": "warn", "type": "业务域词", "hint": "机制举例改通用比喻；确需保留行尾 hygiene-ok:理由" },
+    { "pattern": "192\\.168\\.\\d+\\.\\d+|\\b10\\.\\d+\\.\\d+\\.\\d+", "level": "warn", "type": "私网IP（可能为示例）", "hint": "确为文档保留段/示例外网段则 hygiene-ok 豁免，否则删除" }
+  ]
+}

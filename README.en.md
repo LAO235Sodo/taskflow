@@ -211,6 +211,11 @@ taskflow/
 └── templates/          # task dossier templates
 ```
 
+
+## Contributing (public-repo hygiene)
+
+This repository is public and git history is immutable — a commit is a publication. Keep real company/project/system names, personal identifiers (employee numbers, home-dir paths), intranet topology (IPs, internal hostnames) and credentials out of commits. The blocklist single source is `assets/harness/hygiene-terms.json` (register new projects/systems there before writing code); self-check with `node scripts/tf.mjs hygiene` (full tree / `--diff`); per-line exemption `hygiene-ok: <reason>`. Details and incident handling: references/public-hygiene.md (Chinese). External contributions go through PRs — see [CONTRIBUTING.md](CONTRIBUTING.md); PRs and pushes to main run hygiene scan + lint + full regression automatically (`.github/workflows/ci.yml`).
+
 ## Version
 
 The single source of truth for versions is SKILL.md (frontmatter `version` + the version string at the end of its description, kept consistent by lint); the per-version CHANGELOG.md is maintained locally since 2.67.1 and is not distributed with the repository.

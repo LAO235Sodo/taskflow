@@ -35,6 +35,7 @@
 | R21 | 初始化项目/升级项目配置（init 语义） | tf.mjs init（新装写 project.json+profile.json+conventions 骨架；已有 .taskflow/ 升级模式只补缺不覆盖；--ask 单问卷一次问完部署形态/门族/载体/档位） | references/data.md::profile.json | 脚手架 | 否 | |
 | R22 | 建任务/新任务（命令化建档） | tf.mjs new "<标题>"（占号+模板渲染+类型裁剪+worktree；缺陷类先 scout 判回归） | references/new-task.md::立项 | 脚手架 | 否 | |
 | R23 | 装载体技能/看包清单/技能检测（packs/skills 语义） | tf.mjs packs list；packs install carrier --all；skills <领域词或别名>——缺装按 profile 降级注记一次 | references/entry-routes.md::CARRIER_SKILLS | 否 | 否 | |
+| R24 | 走查一下/逐页过一遍/验收前走查（页面或功能走查类开工） | 开工先挂分阶段工作台 todo（骨架「准备→走查→证据与文档」，按任务形态裁剪），逐条勾选随进度更新计数，禁只报结论不留清单（v2.96.0 远程线，v3.1.0 移植） | references/pipeline.md::会话工作台挂点 | 工作台挂点 | 否 | |
 
 ## 表二：判定点纪律（全局点名：多任务指代消歧/全量盘点/理解重述的判定载体即本表）
 
@@ -71,6 +72,7 @@
 | J29 | 理解重述确认 | 改动类/含糊类输入动手前第一输出=理解重述（把用户的话转成对象+范围+预期行为请确认，含糊处列候选口径；重述≠复述原话）；连续施工轮（同一任务上下文已锁定）豁免 | references/entry-routes.md::全局点名 | 理解重述 |
 | J30 | 方案三源对照 | 新功能面方案呈报前查三源：仓内既有实现（复用先例）→ 业内做法（web_search 官方文档/成熟方案，来源带 URL）→ 现成能力（拟手写逻辑核对库/框架内置）；复用既有模式的小改动可跳过但注明 | references/new-task.md::方案三源对照 | 三源对照 |
 | J31 | 使用者视角连带检查 | 改动呈报/验收简报列本次改动触达的使用者触点（入口/文案/交互步骤/边界态/加载与错误态）与顺带易用性观察——观察只列不做，取舍归用户（与功能面取舍同边界）；无观察写「无」 | references/testing.md::使用者视角检查 | 使用者视角 |
+| J32 | 影响面→验证转化 | 影响面地图每个下游消费方必须有对应验证动作行（实测证据或「未覆盖——原因」），禁以「代码零接触」替代下游实测；收尾落验证报告（templates/verification-report.md → .taskflow/<id>/verification-report.md），未覆盖清单呈用户（v2.95.0 远程线，v3.1.0 移植） | references/testing.md::影响面→验证转化 | 验证报告 |
 
 ## 表三：能力包路由（v3.0.0 懒加载——未启用的包连一行都不加载；启用态以项目 profile.json 为准）
 

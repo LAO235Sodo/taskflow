@@ -66,6 +66,12 @@ node <skill目录>/scripts/tf.mjs mech install <token>          # 包内机制�
 
 改完代码 + 手写 `CHANGELOG.md` 顶条目后：`node scripts/tf.mjs release <version>`（版本写入→lint→回归→commit→tag→push origin main --tags；远程不可达=警告不失败）。各安装位 `self-update` 拉取。
 
+## 贡献须知（公开仓卫生）
+
+本仓库公开，git 历史不可变——commit 即发布。提交/发版守 PUBLIC_HYGIENE_GATE（公开仓卫生门）：公司/项目/系统真名、个人标识（工号/用户路径）、内网拓扑（IP/内部域名）、凭据密钥一律不入仓；词表唯一源 `assets/harness/hygiene-terms.json`（新接入的项目/系统先登记词表再写代码）；自查 `node scripts/tf.mjs hygiene`（全树 / `--diff` 增量），行级豁免 `hygiene-ok: 理由`。细则与泄漏事故处置见 references/public-hygiene.md。
+
+**外部贡献走 PR**：流程、红线与仓库纪律见 [CONTRIBUTING.md](CONTRIBUTING.md)——PR 与 push to main 均自动跑卫生扫描 + lint + 全量回归（`.github/workflows/ci.yml`），红灯先自修。
+
 ## 演示
 
 ![demo](docs/media/demo-zh.gif)

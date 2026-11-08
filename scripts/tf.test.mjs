@@ -3445,10 +3445,10 @@ try {
     ok(new Set(mNames).size === mNames.length, '2.85.0 注册表对账：18 门 name 无重复');
     // help：注册表驱动后仍输出全部 29 命令前缀行 + 退出码行
     const hlp = run([], tmp);
-    const helpCmds = ['init', 'new', 'checkpoint', 'rollback', 'confirm', 'packs', 'self-update', 'ls', 'doctor', 'reconcile', 'scout', 'skills', 'accept', 'takeover', 'park', 'unpark', 'commit', 'req-confirm', 'testplan', 'diagnose', 'nextid', 'lock', 'snapshot', 'mergegate', 'gates', 'revert-plan', 'stale', 'overlap', 'impact', 'deploy', 'migrate', 'archive', 'svc', 'lint', 'mech', 'mechanisms', 'canary', 'release'];
+    const helpCmds = ['init', 'new', 'checkpoint', 'rollback', 'confirm', 'packs', 'self-update', 'ls', 'doctor', 'reconcile', 'scout', 'skills', 'accept', 'takeover', 'park', 'unpark', 'commit', 'req-confirm', 'testplan', 'diagnose', 'nextid', 'lock', 'snapshot', 'mergegate', 'gates', 'revert-plan', 'stale', 'overlap', 'impact', 'deploy', 'migrate', 'archive', 'svc', 'hygiene', 'lint', 'mech', 'mechanisms', 'canary', 'release'];
     const hlpMiss = helpCmds.filter((c) => !hlp.stdout.includes(`node tf.mjs ${c}`));
-    ok(hlp.status === 0 && hlpMiss.length === 0 && hlp.stdout.includes('退出码：'), `2.87.0 help：31 命令前缀行+退出码齐全${hlpMiss.length ? `（缺：${hlpMiss.join('、')}）` : ''}`);
-    ok(helpCmds.length === 38, `v3.0.0 COMMANDS 注册表 38 项（描述符单源，当前 ${helpCmds.length}）`);
+    ok(hlp.status === 0 && hlpMiss.length === 0 && hlp.stdout.includes('退出码：'), `2.87.0 help：命令前缀行+退出码齐全${hlpMiss.length ? `（缺：${hlpMiss.join('、')}）` : ''}`);
+    ok(helpCmds.length === 39, `v3.1.0 COMMANDS 注册表 39 项（hygiene 移植入列）（描述符单源，当前 ${helpCmds.length}）`);
     const jRe = /\bJ\d\d\b/;
     const jLeft = [];
     const walk = (d) => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { if (e.name.startsWith('.') || e.name === 'node_modules') continue; const fp = path.join(d, e.name); if (e.isDirectory()) walk(fp); else if (/\.(md|mjs|js)$/.test(e.name)) { const rel = path.relative(repoRoot, fp); if (rel === 'CHANGELOG.md') continue; fs.readFileSync(fp, 'utf8').split('\n').forEach((ln, i) => { if (!jRe.test(ln.replace(/TF_[A-Z0-9_]+/g, ' '))) return; if (rel === 'references/entry-routes.md' && /^\|\s*J\d\d\s*\|/.test(ln)) return; if (rel === 'references/terminology.md' && /（注册号 J\d\d/.test(ln)) return; jLeft.push(`${rel}:${i + 1}`); }); } } };

@@ -3745,6 +3745,7 @@ const COMMANDS = [
   { name: 'doctor', usage: `  node tf.mjs doctor [--all] [--self] [--data <path>] [task-id]  体检：不变量逐条检查（缺省=active/verifying + 根层死任务，--all 含 archive/ 内 merged）；--self=不变量 spec↔注册表↔实现 三源一致性（--data 指 spec 副本，测试用）（只读）`, run: (rest) => doctor(rest) },
   { name: 'reconcile', usage: `  node tf.mjs reconcile [--fix]         对账：档案对账（I1）回写/幽灵清理/损坏报告；默认 dry-run，--fix=原子回写（唯一写命令，幂等）`, run: (rest) => reconcile(rest) },
   { name: 'scout', usage: `  node tf.mjs scout <关键词…> [--files]  历史检索：约定→决策库→任务档案→git 考古；命中=线索，判断归模型（只读）`, run: (rest) => scout(rest) },
+  { name: 'hygiene', usage: `  node tf.mjs hygiene [--diff [基线]] [--root <目录>]  公开仓卫生扫描（PUBLIC_HYGIENE_GATE）：全树缺省/--diff 增量；词表唯一源 assets/harness/hygiene-terms.json；block=exit 1（细则 references/public-hygiene.md）`, run: (rest) => hygieneCmd(rest) },
   { name: 'skills', usage: `  node tf.mjs skills [领域词]           领域技能在场检测：缺哪些+怎么装；呈用户选装（不装则如实注记）（只读）；--usage=技能加载埋点报表（TF_SKILL_USAGE 单文件聚合，仅 omp 侧显式 skill:// 加载计数）`, run: (rest) => skillsCmd(rest) },
   { name: 'mechanisms', usage: `  node tf.mjs mechanisms               guard 门清单（机制透明化，v2.83.0，只读）：逐行输出宿主防护层每个门的中文名/管什么/开关 env/是否写触发日志——被拦或被提醒时按它向用户解释原因`, run: () => mechanismsCmd() },
   { name: 'canary', usage: `  node tf.mjs canary                        送达金丝雀：/tmp 夹具仓渲染守门副本+真实 omp -p 验证注入达模型（一次模型调用；omp 缺失则跳过 exit 0）`, run: () => canaryCmd() },
@@ -4274,6 +4275,72 @@ function parsePipeTables(text) {
   }
   return tables;
 }
+/* ---------------- PUBLIC_HYGIENE_GATE：公开仓卫生扫描（v2.92.0 远程线，v3.1.0 移植内联；细则唯一载体 references/public-hygiene.md） ----------------
+   词表唯一黑名单源=assets/harness/hygiene-terms.json（引擎零内置词；词典文件自豁免）；豁免=行级 hygiene-ok:<非空理由>；warn 只提示不阻断。
+   触发点：hygiene 命令手动自查（全树缺省/--diff 增量）——v3 release 链未挂前置（发版链七步无此步，后续按需）。 */
+function hygieneLoadTerms(skillRoot) {
+  const j = readJson(path.join(skillRoot, 'assets', 'harness', 'hygiene-terms.json'));
+  if (!j || !Array.isArray(j.terms) || !j.terms.length) throw new Error('hygiene-terms.json 缺非空 terms 数组');
+  return j.terms.map((t) => {
+    if (!t.pattern || !t.level || !t.type) throw new Error(`hygiene-terms.json 条目缺 pattern/level/type：${trunc(JSON.stringify(t), 80)}`);
+    return { ...t, re: new RegExp(t.pattern, (t.flags || '') + 'g') };
+  });
+}
+function hygieneScan(targetRoot, { skillRoot, diff, ref } = {}) {
+  const sroot = skillRoot || path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+  const terms = hygieneLoadTerms(sroot);
+  const exemptRe = /hygiene-ok[::]\s*\S/;
+  const gin = (a) => R(execFileSync('git', ['-C', targetRoot, ...a], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }));
+  const hits = []; let scanned = 0; let exempt = 0;
+  const scanLine = (file, no, line) => {
+    if (exemptRe.test(line)) { exempt++; return; }
+    for (const t of terms) {
+      t.re.lastIndex = 0;
+      if (t.re.test(line)) {
+        hits.push({ file, no, level: t.level, type: t.type, hint: t.hint || '', matched: trunc(R((line.match(t.re) || [''])[0]), 40), line: trunc(R(line), 120) });
+        if (t.level === 'block') break; // 同行 block 优先定级——warn 并报无增量价值
+      }
+    }
+  };
+  if (diff) {
+    const out = gin(['diff', '-U0', ...(ref ? [ref] : ['HEAD'])]); // 缺省 vs HEAD——含已暂存改动
+    let cur = null, curNo = 0;
+    for (const l of R(out).split('\n')) {
+      const hm = l.match(/^@@ -\d+(?:,\d+)? \+(\d+)/);
+      if (hm) { curNo = Number(hm[1]) - 1; continue; }
+      const fm = l.match(/^\+\+\+ b\/(.+)$/);
+      if (fm) { cur = fm[1]; continue; }
+      if (cur && l.startsWith('+')) { curNo++; scanned++; scanLine(cur, curNo, l.slice(1)); }
+    }
+  } else {
+    for (const f of gin(['ls-files']).split('\n').filter(Boolean)) {
+      if (f === 'assets/harness/hygiene-terms.json') continue; // 词典自豁免——git ls-files 恒正斜杠，禁 path.join（win32 反斜杠失配实证）
+      let txt = ''; try { txt = fs.readFileSync(path.join(targetRoot, f), 'utf8'); } catch { continue; }
+      if (txt.includes('\0')) continue; // 二进制跳过
+      scanned++;
+      txt.split('\n').forEach((line, i) => scanLine(f, i + 1, line));
+    }
+  }
+  return { hits, scanned, exempt, blocks: hits.filter((h) => h.level === 'block'), warns: hits.filter((h) => h.level !== 'block') };
+}
+function hygieneCmd(args = []) {
+  const skillRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+  const rootAt = args.includes('--root') ? path.resolve(String(args[args.indexOf('--root') + 1] ?? '')) : null;
+  const root = rootAt || skillRoot;
+  const di = args.indexOf('--diff');
+  const diff = di >= 0;
+  let ref = '';
+  if (diff) { const nx = args[di + 1]; if (nx && !nx.startsWith('--') && nx !== args[args.indexOf('--root') + 1]) ref = nx; }
+  let r; try { r = hygieneScan(root, { diff, ref }); } catch (e) { console.log(`⛔ hygiene：${trunc(String(e?.message ?? e), 200)}`); return 1; }
+  const mode = diff ? `diff 增量（${ref ? `基线 ${ref}` : 'vs HEAD'}）` : '全树 tracked';
+  console.log(`公开卫生扫描（PUBLIC_HYGIENE_GATE）——${mode}｜${root}`);
+  for (const h of [...r.blocks, ...r.warns]) console.log(`  ${h.level === 'block' ? '⛔' : '⚠'} ${h.file}:${h.no} [${h.level}·${h.type}] 「${h.matched}」→ ${h.hint}\n     | ${h.line}`);
+  console.log(`结果：扫描 ${r.scanned} ${diff ? '新增行' : '文件'}｜block ${r.blocks.length}｜warn ${r.warns.length}｜豁免 ${r.exempt}`);
+  if (r.blocks.length) { console.log('⛔ block 命中——处置见 references/public-hygiene.md §5（改写/删除/hygiene-ok 豁免）'); return 1; }
+  console.log(`✓ 通过${r.warns.length ? `（warn ${r.warns.length} 项人工确认）` : ''}`);
+  return 0;
+}
+
 function lintCmd(args = []) {
   const rootOverride = args.includes('--root') ? path.resolve(String(args[args.indexOf('--root') + 1] ?? '')) : null;
   const root = rootOverride ? path.join(rootOverride, 'scripts') : path.dirname(new URL(import.meta.url).pathname); // root 恒为 <repo>/scripts，读文档走 join(root,'..')
