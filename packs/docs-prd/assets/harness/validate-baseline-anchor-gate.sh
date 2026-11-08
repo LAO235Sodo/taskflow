@@ -96,17 +96,20 @@ if [ -z "$SPEC_ARG" ]; then
     for id in $c_ids; do
       if ! prd_has_id "$id"; then
         echo "⛔ [baseline-gate] $title — 「文档同步：」行列出的条目 ID 查无 PRD 条目：${id}（C1——条目 ID 必须真实存在）" >&2
+        _tf_gate_hit  # v3.0.1 审查补：裸红出口补落台账
         exit 1
       fi
     done
     # C1 附属：触及 docs/prd/** 的条目禁写「不适用」（PRD 被改却宣称文档零变更=自相矛盾）
     if printf '%s\n' "$body" | grep -qF "$PRD_DIR" && printf '%s\n' "$doc_line" | grep -q '不适用'; then
       echo "⛔ [baseline-gate] $title — 触及 ${PRD_DIR}/** 的条目「文档同步」行禁写「不适用」（C1）——列明更新的条目 ID" >&2
+      _tf_gate_hit  # v3.0.1 审查补：裸红出口补落台账
       exit 1
     fi
     # C2：引用 PRD 路径却无条目 ID = 格式不达标（须落到条目粒度）
     if printf '%s\n' "$doc_line" | grep -qF "$PRD_DIR" && [ -z "$c_ids" ]; then
       echo "⛔ [baseline-gate] $title — 「文档同步：」行引用 PRD 路径但无条目 ID（C2）——须落到条目粒度（如 F-XX-NN）" >&2
+      _tf_gate_hit  # v3.0.1 审查补：裸红出口补落台账
       exit 1
     fi
   done
@@ -288,6 +291,7 @@ fi
 
 if [ "$VIOL" -gt 0 ]; then
   echo "⛔ [baseline-gate] 共 $VIOL 处违规（红=阻塞项，回 merge.md 第 3 步唯一修复循环；分流表见 references/merge.md）" >&2
+  _tf_gate_hit  # v3.0.1 审查补：裸红出口补落台账
   exit 1
 fi
 echo "✓ [baseline-gate] spec 五检查通过（验收项 $AC_N 条，base=${BASE:0:12}）"

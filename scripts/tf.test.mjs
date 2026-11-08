@@ -3816,6 +3816,21 @@ try {
     // 修复⑥：lint R\d+ 强度（R123/R9 逃逸口封死）
     const dvR123 = mkDescVer('fake-r123', '管理长任务。', '见 R123 与 R9。\n');
     ok(dvR123.status === 1 && dvR123.stdout.includes('入口编号引用'), '审查修复⑥ lint：R123/R9 形态入口编号引用 → 红（旧正则 R\\d{2} 漏检）');
+    // 修复②'（二轮审查）：机械不变量——门脚本每个 exit 1 前两行内必须 _tf_gate_hit（退出路径枚举不再靠人核销；
+    // 一轮审查只接了 fail() 函数，17 处裸 exit 1 绕过台账——同类缺陷不得三犯）
+    {
+      const packRootAbs = path.resolve(import.meta.dirname, '..', 'packs');
+      const walkSh = (d) => fs.readdirSync(d, { withFileTypes: true }).flatMap((e) => e.isDirectory() ? walkSh(path.join(d, e.name)) : (/validate-.*\.sh$/.test(e.name) ? [path.join(d, e.name)] : []));
+      const bare = [];
+      for (const sp of walkSh(packRootAbs)) {
+        const sl = fs.readFileSync(sp, 'utf8').split('\n');
+        sl.forEach((l, i) => {
+          if (!/^\s*exit 1\s*$/.test(l) || l.includes('_tf_gate_hit')) return;
+          if (!((sl[i - 1] ?? '') + (sl[i - 2] ?? '')).includes('_tf_gate_hit')) bare.push(`${path.relative(packRootAbs, sp)}:${i + 1}`);
+        });
+      }
+      ok(bare.length === 0, `审查修复②' 不变量：validate-*.sh 全部红出口（含 fail() 外裸 exit 1）落 gate-hits 台账${bare.length ? `（违例：${bare.join('、')}）` : ''}`);
+    }
   }
 
 

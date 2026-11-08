@@ -115,6 +115,7 @@ head -n $((ANCHOR_LINE - 1)) "$CHANGELOG" | awk '
     if [ -n "$MISS" ]; then echo "⛔ [combo-gate] $title — 组合评估行列缺命中决策：${MISS}" >&2; exit 1; fi
   else
     echo "⛔ [combo-gate] $title — 反引号资产命中决策（${REQUIRED}）但无「组合评估：」行 → 补「组合评估： <列全量命中决策 或 语义中性——理由>」" >&2
+    _tf_gate_hit  # v3.0.1 审查补：裸红出口补落台账
     exit 1
   fi
 done

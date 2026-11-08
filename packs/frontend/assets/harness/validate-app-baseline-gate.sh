@@ -117,6 +117,7 @@ head -n $((ANCHOR_LINE - 1)) "$CHANGELOG" | awk '
   baseline_line="$(printf '%s\n' "$block" | tail -n +2 | grep -E '基线\*{0,2}\s*[:：]' | head -1 || true)"
   if [ -z "$baseline_line" ]; then
     echo "⛔ [baseline-gate] $title — 涉及前端视觉资产但缺「基线：」行 → 指向 baseline*.json 或「基线：不适用——<理由>」（如新增页面）" >&2
+    _tf_gate_hit  # v3.0.1 审查补：裸红出口补落台账
     exit 1
   fi
   # 廉价合法通道：不适用 + 理由（防静默绕闸：理由必填）
@@ -128,6 +129,7 @@ head -n $((ANCHOR_LINE - 1)) "$CHANGELOG" | awk '
   [ -n "$json_path" ] || json_path="$(printf '%s' "$baseline_line" | grep -oE '[^ 　]+\.json' | head -1 || true)"
   if [ -z "$json_path" ] || ! valid_baseline_json "$json_path"; then
     echo "⛔ [baseline-gate] $title — 「基线：」行指向的 JSON 无效（${json_path}：不存在或缺 \"schema\": \"app-baseline/1\"（Android）/ \"design-spec-extract/1\"（web）头）→ 用 scripts/design/extract-app-baseline.js 重新提取（web：extract-spec.js 指向运行中的真实站点）" >&2
+    _tf_gate_hit  # v3.0.1 审查补：裸红出口补落台账
     exit 1
   fi
 done

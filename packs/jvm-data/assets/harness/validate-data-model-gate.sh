@@ -166,6 +166,7 @@ head -n $((ANCHOR_LINE - 1)) "$CHANGELOG" | awk '
   dm_line="$(printf '%s\n' "$body" | grep -E '数据模型\*{0,2}[[:space:]]*[:：]' | head -1 || true)"
   if [ -z "$dm_line" ]; then
     echo "⛔ [data-model-gate] $title — 涉及数据资产（实体/DDL）但缺「数据模型：」行 → 跑 scripts/design/extract-data-model.js 刷新真源后写「数据模型：<对照表/JSON 路径>；同步：<迁移/契约/消费方/DDL 其余定义处>；真源：已刷新」或「数据模型：不适用——<理由>」" >&2
+    _tf_gate_hit  # v3.0.1 审查补：裸红出口补落台账
     exit 1
   fi
   # 廉价合法通道：不适用 + 理由（防静默绕闸：理由必填）
@@ -178,16 +179,19 @@ head -n $((ANCHOR_LINE - 1)) "$CHANGELOG" | awk '
     jf="$(resolve_file "$json_path")"
     if [ -z "$jf" ] || ! valid_extract_json "$jf"; then
       echo "⛔ [data-model-gate] $title — 「数据模型：」行挂链 JSON 无效（${json_path}：不存在或缺 \"schema\": \"data-model-extract/ 头）→ 重跑 scripts/design/extract-data-model.js" >&2
+      _tf_gate_hit  # v3.0.1 审查补：裸红出口补落台账
       exit 1
     fi
   else
     md_path="$(printf '%s' "$dm_line" | grep -oE "[^ ${BT}]+\.md" | head -1 || true)"
     if [ -n "$md_path" ] && [ -z "$(resolve_file "$md_path")" ]; then
       echo "⛔ [data-model-gate] $title — 「数据模型：」行挂链的 spec 路径不存在：${md_path}" >&2
+      _tf_gate_hit  # v3.0.1 审查补：裸红出口补落台账
       exit 1
     fi
     if [ -z "$md_path" ]; then
       echo "⛔ [data-model-gate] $title — 「数据模型：」行须挂链提取 JSON 或 spec 对照表路径" >&2
+      _tf_gate_hit  # v3.0.1 审查补：裸红出口补落台账
       exit 1
     fi
   fi
@@ -195,6 +199,7 @@ head -n $((ANCHOR_LINE - 1)) "$CHANGELOG" | awk '
   seg_after() { local m="$1"; printf '%s' "$dm_line" | grep -q "${m}[：:]" || { echo ''; return; }; printf '%s' "$dm_line" | sed -E "s/^.*${m}[：:]//" | sed -E 's/[;；].*$//' | tr -d '[:space:]'; }
   if [ -z "$(seg_after 同步)" ]; then
     echo "⛔ [data-model-gate] $title — 「数据模型：」行缺「同步：<≥1 项同步动作>」（迁移脚本/契约更新/消费方同步/DDL 其余定义处处置——列不出来说明没同步）" >&2
+    _tf_gate_hit  # v3.0.1 审查补：裸红出口补落台账
     exit 1
   fi
   # 真源：已刷新 → docs/data-model/data-model-extract.json 存在且 schema 头合法
@@ -202,16 +207,19 @@ head -n $((ANCHOR_LINE - 1)) "$CHANGELOG" | awk '
     src="$(resolve_file "docs/data-model/data-model-extract.json")"
     if [ -z "$src" ] || ! valid_extract_json "$src"; then
       echo "⛔ [data-model-gate] $title — 声称「真源：已刷新」但 docs/data-model/data-model-extract.json 缺失或缺 schema 头 → 重跑 scripts/design/extract-data-model.js --root <扫描根> --out docs/data-model" >&2
+      _tf_gate_hit  # v3.0.1 审查补：裸红出口补落台账
       exit 1
     fi
   else
     echo "⛔ [data-model-gate] $title — 「数据模型：」行缺「真源：已刷新」（DDL/实体变更收尾必须刷新 docs/data-model/ 真源——lock-file，只能提取器再生）" >&2
+    _tf_gate_hit  # v3.0.1 审查补：裸红出口补落台账
     exit 1
   fi
   # DDL 追加段：涉 .sql 或内容层 CREATE/ALTER → 行内须交代其余定义处处置 + 迁移
   if [ "$DDL_HIT" -eq 1 ]; then
     if [ -z "$(seg_after DDL)" ]; then
       echo "⛔ [data-model-gate] $title — 涉 DDL（.sql/内联 CREATE·ALTER）但「数据模型：」行缺「DDL：<其余定义处处置+迁移>」子段（同表多源清单见提取器 duplicates——其余定义处逐处交代）" >&2
+      _tf_gate_hit  # v3.0.1 审查补：裸红出口补落台账
       exit 1
     fi
   fi
