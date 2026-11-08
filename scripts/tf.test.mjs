@@ -3805,6 +3805,19 @@ try {
     sh(`git merge -q --no-ff task/${collId} -m merge-coll`, aproj);
     const rb2 = arun(['rollback', collId]);
     ok(rb2.status === 1 && rb2.stdout.includes('revert-plan'), `审查修复⑤ rollback：已并入分支（无 baseCommit）→ revert-plan 指路（旧版误报无可回滚物；实际输出=${rb2.stdout.slice(0, 80).replace(/\n/g, ' ')}）`);
+    // 三轮审查（探针实证）——squash 并入（无祖先关系）rollback 假成功：revert 任务分支不清主干。git cherry patch-id 等价检测 → 阻断+指路主干侧
+    arun(['new', 'squash任务', '--tier', 'small']);
+    const sqId = 'squash任务-' + new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    const sqWt = JSON.parse(fs.readFileSync(path.join(aproj, '.taskflow', sqId, 'task.json'), 'utf8')).worktree;
+    fs.writeFileSync(path.join(sqWt, 'sq.txt'), 's\n');
+    sh('git add -A && git commit -qm sq', sqWt);
+    sh(`git merge -q --squash task/${sqId} && git commit -qm squash-in`, aproj);
+    const rb3 = arun(['rollback', sqId]);
+    ok(rb3.status === 1 && rb3.stdout.includes('等价补丁') && rb3.stdout.includes('revert-plan') && fs.existsSync(path.join(aproj, 'sq.txt')), '三轮审查 rollback：squash 并入（无祖先）→ 阻断假成功+指路主干侧（旧版 revert 任务分支后宣称已回退但 main 原样）');
+    // 三轮审查——init「文件在但不可解析」≠「文件缺失」：静默以模板覆写=毁数据。改为不动+警告+摘要诚实
+    fs.writeFileSync(path.join(aproj, '.taskflow', 'profile.json'), 'NOT-JSON{');
+    const initBroken = arun(['init', '--host', 'none']);
+    ok(initBroken.status === 0 && initBroken.stdout.includes('无法解析——原文件未动') && fs.readFileSync(path.join(aproj, '.taskflow', 'profile.json'), 'utf8') === 'NOT-JSON{', '三轮审查 init：坏 profile.json 不覆写（原样保留+警告+摘要诚实——旧版静默替换成模板默认值）');
     // 修复②：渲染出的 shell 门红退出落 gate-hits 台账（F34 全门族覆盖）
     arun(['mech', 'install', '决策组合门', '--yes']);
     const clP2 = path.join(aproj, 'docs', 'CHANGELOG.md');

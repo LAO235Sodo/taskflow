@@ -3334,20 +3334,26 @@ function initCmd(args = []) {
   const skillRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
   fs.mkdirSync(tasksDir, { recursive: true });
   // project.json：升级模式保留全部既有键（mechanisms/mainRef/deploy 配置等），只补缺
+  // v3.0.1 三轮审查（探针实证）：「文件在但不可解析」≠「文件缺失」——静默以模板覆写=破坏既有数据。坏文件不动+警告，人工修复后重跑。
   const pjPath = path.join(tasksDir, 'project.json');
-  const pjOld = readJson(pjPath) ?? {};
-  const pj = { ...pjOld, key: pjOld.key ?? projectKey(mainRoot), git: pjOld.git ?? useGit };
+  let pjOld = null;
+  const pjBroken = fs.existsSync(pjPath) && (() => { try { pjOld = JSON.parse(fs.readFileSync(pjPath, 'utf8')); return false; } catch { return true; } })();
+  if (pjBroken) console.log('⚠ project.json 无法解析——原文件未动（升级契约：只补缺不覆盖），人工修复后重跑 init');
+  const pj = { ...(pjOld ?? {}), key: pjOld?.key ?? projectKey(mainRoot), git: pjOld?.git ?? useGit };
   if (!pj.deploy || typeof pj.deploy !== 'object') pj.deploy = { form: 'none' };
   else if (!('form' in pj.deploy)) pj.deploy.form = 'none';
   const dfIdx = args.indexOf('--deploy-form');
   if (dfIdx >= 0) { const v = String(args[dfIdx + 1] ?? ''); if (!['none', 'jar', 'generic'].includes(v)) { console.log(`⚠ --deploy-form 取值非法（${v}）——只认 none|jar|generic`); return 1; } pj.deploy.form = v; }
-  writeTaskJsonAtomic(pjPath, pj);
-  // profile.json：升级模式只补缺失键（既有拍板不覆盖）
+  if (!pjBroken) writeTaskJsonAtomic(pjPath, pj);
+  // profile.json：升级模式只补缺失键（既有拍板不覆盖）；「在但不可解析」同 project.json——不动+警告
   const profPath = path.join(tasksDir, 'profile.json');
-  let prof = readJson(profPath);
-  if (!prof) {
+  let prof = null;
+  const profBroken = fs.existsSync(profPath) && (() => { try { prof = JSON.parse(fs.readFileSync(profPath, 'utf8')); return false; } catch { return true; } })();
+  if (profBroken) console.log('⚠ profile.json 无法解析——原文件未动（升级契约：只补缺不覆盖），人工修复后重跑 init');
+  if (!prof && !profBroken) {
     try { prof = JSON.parse(fs.readFileSync(path.join(skillRoot, 'templates', 'profile.json'), 'utf8')); delete prof._comment; } catch { prof = {}; }
   }
+  if (!profBroken) {
   if (host) prof.host = host;
   const ctIdx = args.indexOf('--confirm-tier');
   if (ctIdx >= 0) { const v = String(args[ctIdx + 1] ?? ''); if (!['detailed', 'batch'].includes(v)) { console.log(`⚠ --confirm-tier 取值非法（${v}）——只认 detailed|batch`); return 1; } prof.confirm_tier = v; }
@@ -3365,7 +3371,8 @@ function initCmd(args = []) {
     else if (v === 'none') prof.carriers = { decision: 'none', installed: [] };
     else prof.carriers = { decision: 'partial', installed: v.split(',').map((s) => s.trim()).filter(Boolean) };
   }
-  writeTaskJsonAtomic(profPath, prof);
+  if (!profBroken) writeTaskJsonAtomic(profPath, prof);
+  }
   // conventions.md：升级模式=补缺失小节不覆盖既有内容；新装=骨架全文
   const convPath = path.join(tasksDir, 'conventions.md');
   const REQUIRED_SECTIONS = ['确认档位', '推送与部署', '验证清单', '完成定义', '环境与端口', '禁止事项', '流程审计', '统一源'];
@@ -3393,7 +3400,7 @@ function initCmd(args = []) {
   }
   registerProjectL0(mainRoot);
   console.log(`${exists ? '✓ 项目已升级（只补缺不覆盖）' : '✓ 项目已初始化'}：${tasksDir}`);
-  console.log(`  project.json（git:${pj.git}，deploy.form:${pj.deploy.form}）｜profile.json（confirm_tier:${prof.confirm_tier}，host:${prof.host}）｜conventions.md（${REQUIRED_SECTIONS.length} 小节齐）`);
+  console.log(`  project.json（${pjBroken ? '⚠不可解析未动' : `git:${pj.git}，deploy.form:${pj.deploy.form}`}）｜profile.json（${profBroken ? '⚠不可解析未动' : `confirm_tier:${prof.confirm_tier}，host:${prof.host}`}）｜conventions.md（${REQUIRED_SECTIONS.length} 小节齐）`);
   console.log('下一步：node tf.mjs new "<任务标题>" --tier <small|medium|large> [--type <任务类型>] 建第一个任务（缺陷类先跑 scout <症状词>）');
   return 0;
 }
@@ -3566,6 +3573,13 @@ function rollbackCmd(args = []) {
     console.log(`ℹ ${id} 分支 ${t.branch} 在基线 ${(base ?? '?').slice(0, 7)} 之后无提交——无可回滚物`); return 0; // 零提交新分支==基线 tip，无物可回
   }
   if (mainRef && isAnc(mainRoot, t.branch, mainRef)) { console.log(`⚠ ${id} 分支已并入 ${mainRef}——在途 rollback 不适用，走 node tf.mjs revert-plan ${id}（Saga 补偿：逐条 git revert -m 1）`); return 1; }
+  // v3.0.1 三轮审查（探针实证）：squash 并入无祖先关系（isAnc=false）但内容已进主干——revert 任务分支不清主干=假成功。
+  // git cherry 以 patch-id 判等价：'-' 前缀=等价补丁已在主干。任一命中即阻断在途 rollback，指路主干侧撤销。
+  if (mainRef) {
+    const cherry = git(['-C', mainRoot, 'cherry', mainRef, t.branch], mainRoot, true) ?? '';
+    const dupShas = cherry.split('\n').filter((l) => l.startsWith('-')).map((l) => (commits.find((c) => l.endsWith(c.sha))?.sha ?? l.slice(2)).slice(0, 7));
+    if (dupShas.length) { console.log(`⚠ ${id} 分支有 ${dupShas.length}/${commits.length} 个提交（${dupShas.join(' ')}）已以等价补丁（squash/apply 形态）进入 ${mainRef}——revert 任务分支不清主干；主干侧撤销走 node tf.mjs revert-plan ${id}（逐条 git revert）；分支侧未并入提交可人工 revert`); return 1; }
+  }
   // 工作树：任务 worktree 优先；缺失则临时挂（回退完保留，清点归编排层）
   let wt = t.worktree && fs.existsSync(t.worktree) ? t.worktree : null;
   if (!wt) {
