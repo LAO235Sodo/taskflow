@@ -3818,6 +3818,17 @@ try {
     fs.writeFileSync(path.join(aproj, '.taskflow', 'profile.json'), 'NOT-JSON{');
     const initBroken = arun(['init', '--host', 'none']);
     ok(initBroken.status === 0 && initBroken.stdout.includes('无法解析——原文件未动') && fs.readFileSync(path.join(aproj, '.taskflow', 'profile.json'), 'utf8') === 'NOT-JSON{', '三轮审查 init：坏 profile.json 不覆写（原样保留+警告+摘要诚实——旧版静默替换成模板默认值）');
+    // 四轮审查（fuzz 实证）——位置参数提取：取值 flag 的值不得被当标题/id；'--' 分隔符支持横线标题；slug 剥首尾点
+    const dashNew = arun(['new', '---', '--tier', 'small']);
+    const flagTitle = arun(['new', '--tier', '伪flag', '--tier', 'small']);
+    ok(dashNew.status === 1 && flagTitle.status === 1 && !fs.readdirSync(path.join(aproj, '.taskflow')).some((d) => d.startsWith('small-')), '四轮审查 new：flag 形态标题拒绝且不建「small」幽灵任务（旧版 args.find 把 tier 值当标题静默建档）');
+    const sepNew = arun(['new', '--', '-紧急修复', '--tier', 'small', '--no-worktree']);
+    const sepId = '紧急修复-' + new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    ok(sepNew.status === 0 && JSON.parse(fs.readFileSync(path.join(aproj, '.taskflow', sepId, 'task.json'), 'utf8')).title === '-紧急修复', '四轮审查 new：-- 分隔符后横线标题原样建档（end-of-options）');
+    const dotNew = arun(['new', '..', '--tier', 'small', '--no-worktree']);
+    ok(dotNew.status === 0 && fs.existsSync(path.join(aproj, '.taskflow', 'task-' + new Date().toISOString().slice(0, 10).replace(/-/g, ''))) && !fs.readdirSync(path.join(aproj, '.taskflow')).some((d) => /^\.[-]|^\.\./.test(d)), '四轮审查 new：纯点标题 slug 落 task-YYYYMMDD（不产隐藏目录 ..-YYYYMMDD）');
+    const cpFlagFirst = arun(['checkpoint', '--note', 'flags 在前', sepId]);
+    ok(cpFlagFirst.status === 0 && JSON.parse(fs.readFileSync(path.join(aproj, '.taskflow', sepId, 'task.json'), 'utf8')).checkpoints.some((c) => c.summary === 'flags 在前'), '四轮审查 checkpoint：flags 在前时 note 值不被当任务 id（全命令族位置参数提取统一走 firstPositional）');
     // 修复②：渲染出的 shell 门红退出落 gate-hits 台账（F34 全门族覆盖）
     arun(['mech', 'install', '决策组合门', '--yes']);
     const clP2 = path.join(aproj, 'docs', 'CHANGELOG.md');

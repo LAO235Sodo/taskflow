@@ -177,6 +177,21 @@ function relTime(iso) {
   return `${Math.floor(s / 86400)} 天前`;
 }
 const STATUS = { active: '进行中(active)', verifying: '待验收(verifying)', parked: '已搁置(parked)', merged: '已合并(merged)', archived: '已归档(archived)' }; // v3.0.0 双语状态词（F40）：中文在前、英文括号一次；机器比较一律用原始枚举值，本表仅渲染
+// 位置参数提取（v3.0.1 四轮审查·fuzz 实证）：旧 args.find(!startsWith('--')) 会把取值 flag 的值当
+// 标题/任务 id——`new '---' --tier small` 曾静默建出标题为「small」的任务；`checkpoint --note "x" <id>`
+// 曾把 "x" 当 id。取值 flag 全集以 CLI 解析点为准（git 内部 flag 不入列）；'--' 分隔符后首参强制位置参数
+// （横线开头的标题/id 不再被吞）。
+const VALUE_FLAGS = new Set(['--tier', '--type', '--note', '--files', '--briefing-hash', '--host', '--deploy-form', '--confirm-tier', '--packs', '--carriers', '--target', '--root', '--branch', '--version', '--by', '-m', '--message', '--pattern', '--pid', '--ttl', '--task', '--session', '--data', '--reason']);
+function firstPositional(args = []) {
+  const dd = args.indexOf('--');
+  if (dd >= 0) return args[dd + 1] ?? null; // end-of-options：-- 之后首参无论形态
+  for (let i = 0; i < args.length; i++) {
+    if (VALUE_FLAGS.has(args[i])) { i++; continue; } // 跳过取值 flag 及其值
+    if (String(args[i]).startsWith('--')) continue; // 布尔 flag
+    return args[i];
+  }
+  return null;
+}
 
 function locate() {
   const common = git(['rev-parse', '--path-format=absolute', '--git-common-dir'], process.cwd(), true);
@@ -719,7 +734,7 @@ function deploymentEnumLiteral(skillRoot) {
 function doctor(args = []) {
   if (args.includes('--self')) return selfCheck(args.filter((a) => a !== '--self'));
   const includeAll = args.includes('--all');
-  const idArg = args.find((a) => !a.startsWith('--'));
+  const idArg = firstPositional(args);
   const { isGit, mainRoot, tasksDir } = locate();
   const index = readJson(path.join(tasksDir, 'index.json'))?.tasks ?? [];
   const allTasks = loadTasks(tasksDir);
@@ -1716,7 +1731,7 @@ function parkCmd(args = []) {
   return 0;
 }
 function unparkCmd(args = []) {
-  const id = args.find((a) => !String(a).startsWith('--'));
+  const id = firstPositional(args);
   if (!id) { console.log('用法：node tf.mjs unpark <task-id>\n恢复搁置任务（parked→active，簿记写入口）。'); return 1; }
   const { tasksDir } = locate();
   const t = loadTasks(tasksDir).find((x) => x.id === id);
@@ -1917,7 +1932,7 @@ function execFileSyncNode(argv, cwd, viaBash) {
    锁只管排队（他人在持锁中 → 拒绝；陈旧(>ttl) → 强占），判断归模型（拿到锁后该干嘛见 merge.md）。
    典型窗口=秒级端局（重同步检查+merge 落定），ttl 120s 覆盖；超时未释放会被后来者强占——锁不是真相源。 */
 function lockCmd(args = []) {
-  const name = args.find((a) => !String(a).startsWith('--'));
+  const name = firstPositional(args);
   let release = false, session = '', ttl = 120, force = false, taskId = '';
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--release') release = true;
@@ -2058,7 +2073,7 @@ function matchPath(file, declaredSet) {
    渲染证据门：diff 触及样式载体而 attachments 无渲染证据 = 红（v2.81.0 与双门同为纯函数）。
    黄红都计入红（exit 1）保住「三门全绿才进 lock」；TOCTOU 收敛接线：mergegate → lock（现场重算三门）→ merge。 */
 function snapshotCmd(args = []) {
-  const id = args.find((a) => !String(a).startsWith('--'));
+  const id = firstPositional(args);
   if (!id) { console.error('用法：node tf.mjs snapshot <task-id>\n审查呈报落稿后拍 main 快照：当前主分支 HEAD 哈希写入 task.json.mergeSnapshot（mergegate 合并前比对——main 挪了=红灯回同步重审）。'); return 1; }
   const { isGit, mainRoot, tasksDir } = locate();
   if (!isGit) { console.error('⚠ 非 git 项目无快照可拍'); return 1; }
@@ -2218,7 +2233,7 @@ function mergeGateEvidence(t, mainRoot, mainRef) {
   return g;
 }
 function mergegateCmd(args = []) {
-  const id = args.find((a) => !String(a).startsWith('--'));
+  const id = firstPositional(args);
   if (!id) { console.error('用法：node tf.mjs mergegate <task-id>\n合并三门（MERGE_GATE）：①快照门（文件级分类）——无快照=红（fail-closed，v2.81.0）；main 现值 ≠ 审查快照时比对「main 变更 × 任务读写集」：命中=红（逐文件重审），未触碰=黄（同步合并+刷新快照免重审）；②越界门——分支 diff 文件超出 spec「改动文件集合声明」= 红（req-confirm 补声明或收窄 diff）；③渲染证据门——diff 触及样式载体而 attachments/ 无渲染证据 = 红（补数据态真实渲染截图+采样描述）。黄红均 exit 1；红灯不改任何状态、不落任何门状态文件（lock 授锁路径现场重算三门）。'); return 1; }
   const { isGit, mainRoot, tasksDir } = locate();
   if (!isGit) { console.error('⚠ 非 git 项目无门可跑'); return 1; }
@@ -2269,7 +2284,7 @@ function staleCheck(t, mainRoot, mainRef, tasksDir) {
   return { state: 'undeclared', line: `ℹ ${t.id} 影响面无机读声明（声明行/资产列均无反引号），未参与体检（防假绿——与门一禁静默同哲学）` }; // 审查自证加固③
 }
 function staleCmd(args = []) {
-  const id = args.find((a) => !String(a).startsWith('--'));
+  const id = firstPositional(args);
   const { isGit, mainRoot, tasksDir } = locate();
   if (!isGit) { console.error('⚠ 非 git 项目无基线可比'); return 1; }
   const mainRef = resolveMainRef(mainRoot);
@@ -2292,7 +2307,7 @@ function staleCmd(args = []) {
    本命令只生成方案文件（逐条 revert 命令 + 档案注记 + 红线），绝不执行任何 git 写操作——
    破坏性动作须用户逐条确认；档案注记（unmergedAt）执行后人工落痕。 */
 function revertPlanCmd(args = []) {
-  const id = args.find((a) => !String(a).startsWith('--'));
+  const id = firstPositional(args);
   if (!id) {
     console.error('用法：node tf.mjs revert-plan <task-id>\n为 merged 任务生成回退方案 <taskDir>/revert-plan.md（Saga 补偿：逐条 git revert -m 1 <merge-commit> + 档案注记 + 红线）。只读不执行——执行需用户逐条确认。\n非 merged 任务不适用：active/verifying 的打回走 resume.md 第 9 步（打回 ≠ 回退已合并代码）。');
     return 1;
@@ -2410,7 +2425,7 @@ function revertPlanCmd(args = []) {
    把散在 mergegate/stale/accept 前置/doctor I16 的五道合并相关门一次跑完，统一「门名：过/红/黄——一句原因」
    表输出 + verdict 收尾。不改任何状态；不替代 mergegate 的处置指引（mergegate 输出逐门完整修复路径）。 */
 function gatesCmd(args = []) {
-  const id = args.find((a) => !String(a).startsWith('--'));
+  const id = firstPositional(args);
   if (!id) { console.error('用法：node tf.mjs gates <task-id>\n门责任链聚合（只读）：快照门/越界门/分支已并入预检/stale/敞口（I16） 五道门一次跑完，尾行 verdict。不改任何状态；逐门完整处置指引跑 mergegate。'); return 1; }
   const { isGit, mainRoot, tasksDir } = locate();
   if (!isGit) { console.error('⚠ 非 git 项目无门可跑'); return 1; }
@@ -2461,7 +2476,7 @@ function gatesCmd(args = []) {
   return red ? 1 : 0;
 }
 function overlapCmd(args = []) {
-  const id = args.find((a) => !String(a).startsWith('--'));
+  const id = firstPositional(args);
   if (!id) { console.error('用法：node tf.mjs overlap <task-id>\n并行派发（split.md 场景①）准入预检：子任务 spec「## 涉及文件」反引号路径两两求交——重叠对 = 不准并行（改串行/调整拆分边界/呈用户仲裁）。只读。'); return 1; }
   const { tasksDir } = locate();
   const dir = fs.existsSync(path.join(tasksDir, id)) ? path.join(tasksDir, id) : path.join(tasksDir, 'archive', id);
@@ -2796,7 +2811,7 @@ function commitCmd(args = []) {
    → syncIndexRow。doctor I11 比对 spec 现算 hash ≠ goalHash → 红 = 未经本命令的需求修改。
    拍板在人（需求变更门，SKILL.md 反馈分类），机械只负责留痕；--note 必填（禁无记名刷新）。 */
 function reqConfirm(args = []) {
-  const idArg = args.find((a) => !a.startsWith('--'));
+  const idArg = firstPositional(args);
   let note = '';
   for (let i = 0; i < args.length; i++) if (args[i] === '--note') note = String(args[++i] ?? '');
   if (!idArg || !note.trim()) { console.log('用法：node tf.mjs req-confirm <task-id> --note "<变更一句话（需求变更门拍板记录：改了什么、谁拍板）>"'); return 1; }
@@ -3408,13 +3423,13 @@ function initCmd(args = []) {
 /* new：建档命令（F45/F09）。nextid 占号 → 渲染 templates/task.json + spec.md（--type 按 profile.task_types 裁剪节）
    → schema 校验 → git 项目缺省建 worktree（--no-worktree 可关）→ 打印下一步。 */
 function newCmd(args = []) {
-  const title = args.find((a) => !String(a).startsWith('--'));
+  const title = firstPositional(args);
   let tier = 'small', type = null;
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--tier') tier = String(args[++i] ?? 'small');
     else if (args[i] === '--type') type = String(args[++i] ?? '') || null;
   }
-  if (!title || !title.trim()) { console.log('用法：node tf.mjs new "<标题>" [--tier small|medium|large] [--type <任务类型>] [--worktree|--no-worktree]\n建档质量由脚本保证：占号 → 渲染 task.json+spec.md → schema 校验 → git 项目缺省建 worktree。'); return 1; }
+  if (!title || !title.trim()) { console.log('用法：node tf.mjs new "<标题>" [--tier small|medium|large] [--type <任务类型>] [--worktree|--no-worktree]\n建档质量由脚本保证：占号 → 渲染 task.json+spec.md → schema 校验 → git 项目缺省建 worktree。\n标题以 - 开头会被当作 flag——用 new -- "<标题>" --tier small（-- 之后强制按位置参数解析）。'); return 1; }
   if (!['small', 'medium', 'large'].includes(tier)) { console.log(`⚠ --tier 取值非法（${tier}）——只认 small|medium|large`); return 1; }
   const { isGit, mainRoot, tasksDir } = locate();
   if (!fs.existsSync(path.join(tasksDir, 'project.json'))) { console.log(`⚠ 项目未初始化（${tasksDir}/project.json 缺失）→ 先跑 node tf.mjs init`); return 1; }
@@ -3422,7 +3437,7 @@ function newCmd(args = []) {
   const prof = readJson(path.join(tasksDir, 'profile.json')) ?? {};
   if (type && !(type in (prof.task_types ?? {}))) { console.log(`⚠ --type 未知（${type}）——profile.task_types 已登记：${Object.keys(prof.task_types ?? {}).join('、') || '（无）'}`); return 1; }
   // 占号（nextid 语义）：id = <标题slug>-<YYYYMMDD>，.taskflow/.reservations/ 独占创建防并行撞号
-  const slug = title.trim().slice(0, 24).replace(/[\\/:*?"<>|\s]+/g, '-').replace(/^-+|-+$/g, '') || 'task';
+  const slug = title.trim().slice(0, 24).replace(/[\\/:*?"<>|\s]+/g, '-').replace(/^[.-]+|[.-]+$/g, '') || 'task'; // v3.0.1 四轮审查：首尾点也剥——'..' 曾产出隐藏目录 ..-YYYYMMDD（fs.readdir 可见、ls 不可见）
   const ymd = new Date().toISOString().slice(0, 10).replace(/-/g, '');
   const resDir = path.join(tasksDir, '.reservations');
   fs.mkdirSync(resDir, { recursive: true });
@@ -3509,7 +3524,7 @@ function newCmd(args = []) {
 /* checkpoint：存档命令（F45/F35/F33）。追加 checkpoints[]（含当前 HEAD sha）+ 刷新 lease 心跳 + conventions 回执
    （readAt+hash 落 task.json）+ 首存校验理解重述痕（spec「边界与影响面」节非空，缺=黄牌提醒不阻断）。 */
 function checkpointCmd(args = []) {
-  const id = args.find((a) => !String(a).startsWith('--'));
+  const id = firstPositional(args);
   let note = '', files = [];
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--note') note = String(args[++i] ?? '');
@@ -3550,7 +3565,7 @@ function checkpointCmd(args = []) {
 /* rollback：任务分支回退（F45）。对 baseCommit 之后的提交逐个 git revert --no-edit——绝不 reset/force/共享分支 -D
    （本命令物理上不含任何破坏性 git 形态）；未建分支=仅报告。已并入 main 的任务走 revert-plan（Saga 补偿）。 */
 function rollbackCmd(args = []) {
-  const id = args.find((a) => !String(a).startsWith('--'));
+  const id = firstPositional(args);
   if (!id) { console.log('用法：node tf.mjs rollback <task-id>\n对任务分支 baseCommit 之后的提交逐个 git revert --no-edit（禁 reset/force/共享分支 -D，本命令物理不含破坏性形态）；未建分支=仅报告；已合并任务走 revert-plan。'); return 1; }
   const { isGit, mainRoot, tasksDir } = locate();
   if (!isGit) { console.log('⚠ 非 git 项目无回退对象'); return 1; }
@@ -3612,7 +3627,7 @@ function rollbackCmd(args = []) {
 /* confirm：确认回执（F32）。用户验收/拍板原话追加 .taskflow/<id>/confirmations.jsonl——
    accept --pass 与 mergegate(verifying) 的机械前置（缺回执=拒绝翻转）。 */
 function confirmCmd(args = []) {
-  const id = args.find((a) => !String(a).startsWith('--'));
+  const id = firstPositional(args);
   let note = '', briefingHash = null;
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--note') note = String(args[++i] ?? '');
