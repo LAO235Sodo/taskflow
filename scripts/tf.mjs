@@ -40,7 +40,7 @@ import { detectHost, usagePath, planScanDirs, guardTargets, redlineFile, canaryC
 // ── v3.0.0 全局数据根（F02）：TF_TASKFLOW_HOME 可移植覆盖，缺省 ~/.local/state/taskflow（XDG 风格，宿主中立）。
 //    全局注册表（L0 projects.json）与未来全局态一律住这里；旧 ~/.config/opencode/taskflow/ 首触达单向迁移（不删原文件）。
 const TF_HOME = process.env.TF_TASKFLOW_HOME || path.join(os.homedir(), '.local', 'state', 'taskflow');
-const LEGACY_L0_DIR = path.join(os.homedir(), '.config', 'opencode', 'taskflow');
+const LEGACY_L0_DIR = process.env.TF_LEGACY_L0 || path.join(os.homedir(), '.config', 'opencode', 'taskflow'); // TF_LEGACY_L0=测试缝（迁移路径可夹具化——五轮变异审查：该路径曾整体不可测）
 // L0 注册表路径 + 一次性迁移（cp 不 mv：旧路径只读保留，README 注明废弃）。
 function l0RegistryPath() {
   const tgt = path.join(TF_HOME, 'projects.json');

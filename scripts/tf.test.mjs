@@ -2334,6 +2334,14 @@ try {
   ok(ov2.status === 0 && /两两不相交/.test(ov2.stdout), 'v2.59.0 DISPATCH_OVERLAP：写集不相交 → ✓ 可按场景① 并行（exit 0）');
   const ov3 = run(['overlap', 'mv-t2-20260101'], mgRepo);
   ok(ov3.status === 0 && /无子任务可查/.test(ov3.stdout), 'v2.59.0 DISPATCH_OVERLAP：无子任务 → ℹ 幂等路径 exit 0');
+  // 五轮变异审查（幸存者 L2496）：恰 2 个可机读子任务=最常见形态——sets.length < 2 边界不得把 2 误判「无可比交集」
+  const ovDir2 = path.join(mgRepo, '.taskflow', 'mv-t2-20260101', 'subtasks');
+  fs.mkdirSync(path.join(ovDir2, '1-a'), { recursive: true });
+  fs.mkdirSync(path.join(ovDir2, '2-b'), { recursive: true });
+  fs.writeFileSync(path.join(ovDir2, '1-a', 'spec.md'), '# S1\n\n## 涉及文件\n\n- `src/z.ts`（改）\n');
+  fs.writeFileSync(path.join(ovDir2, '2-b', 'spec.md'), '# S2\n\n## 涉及文件\n\n- `src/z.ts`（也改）\n');
+  const ov2sets = run(['overlap', 'mv-t2-20260101'], mgRepo);
+  ok(ov2sets.status === 1 && /1-a × 2-b/.test(ov2sets.stdout), '五轮审查 overlap：恰 2 个机读子任务共享文件 → 照常点名重叠对（边界 < 2 不吞 2——变异测试幸存位）');
   // ---- v2.59.0 审查自证回归：stale 对已并入 main 的任务 ℹ 跳过（必修①）+ 无机读声明 ℹ 防假绿（加固③）----
   sh('git merge -q --no-ff task/mv-t1-20260101 -m merge-mv-t1', mgRepo);
   const stAnc = run(['stale', 'mv-t1-20260101'], mgRepo);
@@ -3549,6 +3557,16 @@ try {
     ok(lkA.status === 0 && lkB.status === 0, '2.89.0 分级行前提：三门绿授锁成功（两档位均 exit 0）');
     ok(lkA.stdout.includes('验证分级') && lkA.stdout.includes('③临时实例+干净数据副本') && lkA.stdout.includes('tier=self-contained，environments=single'), '2.89.0 分级行：self-contained+single → ③临时实例+干净数据副本（verify 原文+键值回显）');
     ok(lkB.stdout.includes('验证分级') && lkB.stdout.includes('②共享测试套') && !lkB.stdout.includes('③临时实例+干净数据副本') && !lkA.stdout.includes('②共享测试套'), '2.89.0 分级行行为差异：middleware-shared+dual → ②共享测试套，与 ③ 档互斥（同档案异值异行——映射读 schema x-deployment-grades）');
+    // 五轮变异审查（幸存者 L702）：minLength 边界两侧——恰达标放行、差一字符红。旧断言只钉红侧，'<'→'<=' 后 2 字符误红无人抓
+    writeRepoPj('self-contained', 'single', 'ab');
+    const lkMin = run(['lock', 'merge', '--task', 't7-lock-20260101', '--session', 'ses_89m'], repo);
+    run(['lock', 'merge', '--release', '--session', 'ses_89m'], repo);
+    ok(lkMin.status === 0 && lkMin.stdout.includes('验证分级') && !lkMin.stdout.includes('未过 schema 校验'), '五轮审查 schema minLength：恰 2 字符达标 → 放行且分级行照出（边界绿侧——变异测试幸存位）');
+    writeRepoPj('self-contained', 'single', 'a');
+    const lkShort = run(['lock', 'merge', '--task', 't7-lock-20260101', '--session', 'ses_89s'], repo);
+    run(['lock', 'merge', '--release', '--session', 'ses_89s'], repo);
+    ok(lkShort.stdout.includes('未过 schema 校验'), '五轮审查 schema minLength：1 字符占位 → 未过 schema 校验（分级行降级提示，不拦授锁）');
+    writeRepoPj('middleware-shared', 'dual', '跑 8082 共享套'); // 还原（后续夹具不感知本块边界实验）
     // ③ 变异负向（副本真跑）：删 schema → doctor 红；枚举单侧收窄 → doctor 与分级行双变（单源喂两端）
     const mutRoot = path.join(tmp, 'schema-mut-copy');
     fs.cpSync(repoRoot, mutRoot, { recursive: true, filter: (s) => !/\/\.git(\/|$)/.test(s) });
@@ -3620,6 +3638,23 @@ try {
     fs.appendFileSync(path.join(v3, '.taskflow', 'conventions.md'), '\n## 自定义小节\n- 用户拍的\n');
     const i2 = v3run(['init', '--host', 'none']);
     ok(i2.status === 0 && i2.stdout.includes('只补缺不覆盖') && fs.readFileSync(path.join(v3, '.taskflow', 'conventions.md'), 'utf8').includes('自定义小节'), 'v3 init 升级模式：补缺不覆盖既有内容');
+    // 五轮变异审查（幸存者 L69）：二次 init 不得重复注册——L0 注册表按 key 去重更新恰 1 行
+    const v3reg = JSON.parse(fs.readFileSync(path.join(v3home, 'projects.json'), 'utf8'));
+    ok(Array.isArray(v3reg.projects) && v3reg.projects.filter((p) => p?.key && p.key.includes('v3-chain')).length === 1, '五轮审查 L0 注册表：同项目重复 init/建档 → 恰 1 行（key 去重更新，不堆行——变异测试幸存位）');
+    // 五轮变异审查（幸存者 L49）：legacy→TF_HOME 单向迁移只在「legacy 在且目标缺」时发生；迁移后不得再翻写
+    {
+      const legHome = fs.mkdtempSync(path.join(tmp, 'leg-'));
+      const legDir = path.join(legHome, 'legacy-l0'); fs.mkdirSync(legDir);
+      fs.writeFileSync(path.join(legDir, 'projects.json'), JSON.stringify({ projects: [{ key: '/old/proj', root: '/old/proj', lastActiveAt: '2026-01-01T00:00:00Z' }] }));
+      const legTfHome = path.join(legHome, 'tfhome');
+      const m1 = runEnv(['init', '--host', 'none'], v3, { TF_TASKFLOW_HOME: legTfHome, TF_LEGACY_L0: legDir });
+      const reg1 = JSON.parse(fs.readFileSync(path.join(legTfHome, 'projects.json'), 'utf8'));
+      const oldKept = reg1.projects.some((p) => p.key === '/old/proj');
+      const reg1Rows = JSON.stringify(reg1.projects.length);
+      const m2 = runEnv(['init', '--host', 'none'], v3, { TF_TASKFLOW_HOME: legTfHome, TF_LEGACY_L0: legDir });
+      const reg2 = JSON.parse(fs.readFileSync(path.join(legTfHome, 'projects.json'), 'utf8'));
+      ok(m1.status === 0 && m2.status === 0 && oldKept && reg2.projects.filter((p) => p.key.includes('v3-chain')).length === 1 && reg2.projects.some((p) => p.key === '/old/proj'), `五轮审查 L0 迁移：legacy 单向搬入+old 行保留+新项目恰 1 行（迁移不重复触发/不丢旧行；首跑行数=${reg1Rows}——变异测试幸存位）`);
+    }
     // new：mirror-precedent 类型裁剪 + worktree + spec 渲染
     const n1 = v3run(['new', '镜像任务', '--tier', 'small', '--type', 'mirror-precedent']);
     const v3id = '镜像任务-' + new Date().toISOString().slice(0, 10).replace(/-/g, '');
@@ -3829,6 +3864,21 @@ try {
     ok(dotNew.status === 0 && fs.existsSync(path.join(aproj, '.taskflow', 'task-' + new Date().toISOString().slice(0, 10).replace(/-/g, ''))) && !fs.readdirSync(path.join(aproj, '.taskflow')).some((d) => /^\.[-]|^\.\./.test(d)), '四轮审查 new：纯点标题 slug 落 task-YYYYMMDD（不产隐藏目录 ..-YYYYMMDD）');
     const cpFlagFirst = arun(['checkpoint', '--note', 'flags 在前', sepId]);
     ok(cpFlagFirst.status === 0 && JSON.parse(fs.readFileSync(path.join(aproj, '.taskflow', sepId, 'task.json'), 'utf8')).checkpoints.some((c) => c.summary === 'flags 在前'), '四轮审查 checkpoint：flags 在前时 note 值不被当任务 id（全命令族位置参数提取统一走 firstPositional）');
+    // 五轮变异审查（幸存者 L3610）：rollback 的 revert 冲突红路必须 exit 1 + 点名停下——安全路径退出码不得静默转绿
+    {
+      arun(['new', '回退冲突任务', '--tier', 'small']);
+      const cfId = '回退冲突任务-' + new Date().toISOString().slice(0, 10).replace(/-/g, '');
+      const cfWt = JSON.parse(fs.readFileSync(path.join(aproj, '.taskflow', cfId, 'task.json'), 'utf8')).worktree;
+      fs.writeFileSync(path.join(cfWt, 'conflict.txt'), 'branch\n');
+      sh('git add -A && git commit -qm cf', cfWt);
+      fs.writeFileSync(path.join(aproj, 'conflict.txt'), 'main-different\n'); // main 同文件异内容
+      sh('git add -A && git commit -qm main-cf', aproj);
+      sh('git merge main || true', cfWt); // main 变更进分支历史（冲突待解）
+      fs.writeFileSync(path.join(cfWt, 'conflict.txt'), 'merged-third\n');
+      sh('git add -A && git commit -qm merge-resolve', cfWt); // 分支 tip=合并解决版——revert 旧提交必冲突
+      const rbCf = arun(['rollback', cfId]);
+      ok(rbCf.status === 1 && rbCf.stdout.includes('冲突'), '五轮审查 rollback：revert 冲突 → exit 1 停下人工处置（退出码红路——变异测试幸存位）');
+    }
     // 修复②：渲染出的 shell 门红退出落 gate-hits 台账（F34 全门族覆盖）
     arun(['mech', 'install', '决策组合门', '--yes']);
     const clP2 = path.join(aproj, 'docs', 'CHANGELOG.md');
