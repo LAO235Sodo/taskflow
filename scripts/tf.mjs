@@ -3518,6 +3518,11 @@ function newCmd(args = []) {
   if (worktree) console.log(`  worktree：${worktree}（分支 ${branch}，基线 ${baseBranch}）——所有改动在该目录进行`);
   console.log(`  档案：${path.join(tasksDir, id)}（task.json + spec.md 已渲染）`);
   console.log('下一步：worktree 内开工 → node tf.mjs checkpoint ' + id + ' --note "<一句话>" 首存档（首存前 spec「边界与影响面」节须非空=理解重述痕）');
+  // 宿主防护层呈报（v3.2.0 自 claude 线移植，TASKFLOW_GUARD 延迟初始化——对齐 STYLE_SOURCE_GATE/APP_PAGE_BASELINE 模式）：
+  // host=omp 且未采纳且未拒 → 打印一次启用指引；装/拒后本行自动消失（编排层按 new-task.md 第 8 步呈报条款一次一问代跑）。
+  if (HOST === 'omp' && !pj.mechanisms?.TASKFLOW_GUARD && !(Array.isArray(prof.mech_declined) && prof.mech_declined.includes('TASKFLOW_GUARD'))) {
+    console.log('ℹ 本项目未采纳宿主防护层 TASKFLOW_GUARD（omp 宿主 16 项语义：状态栏常显/危险命令拦截/压缩接力注入等——流程纪律模型绕得过，门绕不过，细则 packs/host-adapters/PACK.md）。呈编排层一次一问：装 → node tf.mjs mech install TASKFLOW_GUARD --yes（装完 TF_HOST=omp node tf.mjs canary 验通道）；不装 → node tf.mjs mech decline TASKFLOW_GUARD（永不再问）');
+  }
   return 0;
 }
 
@@ -3554,9 +3559,19 @@ function checkpointCmd(args = []) {
   console.log(`✓ 已存档：${id} 第 ${j.checkpoints.length} 笔（${commit ? `${commit.slice(0, 7)} ` : '无分支提交 '}"${note.trim()}"）${rc ? '｜conventions 回执已落痕' : '｜⚠ 无 conventions.md（先跑 init 补齐）'}`);
   if (!(j.checkpoints ?? []).some((_, i) => i) || j.checkpoints.length === 1) {
     const specText = fs.existsSync(path.join(dir, 'spec.md')) ? fs.readFileSync(path.join(dir, 'spec.md'), 'utf8') : '';
-    const m = specText.match(/^#{1,6}\s*边界与影响面\s*$([\s\S]*?)(?=^#{1,6}\s|\n*$)/m);
-    const body = m ? m[1].replace(/<!--[\s\S]*?-->/g, '').trim() : '';
-    if (!body) console.log('⚠ 黄牌（F33）：首个 checkpoint 但 spec「边界与影响面」节为空——理解重述痕缺失；按模板补节（对象/范围/预期行为）再继续');
+    // 节体捕获（v3.2.0 自 claude 线移植）：旧 lookahead `\n*$` 在 multiline `$`（任意行尾）语义下命中表头后空行即提前收空捕获——
+    // 模板渲染产物表头后标准带空行 = 恒误报黄牌（dogfood 实证）。改为捕获到下一表头或串尾。
+    const secRe = /^#{1,6}\s*边界与影响面\s*\n([\s\S]*?)(?=^#{1,6}\s|(?![\s\S]))/m;
+    const strip = (s) => (s ?? '').replace(/<!--[\s\S]*?-->/g, '').trim();
+    const body = strip((specText.match(secRe) ?? [])[1]);
+    // 「空」判定升级为模板字节比对：节体与渲染模板逐字节等价 = 未重述（原实现靠误报歪打正着覆盖此语义）；
+    // 模板不可达（技能仓不在场）→ 退回非空判定。
+    let tmplBody = '';
+    try {
+      const tmpl = fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'templates', 'spec.md'), 'utf8');
+      tmplBody = strip((tmpl.match(secRe) ?? [])[1]);
+    } catch { /* 模板缺失 → 退回纯非空判定 */ }
+    if (!body || (tmplBody && body === tmplBody)) console.log('⚠ 黄牌（F33）：首个 checkpoint 但 spec「边界与影响面」节未重述（与模板原文一致或为空）——理解重述痕缺失；按模板补节（对象/范围/预期行为）再继续');
   }
   console.log(`下一步：继续施工（commit --files 声明范围）｜中断收尾 node tf.mjs checkpoint ${id} --note "收尾"｜完成走 merge 流程（merge.md）`);
   return 0;
@@ -3772,7 +3787,7 @@ const COMMANDS = [
   { name: 'archive', usage: `  node tf.mjs archive [task-id]            死档案归层：merged/archived → archive/（journal 三件套归位；活任务拒动；幂等；输出可复制的续迭代入口句）`, run: (rest) => archiveCmd(rest) },
   { name: 'svc', usage: `  node tf.mjs svc ls                       服务端口租约清单：端口/服务/任务/会话/pid + 活性标注 live/pid未登记/stale（orphan 为独立后缀，复合态并列）（只读）\n  node tf.mjs svc claim <service> --port <p> [--task <id>] [--session <ses>] [--pid <pid>] [--note <注记>]  声明端口：空闲→登记；被占→拒绝+报告占用者+建议让位（绝不 kill）；同 task 重跑→补登/回收死租约（簿记写入口）\n  node tf.mjs svc release <port>           释放端口租约（停服动作归编排层；不在册拒绝；簿记写入口）`, run: (rest) => svcCmd(rest) },
   { name: 'lint', usage: `  node tf.mjs lint                         流程文档自检：步骤引用/编号连续/兼容标注/闸门关键词/未入库引用/机制触点可达/机制fixture落痕/事实禁改写/模板中性/挂接对账（只读）`, run: (rest) => lintCmd(rest) },
-  { name: 'mech', usage: `  node tf.mjs mech ls                      机制采纳清单：token/状态（已装/可装/漂移）+ 产物（只读；真相源=机制登记表「采纳产物」列）\n  node tf.mjs mech check                   机制采纳对账：每机制 token/已装版本/当前版本/状态（一致|漂移|未装）；声明采纳者有漂移 → exit 1（统一谓词，doctor 采纳对账同源；只读）\n  node tf.mjs mech install <token> [--yes] 机制生成安装：assets/harness+design 模板渲染入项目（assetExts 注入）+ docs/CHANGELOG.md 建档锚点 + conventions/AGENTS 补记 + project.json.mechanisms 登记（簿记写入口；幂等；CI 挂点只建议不自动改——经确认门写入）。确认闸（v2.65.0）：已装版本漂移刷新或将整文件覆盖已有文件 → 拒绝落盘并打印将覆盖文件清单，显式 --yes 才执行；首装空位不拦（懒加载，首装确认归 DEP_ASK_GATE 呈报流程）`, run: (rest) => mechCmd(rest) },
+  { name: 'mech', usage: `  node tf.mjs mech ls                      机制采纳清单：token/状态（已装/可装/漂移）+ 产物（只读；真相源=机制登记表「采纳产物」列）\n  node tf.mjs mech check                   机制采纳对账：每机制 token/已装版本/当前版本/状态（一致|漂移|未装）；声明采纳者有漂移 → exit 1（统一谓词，doctor 采纳对账同源；只读）\n  node tf.mjs mech install <token> [--yes] 机制生成安装：assets/harness+design 模板渲染入项目（assetExts 注入）+ docs/CHANGELOG.md 建档锚点 + conventions/AGENTS 补记 + project.json.mechanisms 登记（簿记写入口；幂等；CI 挂点只建议不自动改——经确认门写入）。确认闸（v2.65.0）：已装版本漂移刷新或将整文件覆盖已有文件 → 拒绝落盘并打印将覆盖文件清单，显式 --yes 才执行；首装空位不拦（懒加载，首装确认归 DEP_ASK_GATE 呈报流程）\n  node tf.mjs mech decline <token>            拒绝安装呈报落痕：profile.json mech_declined 永不再提示（幂等；手动 mech install 不受影响；v3.2.0）`, run: (rest) => mechCmd(rest) },
 ];
 const USAGE_FOOTER = `  环境变量 TF_STATUS=<off|warn|enforce>    守门 J 状态翻转墙档位（v2.69.0；缺省 enforce——手改 task.json/index.json 的 status 物理拦截，翻转唯一写路径是扳机命令，档案修复走 reconcile --fix；off=单次豁免）
   环境变量 TF_VERIFY_WARN=off              关闭守门 K 验收期提醒（v2.69.0；git push/merge 时在档等验收任务的时序核对提醒，缺省开，提醒不拦）
@@ -3959,6 +3974,19 @@ function mechCmd(args = []) {
   const pjPath = path.join(tasksDir, 'project.json');
   const pj = fs.existsSync(pjPath) ? readJson(pjPath) : null;
   const nowIso = new Date().toISOString();
+  if (sub === 'decline') { // v3.2.0 自 claude 线移植，延迟初始化呈报的拒绝落痕：profile.json mech_declined——呈报永不再问；手动 install 不受影响
+    const token = args[1];
+    if (!token) { console.log('用法：node tf.mjs mech decline <token>——记录「安装呈报永不提示」（落 profile.json mech_declined；手动 mech install 不受影响）'); return 1; }
+    const profP = path.join(tasksDir, 'profile.json');
+    const prof = readJson(profP) ?? {};
+    const list = Array.isArray(prof.mech_declined) ? prof.mech_declined : [];
+    if (list.includes(token)) { console.log(`已记录过：${token} 在 profile.mech_declined（幂等未重复写）`); return 0; }
+    prof.mech_declined = [...list, token];
+    fs.mkdirSync(tasksDir, { recursive: true });
+    fs.writeFileSync(profP, JSON.stringify(prof, null, 2) + '\n');
+    console.log(`✓ 已记录「${token}」安装呈报不再提示（profile.json mech_declined）；手动 mech install ${token} 仍可随时启用`);
+    return 0;
+  }
   if (sub === 'check') { // 统一采纳对账出口（v2.65.0）：与 doctor 采纳对账同谓词同结论——检测单点，doctor 只渲染消息
     console.log('# taskflow 机制采纳对账（统一谓词，doctor 采纳对账同源）');
     console.log(`项目：${mainRoot}`);

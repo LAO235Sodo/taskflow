@@ -3674,6 +3674,40 @@ try {
     ok(c1t.checkpoints.length === 1 && c1t.checkpoints[0].summary === '首存' && c1t.checkpoints[0].files.includes('a.md'), 'v3 checkpoint：checkpoints[] 条目含 note/files');
     ok(c1t.conventions?.readAt && /^[0-9a-f]{16}$/.test(c1t.conventions.hash ?? ''), 'v3 checkpoint：conventions 回执 {readAt,hash} 落 task.json（F35 落痕）');
     ok(c1.stdout.includes('黄牌') && c1.stdout.includes('边界与影响面'), 'v3 checkpoint 首存黄牌：spec「边界与影响面」空 → 提醒不阻断（F33）');
+    // F33 修复锁定（v3.2.0 自 claude 线移植）：表头后带空行 + 实填内容 → 不再误报黄牌（旧 lookahead `\n*$` 空行即收空捕获）；
+    // 模板未编辑（节体与渲染模板逐字节等价）→ 仍黄牌（「未重述」语义由模板比对承接，非靠误报）
+    const n2 = v3run(['new', '边界重述样例', '--tier', 'small', '--no-worktree']);
+    const v3id2 = '边界重述样例-' + new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    const spec2P = path.join(v3, '.taskflow', v3id2, 'spec.md');
+    ok(n2.status === 0 && fs.existsSync(spec2P), 'v3 new 第二任务：建档落盘（F33 修复夹具）');
+    const spec2 = fs.readFileSync(spec2P, 'utf8');
+    const filled = spec2.replace(/(##\s*边界与影响面\s*\n)[\s\S]*?(?=\n## )/, '$1\n- **改动的共享资产**：`scripts/harness/validate-demo.sh`（反向依赖：收尾验证链）\n- **明确不做**（负面清单）：不动模板其余节与既有使用方行为\n');
+    fs.writeFileSync(spec2P, filled);
+    const c2 = v3run(['checkpoint', v3id2, '--note', '首存', '--files', 'a.md']);
+    ok(c2.status === 0 && !c2.stdout.includes('黄牌'), 'v3 checkpoint 首存：实填边界节（表头后带空行）→ 无黄牌（F33 空行误报修复锁定）');
+    // 宿主防护层延迟初始化呈报（v3.2.0 自 claude 线移植）：new 触发、decline 落痕、幂等、拒后静默
+    const repoH2 = path.join(tmp, 'repoH2');
+    fs.mkdirSync(repoH2, { recursive: true });
+    sh('git init -q -b main && git config user.email t@t.local && git config user.name t && echo ".taskflow/" >> .git/info/exclude', repoH2);
+    sh('echo x > f.txt && git add -A && git commit -qm init', repoH2);
+    fs.mkdirSync(path.join(repoH2, '.taskflow'), { recursive: true });
+    const nowH = new Date().toISOString();
+    const JH = (o) => JSON.stringify(o, null, 2);
+    fs.writeFileSync(path.join(repoH2, '.taskflow', 'project.json'), JH({ key: 'sandbox/repoH2', name: 'repoH2', repoRoot: repoH2, remote: null, git: true, createdAt: nowH, lastActiveAt: nowH }));
+    fs.writeFileSync(path.join(repoH2, '.taskflow', 'profile.json'), JH({ confirm_tier: 'detailed', host: 'auto' }));
+    const runH2 = (args) => spawnSync('node', [script, ...args], { cwd: repoH2, encoding: 'utf8', env: { ...process.env, TF_HOST: 'omp', TF_TASKFLOW_HOME: TF_HOME_TEST } });
+    const nH = runH2(['new', '呈报触发样例', '--tier', 'small', '--no-worktree']);
+    ok(nH.status === 0 && nH.stdout.includes('未采纳宿主防护层 TASKFLOW_GUARD') && nH.stdout.includes('mech decline'), '防护层呈报：new 在 host=omp 未采纳未拒时打印启用指引');
+    const dec1 = runH2(['mech', 'decline', 'TASKFLOW_GUARD']);
+    const profH2 = JSON.parse(fs.readFileSync(path.join(repoH2, '.taskflow', 'profile.json'), 'utf8'));
+    ok(dec1.status === 0 && Array.isArray(profH2.mech_declined) && profH2.mech_declined.includes('TASKFLOW_GUARD'), '防护层呈报：decline 落 profile.mech_declined（簿记写入口）');
+    const dec2 = runH2(['mech', 'decline', 'TASKFLOW_GUARD']);
+    const profH2b = JSON.parse(fs.readFileSync(path.join(repoH2, '.taskflow', 'profile.json'), 'utf8'));
+    ok(dec2.status === 0 && profH2b.mech_declined.filter((t) => t === 'TASKFLOW_GUARD').length === 1, '防护层呈报：decline 幂等（不重复写）');
+    const nH2 = runH2(['new', '呈报静默样例', '--tier', 'small', '--no-worktree']);
+    ok(nH2.status === 0 && !nH2.stdout.includes('未采纳宿主防护层'), '防护层呈报：拒后 new 不再提示（永不再问合同）');
+    const decBad = runH2(['mech', 'decline']);
+    ok(decBad.status === 1 && decBad.stdout.includes('用法'), '防护层呈报：decline 缺 token → 用法提示 exit 1');
     // rollback：分支无提交 → 无可回滚物报告
     const rb0 = v3run(['rollback', v3id]);
     ok(rb0.status === 0 && rb0.stdout.includes('无可回滚物'), 'v3 rollback：基线后零提交 → 报告无可回滚物');

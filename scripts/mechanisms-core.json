@@ -295,6 +295,22 @@
       "products": [],
       "fixture": "tf.test.mjs",
       "plain": "发版打包成一条链：改完代码写好 CHANGELOG 顶条目后一条命令完成版本写入、校验、提交、打标签与推送"
+    },
+    {
+      "token": "多假设排序",
+      "name": "多假设排序",
+      "def": "references/testing.md「诊断六步」第 4 步",
+      "touch": [
+        "testing.md",
+        "entry-routes.md",
+        "new-task.md",
+        "merge.md",
+        "templates/spec.md",
+        "templates/glossary.md"
+      ],
+      "products": [],
+      "fixture": "—（prose 门：判定归编排层，lint 触点可达承载）",
+      "plain": "修 bug 动手前先列 2~5 个带可证伪预测的可能原因，排序呈报用户再逐个验证，结论回填 spec「假设清单」表——单假设禁直接出方案，防止锁死在第一个看着最合理的解释上"
     }
   ]
 }

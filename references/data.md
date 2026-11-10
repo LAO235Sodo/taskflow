@@ -250,6 +250,6 @@ subtask status 取值：`pending` / `in_progress` / `done` / `blocked`。
 
 ## profile.json（L1，v3.0.0）
 
-- 项目 profile：`confirm_tier`（detailed|batch，模型禁自改）、`host`（auto|omp|opencode|claude|none）、`deploy_form`（none|jar|generic）、`packs`（六包启用态——未启用的包连一行都不加载）、`carriers`（五载体拍板 decision + installed 名单）、`task_types`（任务类型一等公民：裁剪 spec 节 + 禁用包门族，如 mirror-precedent）、`unified_sources`（统一源路径登记）。建档/resume/merge/checkpoint 四触点必读；由 `tf.mjs init` 渲染/升级（SCAFFOLD）。
+- 项目 profile：`confirm_tier`（detailed|batch，模型禁自改）、`host`（auto|omp|opencode|claude|none）、`deploy_form`（none|jar|generic）、`packs`（六包启用态——未启用的包连一行都不加载）、`carriers`（五载体拍板 decision + installed 名单）、`task_types`（任务类型一等公民：裁剪 spec 节 + 禁用包门族，如 mirror-precedent；含缺陷修复行为的类型白名单必须含「假设清单」——漏登记 = 节被脚手架剪掉、多假设排序门失效（v3.2.0 自 claude 线移植））、`unified_sources`（统一源路径登记）。建档/resume/merge/checkpoint 四触点必读；由 `tf.mjs init` 渲染/升级（SCAFFOLD）。
 
 机制机器注册表住 references/schemas/mechanisms.json（node scripts/gen-mechanisms.mjs 生成，doctor I20 对账）——机制登记表已退役。
