@@ -15,6 +15,10 @@
 //      值出枚举/verify 占位 = 硬拦（三键必须经用户确认：禁默认值、禁照抄示例、未答不落盘；理由话术中的合法值
 //      由 mech install 渲染期从 schema 真身注入的 DEPLOYMENT_ENUMS 生成——单源，模板零枚举抄写；注入失败降级
 //      只提醒不判值）——触发写 .taskflow/.guard-log.jsonl（TF_GUARD_LOG=off 关）
+//   领域提示门（v3.3.0 自 claude 线提示门语义移植）：tool_call(edit/write)——命中领域硬信号（扩展名/测试文件名形态）注入
+//      「领域提示+映射技能清单+机械在场检测」——domain.md 领域映射从纪律层落到事件注入层；每会话每领域去重一次
+//      （.taskflow/.hint-state.json 24h 修剪）；流水 gate=domain-hint（ses= 键，tf.mjs hint-stats 消费）；TF_HINT=off 关；
+//      永不 deny/ask、fail-open 吞错静默（与硬门本质分界：注入是提醒不是执行）
 //   牵连排查+数据边界提醒（v2.72.0；v2.76.0 检索与文案修正）：tool_call(edit/write)——普通源码文件两检查
 //      （.taskflow/ 档案走状态翻转墙/编辑边界门不归这）：①牵连排查主名整词检索（去扩展名，.vue 例外）代码文件命中数 ≥
 //      TF_IMPACT_THRESHOLD（缺省 3；文档散文提及不计、泛名不弹）→ 提醒呈报须含影响面清单（可跑 tf.mjs impact）；
@@ -61,6 +65,7 @@ export const GATE_MANIFEST = [
   { feature: 'V', name: '档案删除告警', events: 'tool_call（bash）', envs: ['TF_RM_WARN'], gate: 'archive-rm', what: 'rm 触及 .taskflow/ 任务档案=不可逆删除风险 → 告警档提醒（TF_RM_WARN=enforce 硬拦/off 关，缺省 warn；任务档案是跨会话账本，rm 删了没有 undo）' },
   { feature: 'DP', name: 'deployment 落档校验', events: 'tool_call（edit/write）', envs: [], gate: 'deployment-profile', what: '写 project.json 带 deployment 键 → 值出枚举/verify 占位=硬拦（三键须用户确认，禁照抄示例；理由话术的合法值由 mech install 渲染期注入的 DEPLOYMENT_ENUMS 生成——单源=schema 真身，注入失败降级只提醒不判值）' },
   { feature: 'W', name: '牵连排查+数据边界提醒', events: 'tool_call（edit/write）', envs: ['TF_IMPACT_THRESHOLD', 'TF_J19_WARN', 'TF_J20_WARN'], gate: 'impact,data-boundary', what: '普通源码文件两检查：①牵连排查主名整词命中 ≥TF_IMPACT_THRESHOLD（缺省 3）→ 提醒呈报须含影响面清单（TF_J19_WARN=off 关）；②数据管道特征 → 提醒枚举真空与失真形态（TF_J20_WARN=off 关）；纯提醒不拦、无 enforce 档' },
+  { feature: 'H', name: '领域提示门', events: 'tool_call（edit/write）', envs: ['TF_HINT'], gate: 'domain-hint', what: '写文件命中领域硬信号（.vue/.java/.py 等扩展名+测试文件名形态）→ 注入「领域提示+映射技能清单（DOMAIN_SKILLS 渲染期内联 skills-registry.json）+机械在场检测（node <技能仓>/scripts/tf.mjs skills <领域词>）」——领域→技能映射从纪律层落到事件注入层；每会话每领域去重一次，永不拦截只注入（TF_HINT=off 关）' },
   { feature: 'T', name: '技能加载埋点', events: 'tool_call（read）', envs: [], gate: null, what: 'skill:// 加载计数入全局 skill-usage.jsonl（不受 guardOn 闸控，零内容仅计数，供 tf.mjs skills --usage 报表；handler 整体吞错——omp hook fail-closed）' },
   { feature: 'E', name: '输出规范注入', events: 'before_provider_request', envs: [], gate: null, what: '每轮把「双层输出规范+项目词表」前置进请求（system 角色消息；Anthropic 形传输回落 payload.system）——非 taskflow 会话也有叙事体+结构化底线；词表活读（.taskflow/glossary.md），词条改写下一轮即生效' },
   { feature: 'U', name: '状态引导注入', events: 'before_provider_request', envs: ['TF_STATE_INJECT'], gate: 'state-inject', what: '每轮把状态机「下一步动作+禁令」与 active 任务未完成子任务清单前置进请求（system 角色消息；TF_STATE_INJECT=off 关）——治长会话指令稀释，规则遵循从「模型记得」降为「宿主每轮重放」' },
@@ -84,6 +89,10 @@ import { injectPrepend, sessIdOf, inSessionMark } from '../../../../assets/share
 // mech install 渲染期把 __DEPLOYMENT_ENUMS__ 替换为 schema 枚举字面量——模板零枚举抄写。typeof 守卫使未注入的
 // 模板原样（tf.mjs 静态 import 本文件）安全求值为 null → 降级「只提醒确认纪律不判值」，绝不本地造第二份枚举。
 const DEPLOYMENT_ENUMS = typeof __DEPLOYMENT_ENUMS__ === 'object' && __DEPLOYMENT_ENUMS__ !== null ? __DEPLOYMENT_ENUMS__ : null;
+// 领域提示门（v3.3.0）渲染期注入：__DOMAIN_SKILLS__={领域词:[技能id...]}（真源=scripts/skills-registry.json，mech install 渲染内联）；
+// __SKILL_CLI__=技能仓 scripts/tf.mjs 绝对路径（在场检测 spawn 用）。typeof 守卫使未渲染模板（tf.mjs 静态 import 本文件）安全降级。
+const DOMAIN_SKILLS = typeof __DOMAIN_SKILLS__ === 'object' && __DOMAIN_SKILLS__ !== null ? __DOMAIN_SKILLS__ : {};
+const SKILL_CLI = typeof __SKILL_CLI__ === 'string' ? __SKILL_CLI__ : '';
 
 // deployment 节片段提取：整体 JSON 可解析则直取；edit 片段从 "deployment": { 起括号配对截取再解析
 //（解析失败返回 null → 本 handler 零干扰，fail-open 交 doctor/schema 校验兜底——弹脸是快门不是唯一防线）
@@ -772,6 +781,60 @@ function vObligation(dir) {
   // 编辑前磁盘内容恰在引入时刻不弹；注释行剔除）→ 提醒枚举真空与失真形态。纯提醒不拦：TF_J19_WARN / TF_J20_WARN
   // 各自 off 关闭，缺省 warn、无 enforce 档——定位是「提醒必达」不是墙。同一调用两提醒合并一条 additionalContext（换行分隔）。
   // 性能纪律：检索走 git grep -w（tracked+未忽略；node_modules/.git 天然排除），内容只读首 500+尾 200 行做特征探测。
+  // H 领域提示门（v3.3.0 自 claude 线提示门语义移植）：edit/write 命中领域硬信号 → additionalContext 注入「领域提示 +
+  // 映射技能清单 + 机械在场检测（node <技能仓>/scripts/tf.mjs skills <领域词>）」——domain.md「领域→技能映射」从 L0
+  // 纪律层落到 L1 事件注入层（omp 无 PostToolUse「工具结果旁」通道，注入走 additionalContext 与其余提醒同路）。
+  // 去重每会话（sessIdOf）每领域一次（.taskflow/.hint-state.json，24h 会话修剪，状态失败=可能重复注入一次可容忍）；
+  // 流水 gate=domain-hint 落 .guard-log.jsonl（detail 首段=领域名、ses= 键——tf.mjs hint-stats 解析契约，勿改行格式）；
+  // TF_HINT=off 会话级关；永不 deny/ask、fail-open 吞错静默。挂 W（牵连排查）之前：W 恒末位（测试下标约定）。
+  const EXT_DOMAIN = { '.tsx': '前端UI', '.jsx': '前端UI', '.vue': '前端UI', '.svelte': '前端UI', '.css': '前端UI', '.scss': '前端UI', '.html': '前端UI', '.java': 'Java', '.kt': 'Kotlin', '.py': 'Python', '.js': 'Node', '.ts': 'Node', '.mjs': 'Node' };
+  const isTestFile = (b) => /Test\.java$/.test(b) || /Tests?\.kt$/.test(b) || /(^|[._-])(test|spec)([._-]|$)/i.test(b);
+  const hintSeen = (dir, ses, d) => { try { return !!JSON.parse(fs.readFileSync(path.join(dir, '.hint-state.json'), 'utf8'))?.sessions?.[ses]?.domains?.[d]; } catch { return false; } };
+  const hintMark = (dir, ses, d) => {
+    try {
+      const hp = path.join(dir, '.hint-state.json');
+      const now = Date.now();
+      let st = {};
+      try { st = JSON.parse(fs.readFileSync(hp, 'utf8')); } catch { /* 首次 */ }
+      st.sessions = st.sessions ?? {};
+      for (const k of Object.keys(st.sessions)) if (now - (st.sessions[k]?.ts ?? 0) > 86400000) delete st.sessions[k];
+      const e = st.sessions[ses] = st.sessions[ses] ?? { ts: now, domains: {} };
+      e.ts = now; e.domains[d] = true;
+      fs.writeFileSync(hp, JSON.stringify(st));
+    } catch { /* 状态失败静默=下次可能重复注入一次 */ }
+  };
+  pi.on('tool_call', async (event, ctx) => {
+    try {
+      if (!guardOn(ctx?.cwd)) return undefined;
+      if (process.env.TF_HINT === 'off') return undefined;
+      if (event.toolName !== 'edit' && event.toolName !== 'write') return undefined;
+      const raw = event.input?.path;
+      if (!raw || typeof raw !== 'string') return undefined;
+      if (/^[a-zA-Z][a-zA-Z0-9+.-]+:/.test(raw)) return undefined; // 协议地址（agent:// / xd:// 等）与牵连排查同款过滤
+      const dir = locateTasksDir(ctx?.cwd);
+      if (!dir) return undefined; // 零干扰边界
+      const abs = realPath(path.resolve(ctx?.cwd ?? process.cwd(), raw));
+      const base = path.basename(abs);
+      let domain = null;
+      if (isTestFile(base)) domain = '测试';
+      else for (const [ext, d] of Object.entries(EXT_DOMAIN)) if (base.endsWith(ext)) { domain = d; break; }
+      if (!domain) return undefined;
+      const ses = sessIdOf((() => { try { return ctx?.sessionManager?.getSessionFile?.(); } catch { return null; } })()) || 'default';
+      if (hintSeen(dir, ses, domain)) return undefined;
+      hintMark(dir, ses, domain);
+      let presence = '';
+      if (SKILL_CLI) {
+        try {
+          const out = execFileSync('node', [SKILL_CLI, 'skills', domain], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 15000 });
+          presence = out.trim().split('\n').slice(-3).join('｜');
+        } catch { /* 在场检测失败降级=只给映射清单 */ }
+      }
+      const ids = (DOMAIN_SKILLS[domain] ?? []).join('、') || '（注册表未登记——跑 node <技能仓>/scripts/tf.mjs skills <领域词> 按需补）';
+      guardLog(ctx?.cwd, 'domain-hint', 'inject', `${domain}（${base} 写入触发）｜ses=${ses}`);
+      return { additionalContext: `ℹ TASKFLOW_GUARD 领域提示门（每会话每领域一次）：本次写入命中「${domain}」领域硬信号（${base}）——映射技能：${ids}${presence ? `\n在场检测（tf.mjs skills ${domain}）：${presence}` : ''}\n语义确认归你按 domain.md 领域检测执行（本提醒=机械粗筛非判定，缺失技能按 DEP_ASK_GATE 呈用户选装）；TF_HINT=off 关闭本提醒。` };
+    } catch { return undefined; } // 提醒失败静默——hook fail-closed，绝不拦主流程
+  });
+
   // 挂 tool_call 末位：既有测试按 handlers['tool_call'] 下标定位 handler（0=bash/1=task/2=G 门/3=I 消账/4=T 埋点），追加不挪既有下标。
   pi.on('tool_call', async (event, ctx) => {
     try {

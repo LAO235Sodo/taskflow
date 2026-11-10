@@ -12,5 +12,5 @@
   "docs": "PACK.md",
   "fixtures": ["tf.test.mjs"],
   "touch": ["PACK.md", "references/entry-routes.md", "references/new-task.md"],
-  "plain": "宿主层的防护栏：状态栏常显任务进度、拦危险命令、压缩会话时自动带接力线索（仅 omp 宿主；其余宿主降级纯纪律档）"
+  "plain": "宿主层的防护栏：状态栏常显任务进度、拦危险命令、压缩会话时自动带接力线索，写文件命中领域硬信号时自动注入该领域映射技能提示与在场检测（仅 omp 宿主；其余宿主降级纯纪律档）"
 }

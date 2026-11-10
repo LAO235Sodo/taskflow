@@ -3428,7 +3428,7 @@ try {
     const guardMod = await import('file://' + path.join(repoRoot, 'packs', 'host-adapters', 'assets', 'guard', 'taskflow-guard.js'));
     const manifest = guardMod.GATE_MANIFEST;
     const mechRows = mech.stdout.split('\n').filter((l) => l.includes('｜开关：'));
-    ok(mech.status === 0 && Array.isArray(manifest) && manifest.length === 18, `2.85.0 T8 mechanisms：GATE_MANIFEST 注册表 18 项（实际 ${Array.isArray(manifest) ? manifest.length : '非数组'}）`);
+    ok(mech.status === 0 && Array.isArray(manifest) && manifest.length === 19, `2.85.0 T8 mechanisms：GATE_MANIFEST 注册表 19 项（实际 ${Array.isArray(manifest) ? manifest.length : '非数组'}）`);
     ok(mechRows.length === manifest.length, `2.85.0 T8 mechanisms：输出行数与 GATE_MANIFEST 一致（${mechRows.length}/${manifest.length}）`);
     ok(['状态翻转墙', '编辑边界门', '渲染证据墙', '牵连排查', '多假设排序弹脸', '状态引导注入', 'TF_STATUS', 'TF_BOUND', 'TF_V_WARN', 'TF_J01_WARN', 'TF_GUARD_LOG', 'TF_STATE_INJECT'].every((k) => mech.stdout.includes(k)), '2.85.0 T8 mechanisms：中文名与 TF_ 开关齐全');
     const gateOfRow = (l) => { const m = l.match(/gate=([^）]*)）/); return m ? m[1] : null; };
@@ -3773,6 +3773,15 @@ try {
     ompRun(['init', '--host', 'omp']);
     const og = ompRun(['mech', 'install', 'TASKFLOW_GUARD', '--yes']);
     ok(og.status === 0 && fs.existsSync(path.join(ompGuardProj, '.omp', 'hooks', 'pre', 'taskflow-guard.js')), 'v3 adapter host=omp：TASKFLOW_GUARD 照常渲染 .omp/hooks/pre');
+    // 提示门（v3.3.0 自 claude 线移植）：渲染期占位替换 + H 语义项在位 + hint-stats 审计聚合
+    const gr = fs.readFileSync(path.join(ompGuardProj, '.omp', 'hooks', 'pre', 'taskflow-guard.js'), 'utf8');
+    ok(!gr.includes('__DOMAIN_SKILLS__') && !gr.includes('__SKILL_CLI__') && gr.includes('"前端UI"') && gr.includes("gate: 'domain-hint'"), 'v3 提示门渲染：DOMAIN_SKILLS/SKILL_CLI 占位替换为注册表映射与技能 CLI 路径、H 语义项在位');
+    const gl = path.join(ompGuardProj, '.taskflow', '.guard-log.jsonl');
+    fs.appendFileSync(gl, JSON.stringify({ ts: '2026-11-10T01:00:00Z', gate: 'domain-hint', action: 'inject', detail: 'Java（A.java 写入触发）｜ses=aaaa1111' }) + '\n');
+    fs.appendFileSync(gl, JSON.stringify({ ts: '2026-11-10T02:00:00Z', gate: 'domain-hint', action: 'inject', detail: 'Java（B.java 写入触发）｜ses=bbbb2222' }) + '\n');
+    fs.appendFileSync(gl, JSON.stringify({ ts: '2026-11-10T03:00:00Z', gate: 'status-wall', action: 'block', detail: '干扰行' }) + '\n');
+    const hs = ompRun(['hint-stats']);
+    ok(hs.status === 0 && hs.stdout.includes('总注入：2 次') && hs.stdout.includes('Java×2') && hs.stdout.includes('会话（ses= 键在档的）：2 个'), 'v3 提示门审计：hint-stats 聚合（gate 过滤/领域分布/ses 跨会话计数）');
   }
   // I19/I20/I21 + 复发台账 + 门咬合台账
   {

@@ -4,7 +4,7 @@
 > 安装：`node <skill目录>/scripts/tf.mjs mech install TASKFLOW_GUARD`——**仅 omp 宿主**（adapter 检测）；其余宿主打印「本宿主无守门通道，已降级纯纪律档（conventions 红线 + doctor）」不落盘。
 > **延迟初始化呈报（v3.2.0 自 claude 线移植）**：用户不需要记得这条命令——`tf.mjs new` 在 host=omp 且未采纳且未拒时自动打印启用指引，编排层按 new-task.md 第 8 步呈报条款一次一问代跑（同意即装 + 金丝雀 `TF_HOST=omp node tf.mjs canary`；拒绝跑 `mech decline TASKFLOW_GUARD` 落 profile.mech_declined 永不再问）；装/拒后提示行自动消失。
 
-## guard 16 项语义（omp extension 住 `.omp/hooks/pre/taskflow-guard.js`）
+## guard 17 项语义（omp extension 住 `.omp/hooks/pre/taskflow-guard.js`）
 
 - **D 状态栏常显**：进行中N/等你验收M/已上线超24小时未合并K 常驻底栏（I16 持续可见性）；
 - **B 簿记校验**：`commit --files` 空格分隔多文件硬拦（逗号才对）；`deploy` 缺 `--web-only` 而项目配了 webCommands → 注入提醒；

@@ -728,6 +728,14 @@ function deploymentEnumLiteral(skillRoot) {
   if (!Array.isArray(d?.tier?.enum) || !Array.isArray(d?.environments?.enum)) return 'null';
   return JSON.stringify({ tier: d.tier.enum, environments: d.environments.enum, verifyMinLength: d.verify?.minLength ?? 2 });
 }
+function domainSkillsLiteral(skillRoot) { // 领域提示门（v3.3.0 自 claude 线移植）：skills-registry.json → {领域词:[技能id...]} 渲染内联（单源=注册表，缺失降级空映射）
+  try {
+    const reg = JSON.parse(fs.readFileSync(path.join(skillRoot, 'scripts', 'skills-registry.json'), 'utf8'));
+    const map = {};
+    for (const s of Array.isArray(reg?.skills) ? reg.skills : []) for (const d of Array.isArray(s?.domains) ? s.domains : []) (map[d] = map[d] ?? []).push(s.id);
+    return JSON.stringify(map);
+  } catch { return '{}'; }
+}
 
 /* ---------------- doctor：按不变量逐条体检（级别与条件触发出处：data.md 不变量表；I7/I8/I9/I10/I13/I14 提示级或条件触发，I11/I12 红级条件触发） ---------------- */
 
@@ -3135,6 +3143,37 @@ function mechanismsCmd() {
    治「注入面改动单测全绿但通道死」（2.84.1 实锤：E/U/V 三墙静默 no-op 19 天，单测夹具传假 payload 形状遮蔽通道死）：
    /tmp 夹具仓渲染守门副本 → 真实 omp -p 零工具提问 → 模型仅凭 system 注入答出 verifying 任务 id = 送达实证。
    omp 不在 PATH（spawnSync ENOENT）=跳过 exit 0（无 omp 环境合法）；答错/超时=⛔ exit 1 收尾红灯——禁只靠单测宣称注入生效。 */
+/* ---------------- hint-stats：提示门注入审计（v3.3.0 自 claude 线移植，只读恒 exit 0）----------------
+   数据源 = .taskflow/.guard-log.jsonl gate=domain-hint 注入流水（ses= 键入行）。
+   回答的问题：提示门实际触发了多少次、什么领域、跨几个会话——「提示→技能加载」转化的粗测需要
+   人力对照（对每个「感觉帮上了」的时刻记一笔实际加载），数据攒够再决定埋点立项。 */
+function hintStatsCmd() {
+  const { tasksDir } = locate();
+  const logP = path.join(tasksDir, '.guard-log.jsonl');
+  if (!fs.existsSync(logP)) { console.log('暂无注入流水（.taskflow/.guard-log.jsonl 不存在）——提示门需已安装（mech install TASKFLOW_GUARD）且 TF_GUARD_LOG 非 off；装了还没触发过 = 写个 .java/.vue 文件试试（新会话生效）'); return 0; }
+  const rows = [];
+  for (const l of fs.readFileSync(logP, 'utf8').split('\n')) {
+    if (!l.trim()) continue;
+    try { const j = JSON.parse(l); if (j.gate === 'domain-hint' && j.action === 'inject') rows.push(j); } catch { /* 坏行跳过 */ }
+  }
+  if (!rows.length) { console.log(`流水在档（守门日志 ${fs.readFileSync(logP, 'utf8').split('\n').filter((l) => l.trim()).length} 行）但尚无 domain-hint 注入——写个 .java/.vue 文件试试（新会话生效）`); return 0; }
+  const byDomain = {}; const byDay = {}; const sess = new Set();
+  for (const r of rows) {
+    const d = String(r.detail ?? '');
+    const dm = d.match(/^([^（|]+)/);
+    byDomain[dm ? dm[1].trim() : '?'] = (byDomain[dm ? dm[1].trim() : '?'] ?? 0) + 1;
+    byDay[String(r.ts ?? '').slice(0, 10)] = (byDay[String(r.ts ?? '').slice(0, 10)] ?? 0) + 1;
+    const sm = d.match(/ses=([0-9a-fA-F-]+)/);
+    if (sm) sess.add(sm[1]);
+  }
+  const days = Object.keys(byDay).sort();
+  console.log('# 提示门注入审计（只读；数据源 .guard-log.jsonl gate=domain-hint）');
+  console.log(`总注入：${rows.length} 次｜领域：${Object.keys(byDomain).length} 个｜会话（ses= 键在档的）：${sess.size} 个｜跨度：${days[0]} ~ ${days[days.length - 1]}`);
+  console.log(`按领域：${Object.entries(byDomain).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k}×${v}`).join('、')}`);
+  console.log(`按日：${days.slice(-10).map((d) => `${d.slice(5)}×${byDay[d]}`).join('、')}`);
+  console.log('人力对照法：注入次数（上表）≠ 加载次数——对「感觉帮上了」的时刻记一笔实际 Skill 加载，攒够数据再决定埋点立项。');
+  return 0;
+}
 function canaryCmd() {
   const bin = canaryCmdBin(HOST); // v3.0.0 经 adapter（F36）：omp→'omp'，其余宿主 null=无单轮通道，直接静默跳过不打印
   if (!bin) return 0;
@@ -3521,7 +3560,7 @@ function newCmd(args = []) {
   // 宿主防护层呈报（v3.2.0 自 claude 线移植，TASKFLOW_GUARD 延迟初始化——对齐 STYLE_SOURCE_GATE/APP_PAGE_BASELINE 模式）：
   // host=omp 且未采纳且未拒 → 打印一次启用指引；装/拒后本行自动消失（编排层按 new-task.md 第 8 步呈报条款一次一问代跑）。
   if (HOST === 'omp' && !pj.mechanisms?.TASKFLOW_GUARD && !(Array.isArray(prof.mech_declined) && prof.mech_declined.includes('TASKFLOW_GUARD'))) {
-    console.log('ℹ 本项目未采纳宿主防护层 TASKFLOW_GUARD（omp 宿主 16 项语义：状态栏常显/危险命令拦截/压缩接力注入等——流程纪律模型绕得过，门绕不过，细则 packs/host-adapters/PACK.md）。呈编排层一次一问：装 → node tf.mjs mech install TASKFLOW_GUARD --yes（装完 TF_HOST=omp node tf.mjs canary 验通道）；不装 → node tf.mjs mech decline TASKFLOW_GUARD（永不再问）');
+    console.log('ℹ 本项目未采纳宿主防护层 TASKFLOW_GUARD（omp 宿主 17 项语义：状态栏常显/危险命令拦截/压缩接力注入/领域提示门等——流程纪律模型绕得过，门绕不过，细则 packs/host-adapters/PACK.md）。呈编排层一次一问：装 → node tf.mjs mech install TASKFLOW_GUARD --yes（装完 TF_HOST=omp node tf.mjs canary 验通道）；不装 → node tf.mjs mech decline TASKFLOW_GUARD（永不再问）');
   }
   return 0;
 }
@@ -3788,6 +3827,7 @@ const COMMANDS = [
   { name: 'svc', usage: `  node tf.mjs svc ls                       服务端口租约清单：端口/服务/任务/会话/pid + 活性标注 live/pid未登记/stale（orphan 为独立后缀，复合态并列）（只读）\n  node tf.mjs svc claim <service> --port <p> [--task <id>] [--session <ses>] [--pid <pid>] [--note <注记>]  声明端口：空闲→登记；被占→拒绝+报告占用者+建议让位（绝不 kill）；同 task 重跑→补登/回收死租约（簿记写入口）\n  node tf.mjs svc release <port>           释放端口租约（停服动作归编排层；不在册拒绝；簿记写入口）`, run: (rest) => svcCmd(rest) },
   { name: 'lint', usage: `  node tf.mjs lint                         流程文档自检：步骤引用/编号连续/兼容标注/闸门关键词/未入库引用/机制触点可达/机制fixture落痕/事实禁改写/模板中性/挂接对账（只读）`, run: (rest) => lintCmd(rest) },
   { name: 'mech', usage: `  node tf.mjs mech ls                      机制采纳清单：token/状态（已装/可装/漂移）+ 产物（只读；真相源=机制登记表「采纳产物」列）\n  node tf.mjs mech check                   机制采纳对账：每机制 token/已装版本/当前版本/状态（一致|漂移|未装）；声明采纳者有漂移 → exit 1（统一谓词，doctor 采纳对账同源；只读）\n  node tf.mjs mech install <token> [--yes] 机制生成安装：assets/harness+design 模板渲染入项目（assetExts 注入）+ docs/CHANGELOG.md 建档锚点 + conventions/AGENTS 补记 + project.json.mechanisms 登记（簿记写入口；幂等；CI 挂点只建议不自动改——经确认门写入）。确认闸（v2.65.0）：已装版本漂移刷新或将整文件覆盖已有文件 → 拒绝落盘并打印将覆盖文件清单，显式 --yes 才执行；首装空位不拦（懒加载，首装确认归 DEP_ASK_GATE 呈报流程）\n  node tf.mjs mech decline <token>            拒绝安装呈报落痕：profile.json mech_declined 永不再提示（幂等；手动 mech install 不受影响；v3.2.0）`, run: (rest) => mechCmd(rest) },
+  { name: 'hint-stats', usage: `  node tf.mjs hint-stats                  提示门注入审计（v3.3.0 自 claude 线移植，只读恒 exit 0）：domain-hint 流水按领域/按日/会话分布——评估「提示→技能加载」转化的人力对照流水`, run: () => hintStatsCmd() },
 ];
 const USAGE_FOOTER = `  环境变量 TF_STATUS=<off|warn|enforce>    守门 J 状态翻转墙档位（v2.69.0；缺省 enforce——手改 task.json/index.json 的 status 物理拦截，翻转唯一写路径是扳机命令，档案修复走 reconcile --fix；off=单次豁免）
   环境变量 TF_VERIFY_WARN=off              关闭守门 K 验收期提醒（v2.69.0；git push/merge 时在档等验收任务的时序核对提醒，缺省开，提醒不拦）
@@ -4074,6 +4114,8 @@ function mechCmd(args = []) {
       if (!renderable.has(path.normalize(path.join(outSub, f)))) continue; // 注册表产物列未收（技能内门）→ 不渲染（D1，语义见上）
       let next = fs.readFileSync(path.join(aDir, f), 'utf8').replaceAll('__ASSET_EXTS__', exts);
       if (next.includes('__DEPLOYMENT_ENUMS__')) next = next.replaceAll('__DEPLOYMENT_ENUMS__', deploymentEnumLiteral(skillRoot));
+      if (next.includes('__DOMAIN_SKILLS__')) next = next.replaceAll('__DOMAIN_SKILLS__', domainSkillsLiteral(skillRoot));
+      if (next.includes('__SKILL_CLI__')) next = next.replaceAll('__SKILL_CLI__', JSON.stringify(path.join(skillRoot, 'scripts', 'tf.mjs')));
       next = inlineSharedDeps(next, skillRoot);
       const outP = path.join(oDir, f);
       const prev = fs.existsSync(outP) ? fs.readFileSync(outP, 'utf8') : null;
