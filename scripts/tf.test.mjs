@@ -23,6 +23,7 @@ const sh = (cmd, cwd) => execFileSync('bash', ['-c', cmd], { cwd, stdio: 'ignore
 // v3.0.0：env 隔离——TF_HOST=omp（守门/金丝雀类夹具的宿主面；host=none 分支用 runEnv 显式覆盖）、
 // TF_TASKFLOW_HOME 指临时目录（L0 注册表隔离，旧路径只读不动）
 const TF_HOME_TEST = path.join(tmp, 'tfhome');
+const DM_FIX = '# 部署影响清单\n\n## 部署服务清单\n\n| 服务 | 改了什么 | 影响了什么功能 | 部署形态 |\n| ---- | -------- | -------------- | -------- |\n| backend | 测试夹具改动 | 夹具功能 | jar |\n\n## 验收清单\n\n- [ ] ping 200\n'; // v3.4.0 部署影响清单门夹具（deploy 实跑路径夹具通用）
 const run = (args, cwd) => spawnSync('node', [script, ...args], { cwd, encoding: 'utf8', env: { ...process.env, TF_HOST: 'omp', TF_TASKFLOW_HOME: TF_HOME_TEST } });
 const runEnv = (args, cwd, env) => spawnSync('node', [script, ...args], { cwd, encoding: 'utf8', env: { ...process.env, TF_HOST: 'omp', TF_TASKFLOW_HOME: TF_HOME_TEST, ...env } });
 // 2.84.1 before_provider_request 真实 payload 形状（活体探针实测：{model, messages, stream, …}——无 system 键，
@@ -1732,6 +1733,7 @@ try {
   const pjDeploy = fs.existsSync(pjPath) ? JSON.parse(fs.readFileSync(pjPath, 'utf8')) : {};
   pjDeploy.deploy = { server: '127.0.0.1', statePath: '/tmp/live.json', jarPath: path.join(tmp, 'fake.jar'), commands: [`echo deployed-ok > ${tmp}/deployed.txt`] };
   fs.writeFileSync(path.join(tasksDir, 'project.json'), JSON.stringify(pjDeploy, null, 2) + '\n');
+  fs.writeFileSync(path.join(tasksDir, 'deploy-manifest.md'), DM_FIX); // v3.4.0 部署影响清单门：实跑路径必须带清单
   const stateOk2 = path.join(tmp, 'live-ok2.json');
   fs.writeFileSync(stateOk2, JSON.stringify({ schema: 'live-deploy-state/1', jar: { commit: mainSha, version: '0.0.0', branch: 'main' } }));
   const depDry = run(['deploy', '--branch', 'main', '--dry-run', '--state-file', stateOk2], repo);
@@ -3041,6 +3043,7 @@ try {
     fs.writeFileSync(path.join(d, 'a.txt'), 'a\n');
     sh('git add -A && git commit -qm init', d);
     fs.writeFileSync(path.join(d, '.taskflow', 'project.json'), J({ key: name, git: true, deploy: { server: '127.0.0.1', statePath: `/tmp/unused-${name}.json`, jarPath: '/tmp/does-not-matter.jar', jarProbe: `echo ${'c'.repeat(32)}`, commands: [`echo deployed-ok > ${tmp}/${name}-deployed.txt`] } }));
+    fs.writeFileSync(path.join(d, '.taskflow', 'deploy-manifest.md'), DM_FIX); // v3.4.0 部署影响清单门：实跑路径必须带清单
     fs.mkdirSync(path.join(d, 'scripts', 'harness'), { recursive: true });
     fs.copyFileSync(new URL('../packs/deploy/assets/harness/deploy-preflight.mjs', import.meta.url).pathname, path.join(d, 'scripts', 'harness', 'deploy-preflight.mjs'));
     sh('git add scripts && git commit -qm harness', d); // 先入 main：防后续任务分支 git add -A 把它带进分支、checkout main 时消失（r4 实证）
@@ -3058,6 +3061,7 @@ try {
   };
   // B1 多义观测（r2 复用：c4-a/b/f/g 四任务分支均并入 main 且 active）→ deploy main 血统多命中 → ⚠ 不写（拒绝猜），exit 0 不阻断
   fs.writeFileSync(path.join(r2, '.taskflow', 'project.json'), J({ key: 'r2proj', git: true, deploy: { server: '127.0.0.1', statePath: '/tmp/unused-live.json', jarPath: '/tmp/does-not-matter.jar', jarProbe: `echo ${'b'.repeat(32)}`, commands: [`echo deployed-ok > ${tmp}/r2-deployed.txt`] } }));
+  fs.writeFileSync(path.join(r2, '.taskflow', 'deploy-manifest.md'), DM_FIX); // v3.4.0 部署影响清单门：实跑路径必须带清单
   fs.mkdirSync(path.join(r2, 'scripts', 'harness'), { recursive: true });
   fs.copyFileSync(new URL('../packs/deploy/assets/harness/deploy-preflight.mjs', import.meta.url).pathname, path.join(r2, 'scripts', 'harness', 'deploy-preflight.mjs'));
   const r2State = path.join(tmp, 'r2-live-state.json');
@@ -3782,6 +3786,26 @@ try {
     fs.appendFileSync(gl, JSON.stringify({ ts: '2026-11-10T03:00:00Z', gate: 'status-wall', action: 'block', detail: '干扰行' }) + '\n');
     const hs = ompRun(['hint-stats']);
     ok(hs.status === 0 && hs.stdout.includes('总注入：2 次') && hs.stdout.includes('Java×2') && hs.stdout.includes('会话（ses= 键在档的）：2 个'), 'v3 提示门审计：hint-stats 聚合（gate 过滤/领域分布/ses 跨会话计数）');
+  }
+  // v3.4.0 部署影响清单门：缺清单=红+模板指路；清单在位=部署通过且输出携带（服务清单/验收清单）；空表不放电
+  {
+    const dproj = path.join(tmp, 'deploy-manifest-proj');
+    fs.mkdirSync(dproj, { recursive: true });
+    sh('git init -q -b main && git config user.email t@t && git config user.name t && echo x > r.md && git add -A && git commit -qm init', dproj);
+    fs.mkdirSync(path.join(dproj, '.taskflow'), { recursive: true });
+    const now4 = new Date().toISOString();
+    fs.writeFileSync(path.join(dproj, '.taskflow', 'project.json'), JSON.stringify({ key: 'sandbox/dproj', name: 'dproj', repoRoot: dproj, remote: null, git: true, createdAt: now4, lastActiveAt: now4, deploy: { server: 'deploy-manifest-stub.invalid', jarPath: '/tmp/x.jar', commands: ['echo deploy-ran'], webCommands: [] } }, null, 2));
+    fs.mkdirSync(path.join(dproj, 'scripts', 'harness'), { recursive: true });
+    fs.writeFileSync(path.join(dproj, 'scripts', 'harness', 'deploy-preflight.mjs'), '#!/usr/bin/env node\nprocess.exit(0);\n');
+    const drun = (args) => spawnSync('node', [script, ...args], { cwd: dproj, encoding: 'utf8', env: { ...process.env, TF_HOST: 'none', TF_TASKFLOW_HOME: TF_HOME_TEST } });
+    const d0 = drun(['deploy', '--branch', 'main']);
+    ok(d0.status === 1 && d0.stdout.includes('部署影响清单缺失/不合格') && d0.stdout.includes('部署服务清单') && d0.stdout.includes('验收清单'), 'v3.4.0 部署影响清单门：缺清单=红+模板指路（两节都在模板里）');
+    fs.writeFileSync(path.join(dproj, '.taskflow', 'deploy-manifest.md'), '# 部署影响清单\n\n## 部署服务清单\n\n| 服务 | 改了什么 | 影响了什么功能 | 部署形态 |\n| ---- | -------- | -------------- | -------- |\n| backend | 接口出参加字段 | 明细页展示 | jar |\n\n## 验收清单\n\n- [ ] ping 200\n');
+    const d1 = drun(['deploy', '--branch', 'main']);
+    ok(d1.status === 0 && d1.stdout.includes('部署影响清单（本次部署随行呈报') && d1.stdout.includes('| backend | 接口出参加字段 | 明细页展示 | jar |') && d1.stdout.includes('- [ ] ping 200'), 'v3.4.0 部署影响清单门：清单在位=部署通过且输出强制携带服务清单与验收清单');
+    fs.writeFileSync(path.join(dproj, '.taskflow', 'deploy-manifest.md'), '# 部署影响清单\n\n## 部署服务清单\n\n| 服务 | 改了什么 | 影响了什么功能 | 部署形态 |\n| ---- | -------- | -------------- | -------- |\n\n## 验收清单\n\n- [ ] ping 200\n');
+    const d2 = drun(['deploy', '--branch', 'main']);
+    ok(d2.status === 1 && d2.stdout.includes('无数据行'), 'v3.4.0 部署影响清单门：服务表只有表头=红（空表不放电）');
   }
   // I19/I20/I21 + 复发台账 + 门咬合台账
   {

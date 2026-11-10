@@ -1834,12 +1834,49 @@ function mirrorDeployRecord({ tasksDir, mainRoot, branch, stateFile, dep, deploy
    流程：读 project.json deploy 配置 → lock deploy 互斥 → 预检（红=拒绝+并集建议；dry-run 至此）
    → 按配置逐条执行命令 → ssh 实测新包 md5 自动 --record 登记 → 提示签名册登记。
    绕过本入口的部署 = 漏登记 = I17 实况对账必红。部署命令各项目异构，全部收敛进配置（通用性）。 */
+const DEPLOY_MANIFEST_TEMPLATE = `# 部署影响清单（部署前必填——tf.mjs deploy 机械门 v3.4.0；本次部署动了什么就填什么，多服务全列）
+
+## 部署服务清单
+
+| 服务 | 改了什么 | 影响了什么功能 | 部署形态 |
+| ---- | -------- | -------------- | -------- |
+| <服务名（backend / admin / 前端 dist / log-collector / stats-site 等）> | <本次改动的实质内容一句> | <受影响功能面：页面/接口/行为> | <jar / dist / 镜像 / env / 数据 / 配置> |
+
+## 验收清单
+
+<!-- 部署后逐项勾选：每服务至少一条可验证项（探活/指纹/哨兵/冒烟范围/接口行为） -->
+
+- [ ] <服务A：curl 探活 /api/v1/ping 200>
+- [ ] <服务B：新指纹 chunk 可达 / 哨兵串 grep 命中>
+- [ ] <冒烟范围：dxtest run-smoke 全绿>
+`;
+function deployManifestRead(tasksDir) { // v3.4.0 部署影响清单门：存在性 + 两节非空机械校验（输出契约=用户拍板 2026-11-10：影响的服务清单/每服务改了什么/影响了什么功能 + 验收清单）
+  const errors = [];
+  const p = path.join(tasksDir, 'deploy-manifest.md');
+  if (!fs.existsSync(p)) return { ok: false, errors: ['文件不存在（.taskflow/deploy-manifest.md）'], text: '' };
+  const txt = fs.readFileSync(p, 'utf8');
+  const sec = (name) => {
+    const m = txt.match(new RegExp(`^#{1,6}\\s*${name}[\\s\\S]*?(?=^#{1,6}\\s|(?![\\s\\S]))`, 'm'));
+    return m ? m[0] : '';
+  };
+  const svc = sec('部署服务清单');
+  const svcRows = svc.split('\n').filter((l) => /^\|/.test(l.trim()) && !/^\|[\s|:-]+\|$/.test(l.trim()) && !/^\|\s*服务/.test(l.trim()));
+  if (!svc.trim()) errors.push('缺「部署服务清单」节');
+  else if (svcRows.length < 1) errors.push('「部署服务清单」表无数据行（表头/分隔行不计——空表不放电）');
+  const acc = sec('验收清单');
+  const accItems = acc.split('\n').filter((l) => /^\s*-\s*\[[ x]\]/.test(l) || /^\|/.test(l.trim()));
+  if (!acc.trim()) errors.push('缺「验收清单」节');
+  else if (accItems.length < 1) errors.push('「验收清单」空（至少一条 - [ ] 勾选项或表格行）');
+  return { ok: errors.length === 0, errors, text: txt };
+}
+
 function deployCmd(args = []) {
   const branch = optArg(args, 'branch');
   const dryRun = args.includes('--dry-run');
   const webOnly = args.includes('--web-only');
   const version = optArg(args, 'version');
   const by = optArg(args, 'by') ?? 'tf-deploy';
+  let deployManifestText = ''; // v3.4.0：真实部署成功收尾强制输出部署影响清单用（--dry-run 不读不拦）
   if (!branch) {
     console.error('用法：node tf.mjs deploy --branch <部署分支> [--web-only] [--dry-run] [--version V] [--by <执行者>]\n部署唯一入口：门禁（deploy-preflight）内嵌——红=拒绝执行；部署后自动 --record 登记。\njar 实物对账：project.json deploy.jarProbe（容器内 md5 探针，自带 ssh 前缀）优先于 jarPath。');
     return 1;
@@ -1867,6 +1904,16 @@ function deployCmd(args = []) {
   if (branch !== 'main' && mainLocked) {
     console.log(`⛔ 部署分支防呆：本项目 deploy commands 锁死从 main 构建（含 main 检出断言）——--branch ${branch} 会静默空转（构建 main 同内容镜像，实物不变）。先 merge 部署分支进 main（merge --no-ff，前置=merge 审查通过），再跑 deploy --branch main --version <V>（merge-first 流程，细则 packs/deploy/deploy-gate.md「部署分支语义」）。`);
     return 1;
+  }
+  // v3.4.0 部署影响清单门（DEPLOY_MANIFEST，用户拍板 2026-11-10）：部署前必须有部署影响清单（.taskflow/deploy-manifest.md：
+  // 「部署服务清单」表=服务×改了什么×影响了什么功能×部署形态 + 「验收清单」勾选项）；--dry-run 不拦（演练无实物）。
+  if (!dryRun) {
+    const mani = deployManifestRead(tasksDir);
+    if (!mani.ok) {
+      console.log(`⛔ 部署影响清单缺失/不合格（.taskflow/deploy-manifest.md）——部署必须随行输出「影响的服务清单/每服务改了什么/影响了什么功能 + 验收清单」：\n${mani.errors.map((e) => `  - ${e}`).join('\n')}\n模板（填好存为该路径后重跑）：\n${DEPLOY_MANIFEST_TEMPLATE}`);
+      return 1;
+    }
+    deployManifestText = mani.text;
   }
   // ① lock deploy 互斥（部署全程窗口；失败/中止路径同样释放，ttl 1800 兜底孤儿锁）
   const lockRun = runSelf(['lock', 'deploy', '--ttl', '1800', '--by', by]);
@@ -1921,6 +1968,11 @@ function deployCmd(args = []) {
     console.log('⚠ 未能自动取 md5/commit——人工补跑 deploy-preflight --record --jar-md5 <md5> --commit <c>（不登记=下次对账必红）');
   }
   if (!version && !webOnly) console.log('ℹ 未传 --version：live-state.version 记为缺省（建议构建时显式传版本号，占号预检见 conventions 部署清单①）');
+  // v3.4.0 部署输出强制携带部署影响清单与验收清单（用户拍板：部署必须输出影响的服务清单+每服务改了什么+影响了什么功能+验收清单）
+  if (deployManifestText) {
+    console.log('\n════ 部署影响清单（本次部署随行呈报；验收清单部署后逐项勾选回填）════');
+    console.log(deployManifestText.trim());
+  }
   // ⑥ 收尾提示：签名册与哨兵属项目侧收尾（编排层职责），冒烟按 conventions 验证清单
   console.log('→ 收尾三件（编排层）：签名册登记 docs/deployment/dist-signatures.md #N + 哨兵 grep + 冒烟（conventions 验证清单）——未做=审查红灯');
   return fin(0);
@@ -3821,7 +3873,7 @@ const COMMANDS = [
   { name: 'stale', usage: `  node tf.mjs stale [task-id]              在途任务失效感知（STALE_CHECK，v2.59.0）：main 自任务基线 baseCommit 的改动 × 本任务读写集（写集声明∪影响面地图反引号资产）求交——命中=影响面漂移，先重验 spec 影响面地图对应行再动工；无 id 全量扫 active/verifying；无基线锚/分支已并入 main/无机读声明均 ℹ 降级（只读，不改任何状态）`, run: (rest) => staleCmd(rest) },
   { name: 'overlap', usage: `  node tf.mjs overlap <task-id>            并行派发准入预检（DISPATCH_OVERLAP，v2.59.0）：子任务 spec「## 涉及文件」反引号路径两两 matchPath 求交——重叠对=不准并行（场景① 前提=写集两两不相交：改串行/调整拆分边界/呈用户仲裁）；无子任务 ℹ exit 0（只读）`, run: (rest) => overlapCmd(rest) },
   { name: 'impact', usage: `  node tf.mjs impact [--files f1,f2,…] [--since <git-ref>]  牵连排查+数据边界机械保底（v2.72.0，只读恒 exit 0）：缺省文件集=active/verifying 任务 baseCommit..HEAD 改动（无 baseCommit 用主分支..HEAD；无在档任务=已暂存+工作区改动；--since 覆盖区间）——逐文件 basename 引用计数/清单（前 5 处）+数据管道特征（数据边界风险标注）；阈值 TF_IMPACT_THRESHOLD（缺省 3）；语义级影响面用 code-review-graph impact（如已挂载）`, run: (rest) => impactCmd(rest) },
-  { name: 'deploy', usage: `  node tf.mjs deploy --branch <部署分支> [--web-only] [--dry-run] [--version V]  部署唯一入口：门禁（deploy-preflight）内嵌，红=拒绝；部署后自动 --record 登记（project.json deploy 配置命令序列；deploy.procProbe 可选=进程清点探针命令，透传 --proc-probe）`, run: (rest) => deployCmd(rest) },
+  { name: 'deploy', usage: `  node tf.mjs deploy --branch <部署分支> [--web-only] [--dry-run] [--version V]  部署唯一入口：门禁（deploy-preflight）内嵌，红=拒绝；部署后自动 --record 登记（project.json deploy 配置命令序列；deploy.procProbe 可选=进程清点探针命令，透传 --proc-probe）；部署影响清单门（v3.4.0）：部署前必须存在 .taskflow/deploy-manifest.md（部署服务清单表+验收清单），部署成功输出强制携带全文`, run: (rest) => deployCmd(rest) },
   { name: 'migrate', usage: `  node tf.mjs migrate                      一次性数据搬迁：.opencode/tasks/ → .taskflow/（exclude 顶替+待改引用清单；并存拒动）`, run: () => migrateCmd() },
   { name: 'archive', usage: `  node tf.mjs archive [task-id]            死档案归层：merged/archived → archive/（journal 三件套归位；活任务拒动；幂等；输出可复制的续迭代入口句）`, run: (rest) => archiveCmd(rest) },
   { name: 'svc', usage: `  node tf.mjs svc ls                       服务端口租约清单：端口/服务/任务/会话/pid + 活性标注 live/pid未登记/stale（orphan 为独立后缀，复合态并列）（只读）\n  node tf.mjs svc claim <service> --port <p> [--task <id>] [--session <ses>] [--pid <pid>] [--note <注记>]  声明端口：空闲→登记；被占→拒绝+报告占用者+建议让位（绝不 kill）；同 task 重跑→补登/回收死租约（簿记写入口）\n  node tf.mjs svc release <port>           释放端口租约（停服动作归编排层；不在册拒绝；簿记写入口）`, run: (rest) => svcCmd(rest) },
@@ -3832,6 +3884,7 @@ const COMMANDS = [
 const USAGE_FOOTER = `  环境变量 TF_STATUS=<off|warn|enforce>    守门 J 状态翻转墙档位（v2.69.0；缺省 enforce——手改 task.json/index.json 的 status 物理拦截，翻转唯一写路径是扳机命令，档案修复走 reconcile --fix；off=单次豁免）
   环境变量 TF_VERIFY_WARN=off              关闭守门 K 验收期提醒（v2.69.0；git push/merge 时在档等验收任务的时序核对提醒，缺省开，提醒不拦）
   环境变量 TF_IMPACT_THRESHOLD=<N 缺省 3>  basename 引用文件数阈值（impact 命令与守门牵连排查共用）；TF_J19_WARN / TF_J20_WARN=off 各自关闭守门牵连排查/数据边界提醒（v2.72.0；缺省 warn，纯提醒不拦、无 enforce 档）
+  环境变量 TF_HINT=off                      关闭领域提示门注入（v3.3.0；缺省开，每会话每领域一次，流水 gate=domain-hint 走 hint-stats 审计）
 ${COMMANDS.find((c) => c.name === 'mech').usage}
 退出码：0 正常/全绿/账目一致；1 有差异/有待修项/缺参数/有缺技能。不变量 spec：references/data.md；判断与叙事修复归编排层。
 状态迁移审计流：.taskflow/events.jsonl（ts/from/to/cmd/taskId 追加式日志，park/unpark/accept/commit --deployed 等状态翻转自动落痕；只写不读，tail 人工核对）；门咬合台账：.taskflow/meta/gate-hits.jsonl。`;
