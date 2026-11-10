@@ -3421,8 +3421,8 @@ function initCmd(args = []) {
   const noGit = args.includes('--no-git');
   const askIdx = args.indexOf('--host');
   const hostArg = askIdx >= 0 ? String(args[askIdx + 1] ?? '') : null;
-  const host = ['auto', 'omp', 'opencode', 'claude', 'none'].includes(hostArg) ? hostArg : null;
-  if (hostArg && !host) { console.log(`⚠ --host 取值非法（${hostArg}）——只认 auto|omp|opencode|claude|none`); return 1; }
+  const host = ['auto', 'omp', 'opencode', 'claude', 'none', 'pi'].includes(hostArg) ? hostArg : null;
+  if (hostArg && !host) { console.log(`⚠ --host 取值非法（${hostArg}）——只认 auto|omp|opencode|claude|none|pi`); return 1; }
   if (args.includes('--ask')) {
     // 单张问卷（F15）：一次问完四项，答案用 flag 回填重跑 init——替代 v2 逐门逐触点追问
     console.log('# taskflow 初始化问卷（一次问完，答案经 flag 回填重跑）');
@@ -3927,6 +3927,7 @@ function skillVersion() {
    = 一致（不做版本强求），有 version 且 ≠ 技能当前版本 = 漂移。 */
 function mechAdoptionRows({ mainRoot, pj, reg = mechRegistry(), cur = skillVersion() }) {
   const declaredMap = (pj && pj.mechanisms && typeof pj.mechanisms === 'object' && !Array.isArray(pj.mechanisms)) ? pj.mechanisms : {};
+  const hostPi = detectHost(process.env, (p) => { try { return fs.existsSync(p); } catch { return false; } }) === 'pi'; // v3.5.0：pi 宿主 TASKFLOW_GUARD 无渲染产物（守门经用户级扩展适配器）——产物缺失判定豁免
   const rows = [];
   for (const token of [...new Set([...reg.keys(), ...Object.keys(declaredMap)])]) {
     const row = reg.get(token) ?? null;
@@ -3936,11 +3937,12 @@ function mechAdoptionRows({ mainRoot, pj, reg = mechRegistry(), cur = skillVersi
     }
     const decl = declaredMap[token] ?? {};
     if (!row) { rows.push({ token, declared: true, status: '漂移', reason: '未登记', installedVersion: decl.version ?? null, currentVersion: cur, products: [], missing: [] }); continue; }
-    const missing = row.products.filter((p) => !fs.existsSync(path.resolve(mainRoot, p)));
-    if (missing.length) { rows.push({ token, declared: true, status: '漂移', reason: '产物缺失', installedVersion: decl.version ?? null, currentVersion: cur, products: row.products, missing }); continue; }
+    const effProducts = (token === 'TASKFLOW_GUARD' && hostPi) ? [] : row.products; // pi 宿主守门经扩展适配器，渲染产物集为空
+    const missing = effProducts.filter((p) => !fs.existsSync(path.resolve(mainRoot, p)));
+    if (missing.length) { rows.push({ token, declared: true, status: '漂移', reason: '产物缺失', installedVersion: decl.version ?? null, currentVersion: cur, products: effProducts, missing }); continue; }
     const dv = decl.version ?? null;
     const stale = dv !== null && dv !== cur;
-    rows.push({ token, declared: true, status: stale ? '漂移' : '一致', reason: stale ? '版本不符' : null, installedVersion: dv, currentVersion: cur, products: row.products, missing: [] });
+    rows.push({ token, declared: true, status: stale ? '漂移' : '一致', reason: stale ? '版本不符' : null, installedVersion: dv, currentVersion: cur, products: effProducts, missing: [] });
   }
   return rows;
 }
@@ -4115,6 +4117,20 @@ function mechCmd(args = []) {
   if (!row) { console.log(`未登记机制 ${token}（真相源：references/schemas/mechanisms.json；mech ls 查看可装清单）`); return 1; }
   // v3.0.0 宿主守门落点（F14/6.3）：guard 产物只经 adapter.guardTargets(host) 落盘——omp→.omp/hooks/pre；
   // 其余宿主无守门通道：TASKFLOW_GUARD 降级纯纪律档（conventions 红线 + doctor），不渲染不落盘。
+  if (token === 'TASKFLOW_GUARD' && HOST === 'pi') { // v3.5.0：pi 宿主守门经用户级扩展适配器（packs/host-adapters/pi/taskflow.ts → ~/.pi/agent/extensions/taskflow.ts 符号链接），无项目侧渲染——登记采纳闸 + 装配指引
+    if (!pj) { console.log('缺 .taskflow/project.json（先走 new-task 初始化流程）'); return 1; }
+    if (!pj.mechanisms || typeof pj.mechanisms !== 'object') pj.mechanisms = {};
+    pj.mechanisms[token] = { adoptedAt: nowIso, version: skillVersion() }; // 无 assetExts——pi 不渲染产物（exts 声明在后续渲染段，此处不可达）
+    pj.lastActiveAt = nowIso;
+    fs.writeFileSync(pjPath, JSON.stringify(pj, null, 2) + '\n');
+    const extDst = path.join(os.homedir(), '.pi', 'agent', 'extensions', 'taskflow.ts');
+    const extSrc = path.join(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'), 'packs', 'host-adapters', 'pi', 'taskflow.ts');
+    console.log(`✓ 采纳登记：${token} → project.json.mechanisms（pi 宿主 v${skillVersion()}）——守门经 pi 扩展适配器提供，无项目侧渲染产物`);
+    console.log(fs.existsSync(extDst)
+      ? `  扩展在位：${extDst}`
+      : `  ⚠ 扩展未装配 → 装配一条：ln -sf ${extSrc} ${extDst}（未装配时本项目=纯纪律档，采纳登记保留）`);
+    return 0;
+  }
   const guardOuts = guardTargets(HOST);
   if (token === 'TASKFLOW_GUARD' && !guardOuts.length) {
     console.log(`ℹ 本宿主（${HOST}）无守门通道——已降级纯纪律档：conventions「禁止事项」红线${redlineFile(HOST) ? ` + 宿主红线载体 ${redlineFile(HOST)} 摘要` : ''} + doctor 体检承载同等约束，不渲染 guard 产物（红线载体由 host adapter 判定）`);

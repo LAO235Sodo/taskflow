@@ -36,8 +36,9 @@ const homeJoin = (...seg) => (HOME ? [HOME, ...seg].join('/') : '');
 // 宿主探测：env 优先（TF_HOST 强制/测试注入），再按痕迹探测；无命中='none'（纯纪律档降级）。
 export function detectHost(env = (typeof process !== 'undefined' ? process.env : {}), exists = () => false) {
   const forced = env.TF_HOST;
-  if (forced && ['omp', 'opencode', 'claude', 'none'].includes(forced)) return forced;
+  if (forced && ['omp', 'opencode', 'claude', 'none', 'pi'].includes(forced)) return forced;
   if (env.OMP || env.OMP_SESSION_ID) return 'omp';
+  if (env.PI_SESSION_ID) return 'pi'; // v3.5.0：pi 会话强信号（pi 1.2.0+ 设）——~/.pi 目录痕迹在多宿主机不可靠（与 opencode/claude 共存），禁目录判定
   if (exists(homeJoin('.config', 'opencode'))) return 'opencode';
   if (exists(homeJoin('.claude'))) return 'claude';
   return 'none';

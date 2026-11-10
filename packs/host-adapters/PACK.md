@@ -1,7 +1,8 @@
 # host-adapters 包 — 宿主防护层
 
 > 能力包（v3.0.0）：宿主（omp）扩展的规则与资产。**宿主差异单点 = `assets/shared/host-adapter.mjs`**（detectHost/usagePath/planScanDirs/guardTargets/redlineFile/canaryCmdBin）；本包含 omp 专属扩展本体。
-> 安装：`node <skill目录>/scripts/tf.mjs mech install TASKFLOW_GUARD`——**仅 omp 宿主**（adapter 检测）；其余宿主打印「本宿主无守门通道，已降级纯纪律档（conventions 红线 + doctor）」不落盘。
+> **pi 宿主（v3.5.0）**：`pi/taskflow.ts` 用户级扩展适配器——装配 `ln -sf <技能仓>/packs/host-adapters/pi/taskflow.ts ~/.pi/agent/extensions/taskflow.ts`；采纳闸同 project.json.mechanisms.TASKFLOW_GUARD（mech install 在 pi 宿主登记采纳不渲染）；功能面=映射注入/C 接力/D 状态栏/B1 硬拦/A 部署墙/G 编辑边界门/H 领域提示门（送达走 tool_result 附加，真机实证 2026-11-10），细则见适配器文件头。
+> 安装：`node <skill目录>/scripts/tf.mjs mech install TASKFLOW_GUARD`——omp 宿主渲染 hooks 落 `.omp/hooks/pre/`；pi 宿主登记采纳（守门经扩展适配器，见上行）；其余宿主打印「本宿主无守门通道，已降级纯纪律档（conventions 红线 + doctor）」不落盘。
 > **延迟初始化呈报（v3.2.0 自 claude 线移植）**：用户不需要记得这条命令——`tf.mjs new` 在 host=omp 且未采纳且未拒时自动打印启用指引，编排层按 new-task.md 第 8 步呈报条款一次一问代跑（同意即装 + 金丝雀 `TF_HOST=omp node tf.mjs canary`；拒绝跑 `mech decline TASKFLOW_GUARD` 落 profile.mech_declined 永不再问）；装/拒后提示行自动消失。
 
 ## guard 17 项语义（omp extension 住 `.omp/hooks/pre/taskflow-guard.js`）

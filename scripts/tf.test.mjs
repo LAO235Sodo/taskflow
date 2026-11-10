@@ -3787,6 +3787,19 @@ try {
     const hs = ompRun(['hint-stats']);
     ok(hs.status === 0 && hs.stdout.includes('总注入：2 次') && hs.stdout.includes('Java×2') && hs.stdout.includes('会话（ses= 键在档的）：2 个'), 'v3 提示门审计：hint-stats 聚合（gate 过滤/领域分布/ses 跨会话计数）');
   }
+  // v3.5.0 pi 宿主：TASKFLOW_GUARD 登记采纳（守门经用户级扩展适配器，无项目侧渲染）+ 采纳对账产物豁免
+  {
+    const pproj = path.join(tmp, 'host-pi-proj');
+    fs.mkdirSync(pproj, { recursive: true });
+    sh('git init -q -b main && git config user.email t@t && git config user.name t && echo x > r.md && git add -A && git commit -qm init', pproj);
+    const prun = (args) => spawnSync('node', [script, ...args], { cwd: pproj, encoding: 'utf8', env: { ...process.env, TF_HOST: 'pi', PI_SESSION_ID: 'pi-ses-test', TF_TASKFLOW_HOME: path.join(tmp, 'v3-tfhome3') } });
+    prun(['init', '--host', 'pi']);
+    const pg = prun(['mech', 'install', 'TASKFLOW_GUARD']);
+    const ppj = JSON.parse(fs.readFileSync(path.join(pproj, '.taskflow', 'project.json'), 'utf8'));
+    ok(pg.status === 0 && !!ppj?.mechanisms?.TASKFLOW_GUARD && !fs.existsSync(path.join(pproj, '.omp')) && pg.stdout.includes('扩展适配器'), 'v3.5.0 pi 宿主：TASKFLOW_GUARD 登记采纳+装配指引（无渲染产物）');
+    const pchk = prun(['mech', 'check']);
+    ok(pchk.status === 0 && pchk.stdout.includes('一致') && !pchk.stdout.includes('产物缺失'), 'v3.5.0 pi 宿主：采纳对账豁免产物缺失（TASKFLOW_GUARD 一致）');
+  }
   // v3.4.0 部署影响清单门：缺清单=红+模板指路；清单在位=部署通过且输出携带（服务清单/验收清单）；空表不放电
   {
     const dproj = path.join(tmp, 'deploy-manifest-proj');

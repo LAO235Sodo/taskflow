@@ -1,6 +1,6 @@
-// taskflow.ts — taskflow 的 pi 宿主适配器（源模板住技能仓 .pi/extensions/，与 assets/guard/taskflow-guard.js 同源分宿主）
+// taskflow.ts — taskflow 的 pi 宿主适配器（源住技能仓 packs/host-adapters/pi/taskflow.ts，与 assets/guard/taskflow-guard.js 同源分宿主）
 // 架构参照 obra/superpowers 的 .pi/extensions/superpowers.ts：一套技能内核，每宿主一个薄适配文件。
-// 装配：用户级 `ln -sf <技能仓>/.pi/extensions/taskflow.ts ~/.pi/agent/extensions/taskflow.ts`
+// 装配：用户级 `ln -sf <技能仓>/packs/host-adapters/pi/taskflow.ts ~/.pi/agent/extensions/taskflow.ts`
 //       （或项目级放 <项目>/.pi/extensions/）；技能本体发现走既有路径（~/.pi/agent/skills 软链到技能仓根）。
 //
 // v2.63.0 范围（与 omp 版 assets/guard/taskflow-guard.js 逐条对照）：
@@ -17,6 +17,15 @@
 //   【A 部署墙】DEPLOY_SIG 分段判定 + tf.mjs deploy 入口放行 + TF_WALL 三档。判定 1:1 移植。
 //   【G 编辑边界门】edit/write 路径对照声明清单（worktree 归属/兄弟 worktree/并集比对/簿记白名单）+
 //     TF_BOUND 三档。判定 1:1 移植，白名单增 `.pi/`（pi 宿主簿记/扩展目录，对齐 omp 版的 `.omp/`）。
+//   【H 领域提示门】v3.5.0 自 omp 版 v3.3.0 移植：edit/write 命中领域硬信号（扩展名/测试文件名）→ 提示附加到本次
+//     写入的 tool_result content 末尾（toolCallId 精确关联——Claude PostToolUse「工具结果旁注入」的同位语义）。
+//     通道实证（2026-11-10，pi 1.5.1 真机）：before_provider_request 的 system 前缀只在首个 provider 请求生效，
+//     续请求（工具结果后的续答）追加内容不可达（会话转录实证：映射文本在、续请求追加的特征短语 0 命中）——
+//     故弃用 bpr 通道改走 tool_result。检测/去重/.guard-log 流水与 omp 版同格式（detail 首段=领域名 + ses= 键——
+//     tf.mjs hint-stats 解析契约；会话标识=ctx.sessionManager.getSessionId，回退 PI_SESSION_ID）。提示永不拦截，
+//     fail-open 吞错静默；采纳闸同 guardOn；TF_HINT=off 关。映射技能清单运行时读
+//     ~/.pi/agent/skills/taskflow/scripts/skills-registry.json（pi 适配器无渲染期，读失败降级空映射）；
+//     在场检测 spawn node <技能仓>/scripts/tf.mjs skills <领域词>。
 // 与 omp 版的明确差异（全部有据，升级 omp 版时同步对照）：
 //   1. 警告档降级：pi 的 tool_call 结果只有 block/reason/terminate（无 additionalContext，
 //      pi types.d.ts ToolCallEventResult）——A/G 的默认警告档在 pi 下实现为「拦截 + reason 尾附
@@ -328,8 +337,78 @@ function handoffText(tasksDir) {
   ].join('\n');
 }
 
+// ---- H 领域提示门（v3.5.0 自 omp 版 v3.3.0 移植）----
+const EXT_DOMAIN = { '.tsx': '前端UI', '.jsx': '前端UI', '.vue': '前端UI', '.svelte': '前端UI', '.css': '前端UI', '.scss': '前端UI', '.html': '前端UI', '.java': 'Java', '.kt': 'Kotlin', '.py': 'Python', '.js': 'Node', '.ts': 'Node', '.mjs': 'Node' };
+const isTestFile = (b) => /Test\.java$/.test(b) || /Tests?\.kt$/.test(b) || /(^|[._-])(test|spec)([._-]|$)/i.test(b);
+const SKILL_ROOT = (() => { try { return fs.realpathSync(path.join(os.homedir(), '.pi', 'agent', 'skills', 'taskflow')); } catch { return null; } })();
+const SKILL_CLI = SKILL_ROOT ? path.join(SKILL_ROOT, 'scripts', 'tf.mjs') : '';
+function domainSkills() { // 运行时读注册表（pi 适配器无渲染期占位，单源=skills-registry.json；读失败降级空映射）
+  try {
+    const reg = JSON.parse(fs.readFileSync(path.join(SKILL_ROOT ?? '', 'scripts', 'skills-registry.json'), 'utf8'));
+    const map = {};
+    for (const s of Array.isArray(reg?.skills) ? reg.skills : []) for (const d of Array.isArray(s?.domains) ? s.domains : []) (map[d] = map[d] ?? []).push(s.id);
+    return map;
+  } catch { return {}; }
+}
+function guardLog(cwd, gate, action, detail) { // 与 omp 版同格式（hint-stats 解析契约）
+  try {
+    if (process.env.TF_GUARD_LOG === 'off') return;
+    const dir = locateTasksDir(cwd ?? process.cwd());
+    if (!dir) return;
+    fs.appendFileSync(path.join(dir, '.guard-log.jsonl'), JSON.stringify({ ts: new Date().toISOString(), gate, action, detail: String(detail ?? '') }) + '\n');
+  } catch { /* 日志失败静默 */ }
+}
+function hintSeen(dir, ses, d) { try { return !!(JSON.parse(fs.readFileSync(path.join(dir, '.hint-state.json'), 'utf8'))?.sessions?.[ses]?.domains?.[d]); } catch { return false; } }
+function hintMark(dir, ses, d) {
+  try {
+    const hp = path.join(dir, '.hint-state.json');
+    const now = Date.now();
+    let st = {};
+    try { st = JSON.parse(fs.readFileSync(hp, 'utf8')); } catch { /* 首次 */ }
+    st.sessions = st.sessions ?? {};
+    for (const k of Object.keys(st.sessions)) if (now - (st.sessions[k]?.ts ?? 0) > 86400000) delete st.sessions[k];
+    const e = st.sessions[ses] = st.sessions[ses] ?? { ts: now, domains: {} };
+    e.ts = now; e.domains[d] = true;
+    fs.writeFileSync(hp, JSON.stringify(st));
+  } catch { /* 状态失败静默=下次可能重复注入一次 */ }
+}
+function sessionIdOf(ctx) {
+  try { const s = ctx?.sessionManager?.getSessionId?.(); if (s) return String(s); } catch { /* 生命周期早期不可得 */ }
+  return String(process.env.PI_SESSION_ID ?? 'default');
+}
+
 export default function taskflowPi(pi) {
   let armHandoff = false; // 压缩完成后置位；下一次 provider 请求附带接力线索（一次性消费）
+  let hintPending = null; // H 提示门置位；送达=附加到本次写入的 tool_result content（toolCallId 关联，一次性）
+  let hintCallId = null; // 置位时的 tool_call id（tool_result 关联键；null=未置位）
+
+  // H 检测面（tool_call edit/write 调用；不拦不返——与硬门分界，置位后由 tool_result 送达）
+  const hintDetect = (event, ctx) => {
+    try {
+      if (process.env.TF_HINT === 'off') return;
+      const raw = event.input?.path;
+      if (!raw || typeof raw !== 'string') return;
+      if (/^[a-zA-Z][a-zA-Z0-9+.-]+:/.test(raw)) return; // 协议地址过滤（与编辑边界门同款）
+      const dir = locateTasksDir(ctx?.cwd);
+      if (!dir) return; // 零干扰边界
+      const abs = realPath(path.resolve(ctx?.cwd ?? process.cwd(), raw));
+      const base = path.basename(abs);
+      let domain = null;
+      if (isTestFile(base)) domain = '测试';
+      else for (const [ext, d] of Object.entries(EXT_DOMAIN)) if (base.endsWith(ext)) { domain = d; break; }
+      if (!domain) return;
+      const ses = sessionIdOf(ctx);
+      if (hintSeen(dir, ses, domain)) return;
+      hintMark(dir, ses, domain);
+      let presence = '';
+      if (SKILL_CLI && fs.existsSync(SKILL_CLI)) {
+        try { presence = execFileSync('node', [SKILL_CLI, 'skills', domain], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 15000 }).trim().split('\n').slice(-3).join('｜'); } catch { /* 在场检测失败降级=只给映射清单 */ }
+      }
+      const ids = (domainSkills()[domain] ?? []).join('、') || '（注册表未登记——跑 node <技能仓>/scripts/tf.mjs skills <领域词> 按需补）';
+      hintPending = `ℹ TASKFLOW_GUARD 领域提示门（每会话每领域一次）：刚写入的 ${base} 命中「${domain}」领域硬信号——映射技能：${ids}${presence ? `\n在场检测（tf.mjs skills ${domain}）：${presence}` : ''}\n语义确认归你按 domain.md 领域检测执行（本提醒=机械粗筛非判定，缺失技能按 DEP_ASK_GATE 呈用户选装）；TF_HINT=off 关闭本提醒。`;
+      hintCallId = typeof event.toolCallId === 'string' ? event.toolCallId : null; // 送达关联：只附到本次写入的 tool_result
+    } catch { /* 提醒失败静默——hook fail-open，绝不拦主流程 */ }
+  };
 
   pi.on('session_start', async (_e, ctx) => {
     if (guardOn(ctx?.cwd)) refreshStatus(ctx);
@@ -341,7 +420,22 @@ export default function taskflowPi(pi) {
     if (guardOn(ctx?.cwd)) refreshStatus(ctx);
   });
 
-  pi.on('turn_end', async (_e, ctx) => { if (guardOn(ctx?.cwd)) refreshStatus(ctx); });
+  pi.on('turn_end', async (_e, ctx) => {
+    if (hintPending) { hintPending = null; hintCallId = null; } // 未送达即弃（写入被阻断等残置位不跨回合误投）——送达在 tool_result
+    if (guardOn(ctx?.cwd)) refreshStatus(ctx);
+  });
+
+  // H 送达：提示附加到本次写入的 tool_result content 末尾（同位注入；toolCallId 精确关联防误投他人结果）
+  pi.on('tool_result', async (event, ctx) => {
+    try {
+      if (!hintPending || event.toolCallId !== hintCallId) return undefined;
+      const hint = hintPending;
+      hintPending = null; hintCallId = null;
+      guardLog(ctx?.cwd, 'domain-hint', 'inject', `${(hint.match(/刚写入的 (\S+) 命中「([^」]+)」/) ?? [])[2] ?? '?'}（${(hint.match(/刚写入的 (\S+)/) ?? [])[1] ?? '?'} 写入触发）｜ses=${sessionIdOf(ctx)}`);
+      if (Array.isArray(event.content)) event.content.push({ type: 'text', text: hint });
+      return { content: event.content };
+    } catch { return undefined; } // 送达失败静默——hintPending 已清，宁缺勿错投
+  });
 
   // 映射注入走 provider 层（before_provider_request 前置进 messages 首条 system）：print 模式实测 context 事件
   // 的 messages 变更不生效（handler 触发、返回值被忽略，2026-10-15 e2e）；且 pi 的 provider payload 没有
@@ -356,6 +450,7 @@ export default function taskflowPi(pi) {
       if (handoff) inject += `\n\n${handoff}`;
       armHandoff = false; // 一次性消费（无活任务时保留武装，建档后下一请求补上）
     }
+    // （H 提示门不在此注入：pi 1.5.1 真机实证 bpr 的 system 追加只在首个 provider 请求可达，续请求追加丢失——通道改走 tool_result，见文件头。）
     const p = event.payload;
     const msgs = Array.isArray(p?.messages) ? p.messages : null;
     if (!msgs) return undefined;
@@ -372,9 +467,14 @@ export default function taskflowPi(pi) {
 
   // B1 / A（bash）与 G（edit/write）共用一个 tool_call 挂点，按 toolName 分流
   pi.on('tool_call', async (event, ctx) => {
-    if (!guardOn(ctx?.cwd)) return undefined; // 采纳闸：未登记项目八功能全静默（含本适配器的 B/A/G/D）
+    if (!guardOn(ctx?.cwd)) return undefined; // 采纳闸：未登记项目全静默（含本适配器的 B/A/G/D/H）
     if (event.toolName === 'bash') return bashGate(event, ctx);
-    if (event.toolName === 'edit' || event.toolName === 'write') return editGate(event, ctx);
+    if (event.toolName === 'edit' || event.toolName === 'write') {
+      const g = editGate(event, ctx);
+      if (g) return g;
+      hintDetect(event, ctx); // H 领域提示门：置位下一轮注入（永不拦不返——与硬门分界）
+      return undefined;
+    }
     return undefined;
   });
 }

@@ -1,6 +1,6 @@
 ---
 name: taskflow
-version: 3.4.0
+version: 3.5.0
 description: 长任务跨会话账本：建档、checkpoint、恢复、合并、验收。触发：描述需求/继续之前的活/中断存档/验收打回/问进度/走查或验收页面功能（开工先挂分阶段工作台）
 ---
 
